@@ -56,6 +56,16 @@ struct ExplorerWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
+        .sheet(isPresented: Binding(
+            get: { tab.bulkRenameItems != nil },
+            set: { if !$0 { tab.bulkRenameItems = nil } }
+        )) {
+            BulkRenameSheet(items: tab.bulkRenameItems ?? []) { renamed in
+                tab.selection = Set(renamed.map(\.normalizedFileURL))
+                tab.reload()
+                tab.requestListFocus()
+            }
+        }
         .navigationTitle(tab.title)
     }
 

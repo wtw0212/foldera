@@ -24,8 +24,10 @@ struct CommandBar: View {
             IconButton(symbol: "doc.on.doc", help: "Copy (⌘C)") { tab.copySelection() }
                 .disabled(!tab.hasSelection)
             IconButton(symbol: "doc.on.clipboard", help: "Paste (⌘V)") { tab.paste() }
-            IconButton(symbol: "character.cursor.ibeam", help: "Rename (F2)") { tab.beginRename() }
-                .disabled(tab.selection.count != 1)
+            IconButton(symbol: "character.cursor.ibeam", help: tab.selection.count > 1 ? "Rename \(tab.selection.count) items (F2)" : "Rename (F2)") {
+                tab.beginRename()
+            }
+            .disabled(!tab.hasSelection)
             ShareButton(urls: tab.selectedItems.map(\.url))
                 .disabled(!tab.hasSelection)
             IconButton(symbol: "trash", help: "Delete (⌘⌫)") { tab.trashSelection() }

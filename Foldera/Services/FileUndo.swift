@@ -7,6 +7,8 @@ enum FileChange {
     case trashed([(original: URL, trashed: URL)])
     case renamed(from: URL, to: URL)
     case moved([(from: URL, to: URL)])
+    /// Several renames applied together (may include swaps).
+    case batchRenamed([(from: URL, to: URL)])
     case composite([FileChange])
 
     init(_ transfer: TransferResult, kind: FileTransfer.Kind) {
@@ -19,7 +21,7 @@ enum FileChange {
         case .created(let urls): urls.isEmpty
         case .trashed(let pairs): pairs.isEmpty
         case .renamed: false
-        case .moved(let pairs): pairs.isEmpty
+        case .moved(let pairs), .batchRenamed(let pairs): pairs.isEmpty
         case .composite(let changes): changes.allSatisfy(\.isEmpty)
         }
     }
@@ -94,6 +96,8 @@ final class FileUndo {
                 back.append((pair.to, pair.from))
             }
             return .moved(back)
+        case .batchRenamed(let pairs):
+            return .batchRenamed(try BulkRename.apply(pairs.map { ($0.to, $0.from) }))
         case .composite(let changes):
             return .composite(try changes.reversed().map(revert))
         }

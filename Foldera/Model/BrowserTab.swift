@@ -46,6 +46,8 @@ final class BrowserTab: Identifiable {
     private(set) var isSearching = false
     /// Set to start inline rename of an item once it appears in the list.
     var renameRequest: RenameRequest?
+    /// Items for the "Rename N items" sheet, set when renaming a multiple selection.
+    var bulkRenameItems: [FileItem]?
     /// Bumped to move keyboard focus to the file list.
     private(set) var focusListToken = 0
 

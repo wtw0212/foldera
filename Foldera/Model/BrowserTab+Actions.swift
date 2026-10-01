@@ -47,7 +47,12 @@ extension BrowserTab {
         }
     }
 
+    /// Inline rename for one item; the bulk rename sheet when several are selected (like Finder).
     func beginRename(_ url: URL? = nil) {
+        if url == nil, selection.count > 1 {
+            bulkRenameItems = selectedItems
+            return
+        }
         guard let target = (url ?? selectedItems.first?.url)?.normalizedFileURL else { return }
         selection = [target]
         renameRequest = RenameRequest(url: target)

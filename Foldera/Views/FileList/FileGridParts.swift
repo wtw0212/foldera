@@ -280,8 +280,6 @@ final class FileCollectionView: NSCollectionView {
     @objc func cut(_ sender: Any?) { commands?.cutSelection() }
     @objc func paste(_ sender: Any?) { commands?.paste() }
     @objc func delete(_ sender: Any?) { commands?.trashSelection() }
-    @objc func undo(_ sender: Any?) { FileUndo.shared.undo() }
-    @objc func redo(_ sender: Any?) { FileUndo.shared.redo() }
 
 }
 

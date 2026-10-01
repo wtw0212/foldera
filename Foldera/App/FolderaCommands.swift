@@ -5,6 +5,7 @@ import SwiftUI
 struct FolderaCommands: Commands {
     @FocusedValue(\.explorer) private var explorer
     @State private var settings = AppSettings.shared
+    @State private var undo = FileUndo.shared
 
     private var tab: BrowserTab? { explorer?.activeTab }
 
@@ -22,9 +23,9 @@ struct FolderaCommands: Commands {
             Button("Open") { tab?.openSelection() }
                 .keyboardShortcut(.downArrow)
                 .disabled(tab?.hasSelection != true)
-            Button("Rename") { tab?.beginRename() }
+            Button((tab?.selection.count ?? 0) > 1 ? "Rename \(tab?.selection.count ?? 0) Items…" : "Rename") { tab?.beginRename() }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [])
-                .disabled(tab?.selection.count != 1)
+                .disabled(tab?.hasSelection != true)
             Button("Properties") { tab?.showProperties() }
                 .keyboardShortcut("i")
         }
@@ -32,6 +33,20 @@ struct FolderaCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Close Tab") { explorer?.closeActiveTabOrWindow() }
                 .keyboardShortcut("w")
+        }
+
+        // File undo works whenever the window is active; a focused text field keeps its own text undo.
+        CommandGroup(replacing: .undoRedo) {
+            Button(undo.undoTitle) {
+                if let text = Self.textUndoManager, text.canUndo { text.undo() } else { undo.undo() }
+            }
+            .keyboardShortcut("z")
+            .disabled(!undo.canUndo && Self.textUndoManager?.canUndo != true)
+            Button(undo.redoTitle) {
+                if let text = Self.textUndoManager, text.canRedo { text.redo() } else { undo.redo() }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!undo.canRedo && Self.textUndoManager?.canRedo != true)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -97,6 +112,11 @@ struct FolderaCommands: Commands {
             }
             Divider()
         }
+    }
+
+    /// Undo manager of a text field being edited, if any.
+    private static var textUndoManager: UndoManager? {
+        (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager
     }
 
     private var sortField: Binding<SortField> {

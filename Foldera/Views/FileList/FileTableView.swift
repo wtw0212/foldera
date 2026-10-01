@@ -37,19 +37,13 @@ enum FileKeys {
         return true
     }
 
-    /// Validation for copy/cut/paste/delete/undo/redo; nil for other actions.
+    /// Validation for copy/cut/paste/delete; nil for other actions.
     static func validate(_ item: any NSValidatedUserInterfaceItem, _ commands: FileViewCommands?) -> Bool? {
         switch item.action {
         case #selector(NSText.copy(_:)), #selector(NSText.cut(_:)), #selector(NSText.delete(_:)):
             return commands?.hasSelection ?? false
         case #selector(NSText.paste(_:)):
             return commands?.canPaste ?? false
-        case Selector(("undo:")):
-            (item as? NSMenuItem)?.title = FileUndo.shared.undoTitle
-            return FileUndo.shared.canUndo
-        case Selector(("redo:")):
-            (item as? NSMenuItem)?.title = FileUndo.shared.redoTitle
-            return FileUndo.shared.canRedo
         default:
             return nil
         }
@@ -83,8 +77,6 @@ final class FileTableView: NSTableView {
     @objc func cut(_ sender: Any?) { commands?.cutSelection() }
     @objc func paste(_ sender: Any?) { commands?.paste() }
     @objc func delete(_ sender: Any?) { commands?.trashSelection() }
-    @objc func undo(_ sender: Any?) { FileUndo.shared.undo() }
-    @objc func redo(_ sender: Any?) { FileUndo.shared.redo() }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         FileKeys.validate(item, commands) ?? super.validateUserInterfaceItem(item)

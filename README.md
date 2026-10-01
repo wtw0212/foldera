@@ -48,7 +48,7 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 | Action | Shortcut |
 |---|---|
 | Open | Return, ⌘↓ |
-| Rename | F2 |
+| Rename (several items: bulk rename) | F2 |
 | Up one level | ⌘↑ |
 | Back / Forward | ⌫ or ⌘[ / ⌘] |
 | Move to Trash | ⌘⌫ |
@@ -71,5 +71,5 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 - [x] **Phase 1:** tabs, breadcrumb address bar, command bar, navigation pane, details view, status bar, live refresh, inline rename, basic file operations
 - [x] **Phase 2:** copy/move progress dialog with conflict handling, undo, drag and drop into folders
 - [x] **Phase 3:** icon views, thumbnails, details pane with live preview, Quick Look, recursive search
-- [ ] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
+- [x] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
 - [ ] **Phase 5:** optional dual pane, settings window, Fluent icons

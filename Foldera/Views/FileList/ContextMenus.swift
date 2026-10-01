@@ -26,7 +26,7 @@ enum ContextMenus {
             }
         }
         menu.addSeparator()
-        menu.add("Rename", symbol: "character.cursor.ibeam", enabled: single != nil) { tab.beginRename() }
+        menu.add(items.count > 1 ? "Rename \(items.count) items…" : "Rename", symbol: "character.cursor.ibeam") { tab.beginRename() }
         menu.add("Delete", symbol: "trash") { tab.trashSelection() }
         menu.addSeparator()
         menu.add("Copy as path", symbol: "link") { tab.copyPathOfSelection() }
