@@ -12,12 +12,16 @@ struct FileListView: NSViewRepresentable {
     let cutURLs: Set<URL>
     let renameRequest: BrowserTab.RenameRequest?
     let focusToken: Int
+    /// Showing recursive search results: adds the "Folder" column.
+    let isSearchResults: Bool
     let openInNewTab: (URL) -> Void
 
     private enum Column: String, CaseIterable {
-        case name, dateModified, kind, size
+        case name, location, dateModified, kind, size
 
-        var field: SortField { SortField(rawValue: rawValue)! }
+        var field: SortField? { SortField(rawValue: rawValue) }
+
+        var title: String { field?.title ?? "Folder" }
 
         var width: CGFloat {
             switch self {
@@ -25,11 +29,26 @@ struct FileListView: NSViewRepresentable {
             case .dateModified: 160
             case .kind: 150
             case .size: 100
+            case .location: 280
             }
         }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
+
+    private static func makeColumn(_ column: Column) -> NSTableColumn {
+        let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
+        tableColumn.headerCell = ExplorerHeaderCell(textCell: column.title)
+        tableColumn.width = column.width
+        tableColumn.minWidth = 60
+        if column.field != nil {
+            tableColumn.sortDescriptorPrototype = NSSortDescriptor(
+                key: column.rawValue,
+                ascending: column == .name || column == .kind
+            )
+        }
+        return tableColumn
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = FileTableView()
@@ -54,16 +73,8 @@ struct FileListView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.doubleClicked(_:))
         table.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
 
-        for column in Column.allCases {
-            let tableColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
-            tableColumn.headerCell = ExplorerHeaderCell(textCell: column.field.title)
-            tableColumn.width = column.width
-            tableColumn.minWidth = 60
-            tableColumn.sortDescriptorPrototype = NSSortDescriptor(
-                key: column.rawValue,
-                ascending: column == .name || column == .kind
-            )
-            table.addTableColumn(tableColumn)
+        for column in Column.allCases where column != .location {
+            table.addTableColumn(Self.makeColumn(column))
         }
         table.autosaveName = "FileList"
         table.autosaveTableColumns = true
@@ -89,6 +100,15 @@ struct FileListView: NSViewRepresentable {
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id
         if table.rowHeight != rowHeight { table.rowHeight = rowHeight }
+        // The "Folder" column only exists while showing search results.
+        let locationID = NSUserInterfaceItemIdentifier(Column.location.rawValue)
+        let locationColumn = table.tableColumn(withIdentifier: locationID)
+        if isSearchResults, locationColumn == nil {
+            table.addTableColumn(Self.makeColumn(.location))
+            table.moveColumn(table.numberOfColumns - 1, toColumn: min(1, table.numberOfColumns - 1))
+        } else if !isSearchResults, let locationColumn {
+            table.removeTableColumn(locationColumn)
+        }
 
         let presentation = Coordinator.Presentation(showExtensions: showExtensions, cutURLs: cutURLs)
         if tabChanged || coordinator.items != items || coordinator.presentation != presentation {
@@ -199,9 +219,11 @@ struct FileListView: NSViewRepresentable {
             case .dateModified: cell.label.stringValue = FileFormat.date(item.dateModified)
             case .kind: cell.label.stringValue = item.kind
             case .size: cell.label.stringValue = FileFormat.size(item.size)
+            case .location: cell.label.stringValue = FileFormat.location(of: item.url)
             case .name: break
             }
             cell.label.alignment = column == .size ? .right : .left
+            cell.label.lineBreakMode = column == .location ? .byTruncatingHead : .byTruncatingTail
             cell.alphaValue = alpha
             return cell
         }

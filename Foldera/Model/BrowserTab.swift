@@ -36,7 +36,10 @@ final class BrowserTab: Identifiable {
     private(set) var loadError: String?
     var selection: Set<URL> = []
     var sort = SortOrder()
-    var searchText = ""
+    var searchText = "" { didSet { if searchText != oldValue { scheduleSearch() } } }
+    /// Matches from the recursive search while the search box has text.
+    private(set) var searchResults: [FileItem] = []
+    private(set) var isSearching = false
     /// Set to start inline rename of an item once it appears in the list.
     var renameRequest: RenameRequest?
     /// Bumped to move keyboard focus to the file list.
@@ -48,6 +51,7 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var visibleCache: (key: VisibleKey, items: [FileItem])?
     private var itemsVersion = 0
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
     private let settings = AppSettings.shared
 
     init(url: URL) {
@@ -64,6 +68,8 @@ final class BrowserTab: Identifiable {
     var backHistory: [URL] { backStack.reversed() }
     var forwardHistory: [URL] { forwardStack.reversed() }
 
+    var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
+
     var selectedItems: [FileItem] { visibleItems.filter { selection.contains($0.url) } }
 
     private struct VisibleKey: Equatable {
@@ -78,10 +84,8 @@ final class BrowserTab: Identifiable {
         let key = VisibleKey(version: itemsVersion, sort: sort, search: searchText, showHidden: settings.showHiddenFiles)
         if let visibleCache, visibleCache.key == key { return visibleCache.items }
 
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        var result = items.filter { item in
-            (key.showHidden || !item.isHidden) && (query.isEmpty || item.name.localizedStandardContains(query))
-        }
+        let source = isSearchActive ? searchResults : items
+        var result = key.showHidden ? source : source.filter { !$0.isHidden }
         let sort = key.sort
         result.sort { a, b in
             if a.isNavigable != b.isNavigable { return a.isNavigable }
@@ -149,6 +153,40 @@ final class BrowserTab: Identifiable {
 
     func reload() {
         load(selecting: selection)
+        if isSearchActive { scheduleSearch() }
+    }
+
+    /// Restarts the recursive search (debounced) for the current query, or clears results when it is empty.
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else {
+            searchTask = nil
+            isSearching = false
+            if !searchResults.isEmpty { searchResults = [] }
+            itemsVersion += 1
+            return
+        }
+        let root = url
+        let includeHidden = settings.showHiddenFiles
+        isSearching = true
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            var found: [FileItem] = []
+            for await batch in FileSearch.run(in: root, query: query, includeHidden: includeHidden) {
+                guard let self, !Task.isCancelled else { return }
+                found += batch
+                self.searchResults = found
+                self.itemsVersion += 1
+            }
+            guard let self, !Task.isCancelled else { return }
+            if found.isEmpty {
+                self.searchResults = []
+                self.itemsVersion += 1
+            }
+            self.isSearching = false
+        }
     }
 
     func requestListFocus() {

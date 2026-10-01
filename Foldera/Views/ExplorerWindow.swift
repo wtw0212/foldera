@@ -50,6 +50,7 @@ struct ExplorerWindow: View {
             cutURLs: clipboard.cutURLs,
             renameRequest: tab.renameRequest,
             focusToken: tab.focusListToken,
+            isSearchResults: tab.isSearchActive,
             openInNewTab: { model.newTab(url: $0) }
         )
         .overlay(alignment: .top) {
@@ -67,8 +68,8 @@ struct ExplorerWindow: View {
 
     private func emptyMessage(_ tab: BrowserTab) -> String? {
         if let error = tab.loadError { return error }
-        guard !tab.isLoading, tab.visibleItems.isEmpty else { return nil }
-        return tab.searchText.isEmpty ? "This folder is empty." : "No items match your search."
+        guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
+        return tab.isSearchActive ? "No items match your search." : "This folder is empty."
     }
 }
 
@@ -87,7 +88,10 @@ private struct StatusBar: View {
                 }
             }
             Spacer()
-            if tab.isLoading {
+            if tab.isSearching {
+                Text("Searching…").foregroundStyle(Theme.secondaryText.swiftUI).padding(.trailing, 6)
+            }
+            if tab.isLoading || tab.isSearching {
                 ProgressView().controlSize(.mini).padding(.trailing, 8)
             }
         }

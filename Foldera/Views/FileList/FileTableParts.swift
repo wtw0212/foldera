@@ -216,6 +216,11 @@ enum FileFormat {
         return "\(numberFormatter.string(from: NSNumber(value: kilobytes)) ?? String(kilobytes)) KB"
     }
 
+    /// Parent folder path for search results, with the home folder shortened to "~".
+    static func location(of url: URL) -> String {
+        (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+    }
+
     /// Status bar total: "1.24 MB" style, like Explorer's selection summary.
     static func totalSize(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
