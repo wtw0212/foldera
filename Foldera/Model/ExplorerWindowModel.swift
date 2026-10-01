@@ -16,7 +16,7 @@ final class ExplorerWindowModel {
         if let path = UserDefaults.standard.string(forKey: "initialPath") {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
+        return AppSettings.shared.startLocation.url
     }
 
     init(url: URL = ExplorerWindowModel.defaultURL) {
@@ -75,7 +75,7 @@ final class ExplorerWindowModel {
     }
 
     func newTab(url: URL? = nil) {
-        let tab = BrowserTab(url: url ?? FileManager.default.homeDirectoryForCurrentUser)
+        let tab = BrowserTab(url: url ?? AppSettings.shared.startLocation.url)
         let index = tabs.firstIndex { $0.id == activeTabID }.map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)
         activeTabID = tab.id

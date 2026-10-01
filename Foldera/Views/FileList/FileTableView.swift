@@ -25,7 +25,8 @@ enum FileKeys {
     static func handle(_ event: NSEvent, _ commands: FileViewCommands) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): commands.openSelection() // Return / Enter opens, like Explorer
+        case (36, []), (76, []): // Return / Enter opens like Explorer, or renames like Finder (Settings)
+            if AppSettings.shared.returnKeyRenames { commands.beginRename() } else { commands.openSelection() }
         case (125, .command): commands.openSelection() // ⌘↓
         case (126, .command): commands.goUp() // ⌘↑
         case (120, []): commands.beginRename() // F2

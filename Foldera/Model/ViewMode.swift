@@ -60,6 +60,17 @@ enum FolderViewModes {
         return raw.flatMap(ViewMode.init(rawValue:)) ?? .details
     }
 
+    /// Layout for folders that haven't been given one.
+    static var defaultMode: ViewMode {
+        get { UserDefaults.standard.string(forKey: defaultKey).flatMap(ViewMode.init(rawValue:)) ?? .details }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultKey) }
+    }
+
+    /// Forgets every per-folder layout.
+    static func resetAll() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
     static func set(_ mode: ViewMode, for folder: URL) {
         var saved = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
         saved[folder.path] = mode.rawValue

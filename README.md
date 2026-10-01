@@ -74,4 +74,4 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 - [x] **Phase 2:** copy/move progress dialog with conflict handling, undo, drag and drop into folders
 - [x] **Phase 3:** icon views, thumbnails, details pane with live preview, Quick Look, recursive search
 - [x] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
-- [ ] **Phase 5:** optional dual pane, settings window, Fluent icons
+- [ ] **Phase 5:** ~~optional dual pane~~ ✓, ~~settings window~~ ✓, Fluent icons

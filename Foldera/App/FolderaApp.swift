@@ -11,5 +11,9 @@ struct FolderaApp: App {
         .commands {
             FolderaCommands()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
