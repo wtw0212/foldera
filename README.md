@@ -20,6 +20,16 @@ open build/DerivedData/Build/Products/Debug/Foldera.app
 
 `Foldera.xcodeproj` is generated from `project.yml`. Edit `project.yml`, not the project file.
 
+### Signing
+
+Put your Apple development team in `Config/Local.xcconfig` (not committed):
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+```
+
+A stable signature matters: macOS ties folder permissions and Full Disk Access to it. With ad-hoc signing every rebuild looks like a new app and macOS asks for access again.
+
 For folders protected by macOS privacy controls (Mail, Safari and so on), grant Foldera **Full Disk Access** in System Settings › Privacy & Security.
 
 ## Layout
@@ -51,11 +61,15 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 | Refresh | ⌘R |
 | Show hidden items | ⇧⌘. |
 | Properties (Get Info) | ⌘I |
+| Quick Look | Space |
+| Layouts (Extra large icons … Content) | ⌥⌘1–8 |
+| Preview pane / Details pane | ⌥⌘P / ⌥⇧⌘P |
+| Undo / Redo | ⌘Z / ⇧⌘Z |
 
 ## Roadmap
 
 - [x] **Phase 1:** tabs, breadcrumb address bar, command bar, navigation pane, details view, status bar, live refresh, inline rename, basic file operations
-- [ ] **Phase 2:** copy/move progress dialog with conflict handling, undo, drag and drop into folders
-- [ ] **Phase 3:** icon views, thumbnails, preview and details panes, Quick Look, recursive search
+- [x] **Phase 2:** copy/move progress dialog with conflict handling, undo, drag and drop into folders
+- [x] **Phase 3:** icon views, thumbnails, preview and details panes, Quick Look, recursive search
 - [ ] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
 - [ ] **Phase 5:** optional dual pane, settings window, Fluent icons

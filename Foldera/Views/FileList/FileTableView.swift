@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// Commands the table forwards to its owner. Keeps key handling and the responder chain in AppKit
 /// while the actual behavior lives in `BrowserTab`.
@@ -12,6 +13,7 @@ protocol FileViewCommands: AnyObject {
     func cutSelection()
     func copySelection()
     func paste()
+    func toggleQuickLook()
     var hasSelection: Bool { get }
     var canPaste: Bool { get }
     func contextMenu(forRow row: Int) -> NSMenu?
@@ -29,6 +31,7 @@ enum FileKeys {
         case (120, []): commands.beginRename() // F2
         case (51, []): commands.goBack() // ⌫ goes back, like Explorer's Backspace
         case (51, .command), (117, []): commands.trashSelection() // ⌘⌫ or forward delete
+        case (49, []): commands.toggleQuickLook() // Space, like Finder
         default: return false
         }
         return true
@@ -86,6 +89,13 @@ final class FileTableView: NSTableView {
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         FileKeys.validate(item, commands) ?? super.validateUserInterfaceItem(item)
     }
+
+    // Quick Look panel control (called on the main thread by the panel).
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { panel.dataSource = QuickLook.shared }
+    }
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {}
 
     override func drawBackground(inClipRect clipRect: NSRect) {
         Theme.content.setFill()

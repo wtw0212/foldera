@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 // MARK: - Layout
 
@@ -267,6 +268,13 @@ final class FileCollectionView: NSCollectionView {
         visibleItems().forEach { $0.view.needsDisplay = true }
         return super.resignFirstResponder()
     }
+
+    // Quick Look panel control (called on the main thread by the panel).
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { panel.dataSource = QuickLook.shared }
+    }
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {}
 
     @objc func copy(_ sender: Any?) { commands?.copySelection() }
     @objc func cut(_ sender: Any?) { commands?.cutSelection() }

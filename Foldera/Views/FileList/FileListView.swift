@@ -274,6 +274,7 @@ struct FileListView: NSViewRepresentable {
             guard !isSyncing, let table else { return }
             let urls = table.selectedRowIndexes.compactMap { $0 < items.count ? items[$0].url : nil }
             tab?.selection = Set(urls)
+            QuickLook.shared.selectionChanged()
         }
 
         func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
@@ -309,6 +310,9 @@ struct FileListView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func toggleQuickLook() {
+            QuickLook.shared.toggle { [weak self] in self?.tab?.selectedItems.map(\.url) ?? [] }
+        }
         var hasSelection: Bool { !(table?.selectedRowIndexes.isEmpty ?? true) }
         var canPaste: Bool { tab?.canPaste ?? false }
 

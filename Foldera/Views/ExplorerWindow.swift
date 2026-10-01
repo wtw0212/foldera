@@ -35,6 +35,16 @@ struct ExplorerWindow: View {
                 fileList(tab)
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
+                switch settings.sidePane {
+                case .preview:
+                    PreviewPane(tab: tab)
+                        .frame(minWidth: 220, idealWidth: 320, maxWidth: 700)
+                case .details:
+                    DetailsPane(tab: tab)
+                        .frame(minWidth: 220, idealWidth: 280, maxWidth: 500)
+                case .none:
+                    EmptyView()
+                }
             }
 
             StatusBar(tab: tab)

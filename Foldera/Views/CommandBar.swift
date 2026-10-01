@@ -55,6 +55,16 @@ struct CommandBar: View {
             }
 
             Spacer()
+
+            // Explorer keeps the Details pane toggle at the right end of the command bar.
+            Button {
+                settings.toggle(.details)
+            } label: {
+                labeled("Details", symbol: "sidebar.right")
+            }
+            .buttonStyle(SubtleButtonStyle())
+            .background(RoundedRectangle(cornerRadius: 4).fill(settings.sidePane == .details ? Theme.selection.swiftUI : .clear))
+            .help("Details pane (⌥⇧⌘P)")
         }
         .padding(.horizontal, 8)
         .frame(height: 44)
@@ -103,6 +113,9 @@ struct CommandBar: View {
         show.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
         let showMenu = NSMenu()
         showMenu.add("Navigation pane", checked: settings.showNavigationPane) { settings.showNavigationPane.toggle() }
+        showMenu.add("Details pane", checked: settings.sidePane == .details) { settings.toggle(.details) }
+        showMenu.add("Preview pane", checked: settings.sidePane == .preview) { settings.toggle(.preview) }
+        showMenu.addSeparator()
         showMenu.add("File name extensions", checked: settings.showExtensions) { settings.showExtensions.toggle() }
         showMenu.add("Hidden items", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         show.submenu = showMenu

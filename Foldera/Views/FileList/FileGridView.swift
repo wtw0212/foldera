@@ -186,6 +186,7 @@ struct FileGridView: NSViewRepresentable {
         private func pushSelection() {
             guard !isSyncing, let grid else { return }
             tab?.selection = Set(grid.selectionIndexPaths.compactMap { $0.item < items.count ? items[$0.item].url : nil })
+            QuickLook.shared.selectionChanged()
         }
 
         func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) { pushSelection() }
@@ -243,6 +244,9 @@ struct FileGridView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func toggleQuickLook() {
+            QuickLook.shared.toggle { [weak self] in self?.tab?.selectedItems.map(\.url) ?? [] }
+        }
         var hasSelection: Bool { !(grid?.selectionIndexPaths.isEmpty ?? true) }
         var canPaste: Bool { tab?.canPaste ?? false }
 
