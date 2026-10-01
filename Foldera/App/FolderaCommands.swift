@@ -28,6 +28,13 @@ struct FolderaCommands: Commands {
                 .disabled(tab?.hasSelection != true)
             Button("Properties") { tab?.showProperties() }
                 .keyboardShortcut("i")
+            Divider()
+            Button("Copy to Other Pane") { explorer?.transferToOtherPane(.copy) }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF5FunctionKey)!)), modifiers: [])
+                .disabled(explorer?.otherTab == nil || tab?.hasSelection != true)
+            Button("Move to Other Pane") { explorer?.transferToOtherPane(.move) }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF6FunctionKey)!)), modifiers: [])
+                .disabled(explorer?.otherTab == nil || tab?.hasSelection != true)
         }
 
         CommandGroup(replacing: .saveItem) {
@@ -83,6 +90,8 @@ struct FolderaCommands: Commands {
                 .keyboardShortcut("r")
             Divider()
             Toggle("Navigation Pane", isOn: $settings.showNavigationPane)
+            Button(explorer?.isDualPane == true ? "Single Pane" : "Dual Pane") { explorer?.toggleDualPane() }
+                .keyboardShortcut("d", modifiers: [.command, .option])
             Button(settings.sidePane == .details ? "Hide Details Pane" : "Show Details Pane") { settings.toggle(.details) }
                 .keyboardShortcut("p", modifiers: [.command, .option])
             Toggle("File Name Extensions", isOn: $settings.showExtensions)

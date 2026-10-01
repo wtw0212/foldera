@@ -15,6 +15,7 @@ struct FileListView: NSViewRepresentable {
     /// Showing recursive search results: adds the "Folder" column.
     let isSearchResults: Bool
     let openInNewTab: (URL) -> Void
+    var onFocus: () -> Void = {}
 
     private enum Column: String, CaseIterable {
         case name, location, dateModified, kind, size
@@ -98,6 +99,7 @@ struct FileListView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         guard let table = coordinator.table else { return }
+        table.onFocus = onFocus
 
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id

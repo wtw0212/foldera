@@ -25,8 +25,53 @@ final class ExplorerWindowModel {
         activeTabID = tab.id
     }
 
-    var activeTab: BrowserTab {
+    enum Pane { case primary, secondary }
+
+    /// Two side-by-side file panes, like Double Commander. The primary pane shows the selected tab.
+    private(set) var isDualPane = false
+    /// The right-hand pane's own location and history; kept while dual pane is off.
+    private(set) var secondaryTab: BrowserTab?
+    /// The pane that the address bar, command bar, status bar and menu commands act on.
+    var focusedPane: Pane = .primary
+
+    /// The selected tab in the tab strip (the left pane in dual-pane mode).
+    var primaryTab: BrowserTab {
         tabs.first { $0.id == activeTabID } ?? tabs[0]
+    }
+
+    /// The tab that commands act on: the focused pane's tab.
+    var activeTab: BrowserTab {
+        if isDualPane, focusedPane == .secondary, let secondaryTab { return secondaryTab }
+        return primaryTab
+    }
+
+    /// The pane that isn't focused, when dual pane is on.
+    var otherTab: BrowserTab? {
+        guard isDualPane, let secondaryTab else { return nil }
+        return focusedPane == .primary ? secondaryTab : primaryTab
+    }
+
+    func toggleDualPane() {
+        if !isDualPane, secondaryTab == nil {
+            secondaryTab = BrowserTab(url: primaryTab.url)
+        }
+        isDualPane.toggle()
+        focusedPane = .primary
+    }
+
+    /// F5 / F6: copy or move the focused pane's selection into the other pane's folder.
+    func transferToOtherPane(_ kind: FileTransfer.Kind) {
+        guard let target = otherTab else { return }
+        let source = activeTab
+        let urls = source.selectedItems.map(\.url)
+        guard !urls.isEmpty else { return }
+        let destination = target.url
+        Task {
+            let result = await FileTransfers.shared.run(kind, urls, into: destination)
+            FileUndo.shared.record(FileChange(result, kind: kind), name: kind == .copy ? "Copy" : "Move")
+            target.reload()
+            source.reload()
+        }
     }
 
     func newTab(url: URL? = nil) {
@@ -37,7 +82,7 @@ final class ExplorerWindowModel {
     }
 
     func duplicateActiveTab() {
-        newTab(url: activeTab.url)
+        newTab(url: primaryTab.url)
     }
 
     /// Closes a tab; returns false when it was the last one so the caller can close the window.

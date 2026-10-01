@@ -12,6 +12,7 @@ struct FileGridView: NSViewRepresentable {
     let renameRequest: BrowserTab.RenameRequest?
     let focusToken: Int
     let openInNewTab: (URL) -> Void
+    var onFocus: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -50,6 +51,7 @@ struct FileGridView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         guard let grid = coordinator.grid else { return }
+        grid.onFocus = onFocus
 
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id

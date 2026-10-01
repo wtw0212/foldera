@@ -52,6 +52,14 @@ enum FileKeys {
 
 final class FileTableView: NSTableView {
     weak var commands: FileViewCommands?
+    /// Called when the list takes keyboard focus (used to track the active pane).
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
+    }
 
     override func keyDown(with event: NSEvent) {
         if let commands, FileKeys.handle(event, commands) { return }

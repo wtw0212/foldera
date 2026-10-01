@@ -15,7 +15,7 @@ struct ExplorerWindow: View {
             VStack(spacing: 0) {
                 AddressRow(model: model, tab: tab)
                 Rectangle().fill(Theme.divider.swiftUI).frame(height: 1)
-                CommandBar(tab: tab)
+                CommandBar(model: model, tab: tab)
             }
             .background(Theme.layer.swiftUI)
 
@@ -32,7 +32,7 @@ struct ExplorerWindow: View {
                         .frame(minWidth: 180, idealWidth: 180, maxWidth: 400)
                         .layoutPriority(0)
                 }
-                fileList(tab)
+                filePanes
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
                 if settings.sidePane == .details {
@@ -69,10 +69,58 @@ struct ExplorerWindow: View {
         .navigationTitle(tab.title)
     }
 
-    private func fileList(_ tab: BrowserTab) -> some View {
-        Group {
+    /// One file pane, or two side by side in dual-pane mode.
+    @ViewBuilder
+    private var filePanes: some View {
+        if model.isDualPane, let secondary = model.secondaryTab {
+            HSplitView {
+                dualPane(model.primaryTab, .primary)
+                    .frame(minWidth: 240, maxWidth: .infinity)
+                dualPane(secondary, .secondary)
+                    .frame(minWidth: 240, maxWidth: .infinity)
+            }
+        } else {
+            fileList(model.primaryTab, pane: .primary)
+        }
+    }
+
+    private func dualPane(_ tab: BrowserTab, _ pane: ExplorerWindowModel.Pane) -> some View {
+        let isFocused = model.focusedPane == pane
+        return VStack(spacing: 0) {
+            Button {
+                model.focusedPane = pane
+                tab.requestListFocus()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(nsImage: FileIcons.folder)
+                        .resizable()
+                        .frame(width: 14, height: 14)
+                    Text(tab.title)
+                        .font(.system(size: 11, weight: isFocused ? .semibold : .regular))
+                        .foregroundStyle(isFocused ? Theme.text.swiftUI : Theme.secondaryText.swiftUI)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Theme.layer.swiftUI)
+            .overlay(alignment: .top) {
+                Rectangle().fill(isFocused ? Theme.accent.swiftUI : .clear).frame(height: 2)
+            }
+            .help(tab.url.path)
+            Rectangle().fill(Theme.divider.swiftUI).frame(height: 1)
+            fileList(tab, pane: pane)
+        }
+    }
+
+    private func fileList(_ tab: BrowserTab, pane: ExplorerWindowModel.Pane) -> some View {
+        let onFocus = { if model.focusedPane != pane { model.focusedPane = pane } }
+        return Group {
             if tab.viewMode == .details {
-                detailsList(tab)
+                detailsList(tab, onFocus: onFocus)
             } else {
                 FileGridView(
                     tab: tab,
@@ -83,7 +131,8 @@ struct ExplorerWindow: View {
                     cutURLs: clipboard.cutURLs,
                     renameRequest: tab.renameRequest,
                     focusToken: tab.focusListToken,
-                    openInNewTab: { model.newTab(url: $0) }
+                    openInNewTab: { model.newTab(url: $0) },
+                    onFocus: onFocus
                 )
             }
         }
@@ -100,7 +149,7 @@ struct ExplorerWindow: View {
         }
     }
 
-    private func detailsList(_ tab: BrowserTab) -> some View {
+    private func detailsList(_ tab: BrowserTab, onFocus: @escaping () -> Void) -> some View {
         FileListView(
             tab: tab,
             items: tab.visibleItems,
@@ -112,7 +161,8 @@ struct ExplorerWindow: View {
             renameRequest: tab.renameRequest,
             focusToken: tab.focusListToken,
             isSearchResults: tab.isSearchActive,
-            openInNewTab: { model.newTab(url: $0) }
+            openInNewTab: { model.newTab(url: $0) },
+            onFocus: onFocus
         )
     }
 

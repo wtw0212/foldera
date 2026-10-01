@@ -259,9 +259,14 @@ final class FileCollectionView: NSCollectionView {
         return commands?.contextMenu(forRow: indexPath?.item ?? -1)
     }
 
+    /// Called when the grid takes keyboard focus (used to track the active pane).
+    var onFocus: (() -> Void)?
+
     override func becomeFirstResponder() -> Bool {
         visibleItems().forEach { $0.view.needsDisplay = true }
-        return super.becomeFirstResponder()
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
     }
 
     override func resignFirstResponder() -> Bool {

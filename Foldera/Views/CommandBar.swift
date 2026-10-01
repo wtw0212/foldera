@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Windows 11 command bar: New, clipboard actions, Rename, Share, Delete, Sort, View and "See more".
 struct CommandBar: View {
+    let model: ExplorerWindowModel
     let tab: BrowserTab
     @State private var settings = AppSettings.shared
 
@@ -32,6 +33,18 @@ struct CommandBar: View {
                 .disabled(!tab.hasSelection)
             IconButton(symbol: "trash", help: "Delete (⌘⌫)") { tab.trashSelection() }
                 .disabled(!tab.hasSelection)
+
+            if model.isDualPane {
+                VerticalSeparator()
+                IconButton(symbol: "arrow.right.doc.on.clipboard", help: "Copy to other pane (F5)") {
+                    model.transferToOtherPane(.copy)
+                }
+                .disabled(!tab.hasSelection)
+                IconButton(symbol: "arrow.right.square", help: "Move to other pane (F6)") {
+                    model.transferToOtherPane(.move)
+                }
+                .disabled(!tab.hasSelection)
+            }
 
             VerticalSeparator()
 
@@ -116,6 +129,7 @@ struct CommandBar: View {
         let showMenu = NSMenu()
         showMenu.add("Navigation pane", checked: settings.showNavigationPane) { settings.showNavigationPane.toggle() }
         showMenu.add("Details pane", checked: settings.sidePane == .details) { settings.toggle(.details) }
+        showMenu.add("Dual pane", checked: model.isDualPane) { model.toggleDualPane() }
         showMenu.addSeparator()
         showMenu.add("File name extensions", checked: settings.showExtensions) { settings.showExtensions.toggle() }
         showMenu.add("Hidden items", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }

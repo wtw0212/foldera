@@ -65,6 +65,8 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 | Layouts (Extra large icons … Content) | ⌥⌘1–8 |
 | Details pane (with preview) | ⌥⌘P |
 | Undo / Redo | ⌘Z / ⇧⌘Z |
+| Dual pane on/off | ⌥⌘D |
+| Copy / move selection to other pane | F5 / F6 |
 
 ## Roadmap
 
