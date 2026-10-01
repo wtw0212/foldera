@@ -10,11 +10,13 @@ struct TabStrip: View {
     var body: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: leadingInset)
-            ForEach(model.tabs) { tab in
+            ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
                 let isActive = tab.id == model.activeTabID
+                let nextIsActive = index + 1 < model.tabs.count && model.tabs[index + 1].id == model.activeTabID
                 TabItem(
                     tab: tab,
                     isActive: isActive,
+                    showsSeparator: !isActive && !nextIsActive,
                     select: { model.activeTabID = tab.id },
                     close: {
                         if !model.closeTab(tab.id) { NSApp.keyWindow?.performClose(nil) }
@@ -48,6 +50,7 @@ struct TabStrip: View {
 private struct TabItem: View {
     let tab: BrowserTab
     let isActive: Bool
+    let showsSeparator: Bool
     let select: () -> Void
     let close: () -> Void
 
@@ -78,10 +81,11 @@ private struct TabItem: View {
         .frame(minWidth: 120, idealWidth: 220, maxWidth: 240, minHeight: 32, maxHeight: 32)
         .background(background)
         .overlay(alignment: .trailing) {
-            if !isActive {
+            if showsSeparator {
                 Rectangle().fill(Theme.divider.swiftUI).frame(width: 1, height: 16)
             }
         }
+        .zIndex(isActive ? 1 : 0)
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .onHover { isHovered = $0 }
@@ -91,14 +95,36 @@ private struct TabItem: View {
     @ViewBuilder
     private var background: some View {
         if isActive {
-            UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8)
+            // Flat like Windows 11: same color as the toolbar below, with curved feet that blend into it.
+            ActiveTabShape(radius: 8)
                 .fill(Theme.layer.swiftUI)
-                .shadow(color: .black.opacity(0.08), radius: 1, y: -0.5)
+                .padding(.horizontal, -8)
         } else if isHovered {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Theme.subtleHover.swiftUI)
-                .padding(.vertical, 3)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
         }
+    }
+}
+
+/// A tab with rounded top corners and outward-curving bottom corners (the "flare" that joins the toolbar).
+private nonisolated struct ActiveTabShape: Shape {
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = radius
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.maxY - r), control: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 2 * r, y: rect.minY), control: CGPoint(x: rect.minX + r, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - 2 * r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.minY + r), control: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY - r))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY), control: CGPoint(x: rect.maxX - r, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

@@ -63,13 +63,13 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 | Properties (Get Info) | ⌘I |
 | Quick Look | Space |
 | Layouts (Extra large icons … Content) | ⌥⌘1–8 |
-| Preview pane / Details pane | ⌥⌘P / ⌥⇧⌘P |
+| Details pane (with preview) | ⌥⌘P |
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 
 ## Roadmap
 
 - [x] **Phase 1:** tabs, breadcrumb address bar, command bar, navigation pane, details view, status bar, live refresh, inline rename, basic file operations
 - [x] **Phase 2:** copy/move progress dialog with conflict handling, undo, drag and drop into folders
-- [x] **Phase 3:** icon views, thumbnails, preview and details panes, Quick Look, recursive search
+- [x] **Phase 3:** icon views, thumbnails, details pane with live preview, Quick Look, recursive search
 - [ ] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
 - [ ] **Phase 5:** optional dual pane, settings window, Fluent icons

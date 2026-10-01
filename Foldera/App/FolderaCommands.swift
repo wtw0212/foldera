@@ -68,10 +68,8 @@ struct FolderaCommands: Commands {
                 .keyboardShortcut("r")
             Divider()
             Toggle("Navigation Pane", isOn: $settings.showNavigationPane)
-            Button(settings.sidePane == .preview ? "Hide Preview Pane" : "Show Preview Pane") { settings.toggle(.preview) }
-                .keyboardShortcut("p", modifiers: [.command, .option])
             Button(settings.sidePane == .details ? "Hide Details Pane" : "Show Details Pane") { settings.toggle(.details) }
-                .keyboardShortcut("p", modifiers: [.command, .option, .shift])
+                .keyboardShortcut("p", modifiers: [.command, .option])
             Toggle("File Name Extensions", isOn: $settings.showExtensions)
             Toggle("Hidden Items", isOn: $settings.showHiddenFiles)
                 .keyboardShortcut(".", modifiers: [.command, .shift])

@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// The optional pane on the right of the file list (View ▸ Show).
+/// The optional pane on the right of the file list (View ▸ Show). The Details pane includes a live preview.
 enum SidePane: String {
-    case none, preview, details
+    case none, details
 }
 
 /// App-wide view preferences, persisted in UserDefaults.
@@ -45,6 +45,8 @@ final class AppSettings {
         showExtensions = defaults.bool(forKey: Key.showExtensions)
         compactView = defaults.bool(forKey: Key.compactView)
         showNavigationPane = defaults.bool(forKey: Key.showNavigationPane)
-        sidePane = defaults.string(forKey: Key.sidePane).flatMap(SidePane.init(rawValue:)) ?? .none
+        // "preview" was a separate pane in earlier builds; it is part of Details now.
+        let storedPane = defaults.string(forKey: Key.sidePane)
+        sidePane = storedPane == "preview" ? .details : storedPane.flatMap(SidePane.init(rawValue:)) ?? .none
     }
 }

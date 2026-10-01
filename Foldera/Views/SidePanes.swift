@@ -2,24 +2,6 @@ import ImageIO
 import Quartz
 import SwiftUI
 
-/// Explorer's Preview pane: a live Quick Look preview of the selected file.
-struct PreviewPane: View {
-    let tab: BrowserTab
-
-    var body: some View {
-        let selected = tab.selectedItems
-        Group {
-            if selected.count == 1, let item = selected.first, !item.isNavigable {
-                QuickLookPreview(url: item.url)
-                    .id(item.url)
-            } else {
-                PaneMessage(text: selected.isEmpty ? "Select a file to preview." : "No preview available.")
-            }
-        }
-        .background(Theme.content.swiftUI)
-    }
-}
-
 private struct QuickLookPreview: NSViewRepresentable {
     let url: URL
 
@@ -42,7 +24,7 @@ private struct QuickLookPreview: NSViewRepresentable {
     }
 }
 
-/// Explorer's Details pane: a large icon or thumbnail plus the item's properties.
+/// Explorer's Details pane: a live Quick Look preview (or large icon) plus the item's properties.
 struct DetailsPane: View {
     let tab: BrowserTab
 
@@ -73,15 +55,22 @@ struct DetailsPane: View {
 
 private struct ItemDetails: View {
     let item: FileItem
-    @State private var thumbnail: NSImage?
     @State private var dimensions: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Image(nsImage: thumbnail ?? FileIcons.icon(for: item))
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: 180)
+            if item.isNavigable {
+                Image(nsImage: FileIcons.icon(for: item))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: 120)
+            } else {
+                QuickLookPreview(url: item.url)
+                    .id(item.url)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
             Text(item.name)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.text.swiftUI)
@@ -100,7 +89,6 @@ private struct ItemDetails: View {
             property("Location", FileFormat.location(of: item.url))
         }
         .task(id: item.url) {
-            thumbnail = await Thumbnails.shared.load(for: item, size: 360, scale: NSScreen.main?.backingScaleFactor ?? 2)
             dimensions = Self.imageDimensions(item.url)
         }
     }
@@ -138,16 +126,5 @@ private func property(_ label: String, _ value: String) -> some View {
             .textSelection(.enabled)
             .lineLimit(3)
             .truncationMode(.middle)
-    }
-}
-
-private struct PaneMessage: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(Theme.font)
-            .foregroundStyle(Theme.secondaryText.swiftUI)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

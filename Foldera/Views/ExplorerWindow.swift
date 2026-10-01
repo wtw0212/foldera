@@ -35,15 +35,9 @@ struct ExplorerWindow: View {
                 fileList(tab)
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
-                switch settings.sidePane {
-                case .preview:
-                    PreviewPane(tab: tab)
-                        .frame(minWidth: 220, idealWidth: 320, maxWidth: 700)
-                case .details:
+                if settings.sidePane == .details {
                     DetailsPane(tab: tab)
-                        .frame(minWidth: 220, idealWidth: 280, maxWidth: 500)
-                case .none:
-                    EmptyView()
+                        .frame(minWidth: 240, idealWidth: 320, maxWidth: 700)
                 }
             }
 
@@ -51,6 +45,14 @@ struct ExplorerWindow: View {
         }
         .background(Theme.mica.swiftUI)
         .background(VisualEffectBackground())
+        .background(
+            NavigationGestures(
+                back: { model.activeTab.goBack() },
+                forward: { model.activeTab.goForward() },
+                canGoBack: { model.activeTab.canGoBack },
+                canGoForward: { model.activeTab.canGoForward }
+            )
+        )
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
