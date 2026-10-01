@@ -34,18 +34,18 @@ final class FileClipboard {
         pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
 
-    /// Pastes into `directory` and returns the URLs of the pasted items.
-    func paste(into directory: URL) async throws -> [URL] {
+    /// Pastes into `directory`: a move after Cut, otherwise a copy. Returns what changed.
+    func paste(into directory: URL) async -> TransferResult {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        guard !urls.isEmpty else { return [] }
+        guard !urls.isEmpty else { return TransferResult() }
         if cutChangeCount == pasteboard.changeCount {
-            let moved = try await FileOperations.move(urls, into: directory)
+            let result = await FileTransfers.shared.run(.move, urls, into: directory)
             cutURLs = []
             cutChangeCount = nil
             pasteboard.clearContents()
-            return moved
+            return result
         }
-        return try await FileOperations.copy(urls, into: directory)
+        return await FileTransfers.shared.run(.copy, urls, into: directory)
     }
 
     private func write(_ urls: [URL]) {

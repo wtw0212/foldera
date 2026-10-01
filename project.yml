@@ -44,6 +44,9 @@ targets:
   FolderaTests:
     type: bundle.unit-test
     platform: macOS
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     sources:
       - FolderaTests
     dependencies:

@@ -73,14 +73,10 @@ extension BrowserTab {
     func paste(into folder: URL? = nil) {
         let destination = folder ?? url
         Task {
-            do {
-                let pasted = try await clipboard.paste(into: destination)
-                if destination == url {
-                    selection = Set(pasted.map(\.normalizedFileURL))
-                    reload()
-                }
-            } catch {
-                Self.present(error)
+            let result = await clipboard.paste(into: destination)
+            if destination == url, !result.results.isEmpty {
+                selection = Set(result.results.map(\.normalizedFileURL))
+                reload()
             }
         }
     }
