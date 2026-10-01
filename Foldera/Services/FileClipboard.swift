@@ -40,12 +40,15 @@ final class FileClipboard {
         guard !urls.isEmpty else { return TransferResult() }
         if cutChangeCount == pasteboard.changeCount {
             let result = await FileTransfers.shared.run(.move, urls, into: directory)
+            FileUndo.shared.record(FileChange(result, kind: .move), name: "Move")
             cutURLs = []
             cutChangeCount = nil
             pasteboard.clearContents()
             return result
         }
-        return await FileTransfers.shared.run(.copy, urls, into: directory)
+        let result = await FileTransfers.shared.run(.copy, urls, into: directory)
+        FileUndo.shared.record(FileChange(result, kind: .copy), name: "Copy")
+        return result
     }
 
     private func write(_ urls: [URL]) {

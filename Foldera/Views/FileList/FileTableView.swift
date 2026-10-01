@@ -60,6 +60,8 @@ final class FileTableView: NSTableView {
     @objc func cut(_ sender: Any?) { commands?.cutSelection() }
     @objc func paste(_ sender: Any?) { commands?.paste() }
     @objc func delete(_ sender: Any?) { commands?.trashSelection() }
+    @objc func undo(_ sender: Any?) { FileUndo.shared.undo() }
+    @objc func redo(_ sender: Any?) { FileUndo.shared.redo() }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
@@ -67,6 +69,12 @@ final class FileTableView: NSTableView {
             return commands?.hasSelection ?? false
         case #selector(paste(_:)):
             return commands?.canPaste ?? false
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = FileUndo.shared.undoTitle
+            return FileUndo.shared.canUndo
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = FileUndo.shared.redoTitle
+            return FileUndo.shared.canRedo
         default:
             return super.validateUserInterfaceItem(item)
         }

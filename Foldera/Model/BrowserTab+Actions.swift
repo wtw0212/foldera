@@ -34,6 +34,7 @@ extension BrowserTab {
     func newFolder() {
         perform { url in
             let created = try FileOperations.newFolder(in: url)
+            FileUndo.shared.record(.created([created]), name: "New Folder")
             self.beginRename(created)
         }
     }
@@ -41,6 +42,7 @@ extension BrowserTab {
     func newTextDocument() {
         perform { url in
             let created = try FileOperations.newTextDocument(in: url)
+            FileUndo.shared.record(.created([created]), name: "New Text Document")
             self.beginRename(created)
         }
     }
@@ -56,6 +58,7 @@ extension BrowserTab {
         guard newName != url.lastPathComponent else { return }
         perform { _ in
             let renamed = try FileOperations.rename(url, to: newName)
+            FileUndo.shared.record(.renamed(from: url, to: renamed), name: "Rename")
             self.selection = [renamed.normalizedFileURL]
         }
     }
@@ -85,7 +88,7 @@ extension BrowserTab {
         let urls = selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
         perform { _ in
-            try FileOperations.trash(urls)
+            FileUndo.shared.record(.trashed(try FileOperations.trash(urls)), name: "Delete")
             self.selection = []
         }
     }

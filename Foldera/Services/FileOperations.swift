@@ -44,9 +44,13 @@ nonisolated enum FileOperations {
         return destination
     }
 
-    static func trash(_ urls: [URL]) throws {
-        for url in urls {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+    /// Moves items to the Trash and returns where each one went, for undo.
+    @discardableResult
+    static func trash(_ urls: [URL]) throws -> [(original: URL, trashed: URL)] {
+        try urls.compactMap { url in
+            var trashed: NSURL?
+            try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+            return trashed.map { (url, $0 as URL) }
         }
     }
 
