@@ -136,3 +136,27 @@ nonisolated final class ClosureMenuItem: NSMenuItem {
         handler()
     }
 }
+
+/// Makes a view accept dropped files into `folder`, highlighting while targeted.
+struct FolderDropTarget: ViewModifier {
+    let folder: URL
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Theme.accent.swiftUI, lineWidth: isTargeted ? 1.5 : 0)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(isTargeted ? Theme.hover.swiftUI : .clear))
+            )
+            .dropDestination(for: URL.self) { urls, _ in
+                FileDrop.perform(urls.filter(\.isFileURL), into: folder)
+            } isTargeted: { isTargeted = $0 }
+    }
+}
+
+extension View {
+    func folderDropTarget(_ folder: URL) -> some View {
+        modifier(FolderDropTarget(folder: folder))
+    }
+}

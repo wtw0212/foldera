@@ -60,6 +60,7 @@ struct NavigationPane: View {
             }
         )
         .help(location.url.path)
+        .folderDropTarget(location.url)
         .contextMenu {
             Button("Open") { tab.navigate(to: location.url) }
             Button("Open in new tab") { model.newTab(url: location.url) }

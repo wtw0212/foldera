@@ -162,6 +162,7 @@ private struct Segment: View {
                 tab.navigate(to: url)
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)))
+            .folderDropTarget(url)
 
             Button {
                 popUpMenu(SubfolderMenu.make(for: url, tab: tab))

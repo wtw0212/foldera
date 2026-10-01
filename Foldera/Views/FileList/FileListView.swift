@@ -72,6 +72,8 @@ struct FileListView: NSViewRepresentable {
         table.target = context.coordinator
         table.doubleAction = #selector(Coordinator.doubleClicked(_:))
         table.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
+        table.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
+        table.registerForDraggedTypes([.fileURL])
 
         for column in Column.allCases where column != .location {
             table.addTableColumn(Self.makeColumn(column))
@@ -193,6 +195,38 @@ struct FileListView: NSViewRepresentable {
             guard !isSyncing, let descriptor = tableView.sortDescriptors.first,
                   let key = descriptor.key, let field = SortField(rawValue: key) else { return }
             tab?.sort = SortOrder(field: field, ascending: descriptor.ascending)
+        }
+
+        // MARK: Drop
+
+        /// Dropping on a folder row targets that folder; anywhere else targets the current folder.
+        private func dropTarget(row: Int, operation: NSTableView.DropOperation) -> URL? {
+            if operation == .on, row >= 0, row < items.count, items[row].isNavigable { return items[row].url }
+            return tab?.url
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            validateDrop info: any NSDraggingInfo,
+            proposedRow row: Int,
+            proposedDropOperation operation: NSTableView.DropOperation
+        ) -> NSDragOperation {
+            let urls = FileDrop.fileURLs(from: info.draggingPasteboard)
+            guard let target = dropTarget(row: row, operation: operation) else { return [] }
+            if target == tab?.url {
+                tableView.setDropRow(-1, dropOperation: .on) // highlight the whole list
+            }
+            return FileDrop.dragOperation(for: urls, into: target)
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            acceptDrop info: any NSDraggingInfo,
+            row: Int,
+            dropOperation: NSTableView.DropOperation
+        ) -> Bool {
+            guard let target = dropTarget(row: row, operation: dropOperation) else { return false }
+            return FileDrop.perform(FileDrop.fileURLs(from: info.draggingPasteboard), into: target)
         }
 
         // MARK: Delegate
