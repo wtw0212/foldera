@@ -73,6 +73,11 @@ struct FolderaCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Toggle("Compact View", isOn: $settings.compactView)
             Divider()
+            ForEach(ViewMode.allCases) { mode in
+                Button(mode.title) { tab?.viewMode = mode }
+                    .keyboardShortcut(KeyEquivalent(Character(String(mode.shortcutNumber))), modifiers: [.command, .option])
+            }
+            Divider()
             Picker("Sort By", selection: sortField) {
                 ForEach(SortField.allCases) { Text($0.title).tag($0) }
             }

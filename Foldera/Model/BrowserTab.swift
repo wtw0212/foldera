@@ -36,6 +36,10 @@ final class BrowserTab: Identifiable {
     private(set) var loadError: String?
     var selection: Set<URL> = []
     var sort = SortOrder()
+    /// Layout for this folder; remembered per folder.
+    var viewMode: ViewMode {
+        didSet { if viewMode != oldValue { FolderViewModes.set(viewMode, for: url) } }
+    }
     var searchText = "" { didSet { if searchText != oldValue { scheduleSearch() } } }
     /// Matches from the recursive search while the search box has text.
     private(set) var searchResults: [FileItem] = []
@@ -55,7 +59,9 @@ final class BrowserTab: Identifiable {
     private let settings = AppSettings.shared
 
     init(url: URL) {
-        self.url = url.normalizedFileURL
+        let url = url.normalizedFileURL
+        self.url = url
+        self.viewMode = FolderViewModes.mode(for: url)
         load(selecting: [])
     }
 
@@ -197,6 +203,8 @@ final class BrowserTab: Identifiable {
 
     private func move(to destination: URL, selecting: Set<URL>) {
         url = destination
+        let mode = FolderViewModes.mode(for: destination)
+        if viewMode != mode { viewMode = mode }
         searchText = ""
         selection = []
         items = []

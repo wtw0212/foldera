@@ -41,7 +41,7 @@ struct CommandBar: View {
             MenuButton(help: "Layout and view options") {
                 viewMenu()
             } label: {
-                labeled("View", symbol: "rectangle.grid.1x2", dropdown: true)
+                labeled("View", symbol: tab.viewMode.symbol, dropdown: true)
             }
 
             VerticalSeparator()
@@ -90,7 +90,11 @@ struct CommandBar: View {
 
     private func viewMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.add("Details", symbol: "list.bullet", checked: true) {}
+        for mode in ViewMode.allCases {
+            let item = menu.add(mode.title, symbol: mode.symbol, checked: tab.viewMode == mode) { tab.viewMode = mode }
+            item.keyEquivalent = String(mode.shortcutNumber)
+            item.keyEquivalentModifierMask = [.command, .option]
+        }
         menu.addSeparator()
         menu.add("Compact view", symbol: "arrow.down.right.and.arrow.up.left", checked: settings.compactView) {
             settings.compactView.toggle()

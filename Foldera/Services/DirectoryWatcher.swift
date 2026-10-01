@@ -8,7 +8,7 @@ final class DirectoryWatcher {
     private var stream: FSEventStreamRef?
 
     init(directory: URL, onChange: @escaping () -> Void) {
-        self.directory = directory.resolvingSymlinksInPath()
+        self.directory = Self.realPath(directory)
         self.onChange = onChange
         start()
     }
@@ -48,6 +48,13 @@ final class DirectoryWatcher {
         FSEventStreamSetDispatchQueue(stream, .main)
         FSEventStreamStart(stream)
         self.stream = stream
+    }
+
+    /// FSEvents reports real paths (e.g. /private/tmp); `resolvingSymlinksInPath` would strip /private.
+    private static func realPath(_ url: URL) -> URL {
+        guard let resolved = realpath(url.path, nil) else { return url }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
     }
 
     private func handle(paths: [String]) {

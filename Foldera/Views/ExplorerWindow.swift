@@ -48,6 +48,37 @@ struct ExplorerWindow: View {
     }
 
     private func fileList(_ tab: BrowserTab) -> some View {
+        Group {
+            if tab.viewMode == .details {
+                detailsList(tab)
+            } else {
+                FileGridView(
+                    tab: tab,
+                    mode: tab.viewMode,
+                    items: tab.visibleItems,
+                    selection: tab.selection,
+                    showExtensions: settings.showExtensions,
+                    cutURLs: clipboard.cutURLs,
+                    renameRequest: tab.renameRequest,
+                    focusToken: tab.focusListToken,
+                    openInNewTab: { model.newTab(url: $0) }
+                )
+            }
+        }
+        .overlay(alignment: .top) {
+            if let message = emptyMessage(tab) {
+                Text(message)
+                    .font(Theme.font)
+                    .foregroundStyle(Theme.secondaryText.swiftUI)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 48)
+                    .padding(.horizontal, 24)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func detailsList(_ tab: BrowserTab) -> some View {
         FileListView(
             tab: tab,
             items: tab.visibleItems,
@@ -61,17 +92,6 @@ struct ExplorerWindow: View {
             isSearchResults: tab.isSearchActive,
             openInNewTab: { model.newTab(url: $0) }
         )
-        .overlay(alignment: .top) {
-            if let message = emptyMessage(tab) {
-                Text(message)
-                    .font(Theme.font)
-                    .foregroundStyle(Theme.secondaryText.swiftUI)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    .allowsHitTesting(false)
-            }
-        }
     }
 
     private func emptyMessage(_ tab: BrowserTab) -> String? {
@@ -131,12 +151,28 @@ private struct StatusBar: View {
             if tab.isLoading || tab.isSearching {
                 ProgressView().controlSize(.mini).padding(.trailing, 8)
             }
+            layoutButton(.details, tab: tab)
+            layoutButton(.largeIcons, tab: tab)
         }
         .font(Theme.font)
         .foregroundStyle(Theme.text.swiftUI)
         .padding(.horizontal, 14)
         .frame(height: 26)
         .background(Theme.content.swiftUI)
+    }
+
+    /// The two layout toggles at the right of Explorer's status bar.
+    private func layoutButton(_ mode: ViewMode, tab: BrowserTab) -> some View {
+        Button {
+            tab.viewMode = mode
+        } label: {
+            Image(systemName: mode.symbol)
+                .font(.system(size: 12))
+                .frame(width: 16, height: 14)
+        }
+        .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 4)))
+        .background(RoundedRectangle(cornerRadius: 4).fill(tab.viewMode == mode ? Theme.selection.swiftUI : .clear))
+        .help(mode.title)
     }
 
     private var separator: some View {

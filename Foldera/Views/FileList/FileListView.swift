@@ -148,7 +148,7 @@ struct FileListView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, FileTableCommands {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, FileViewCommands {
         struct Presentation: Equatable {
             var showExtensions = true
             var cutURLs: Set<URL> = []
@@ -163,9 +163,18 @@ struct FileListView: NSViewRepresentable {
         var handledRename: UUID?
 
         private var isSyncing = false
-        private var editing: (row: Int, url: URL, keepExtension: String?)?
+        private let renamer = InlineRenamer()
         private var needsReloadAfterEdit = false
-        private var renameCancelled = false
+
+        override init() {
+            super.init()
+            renamer.onFinish = { [weak self] in
+                guard let self, let table = self.table else { return }
+                self.needsReloadAfterEdit = false
+                self.syncing { table.reloadData() }
+                table.window?.makeFirstResponder(table)
+            }
+        }
 
         private var tab: BrowserTab? { parent?.tab }
 
@@ -176,7 +185,7 @@ struct FileListView: NSViewRepresentable {
         }
 
         func reloadPreservingEdits() {
-            if editing != nil {
+            if renamer.isEditing {
                 needsReloadAfterEdit = true
                 return
             }
@@ -243,7 +252,6 @@ struct FileListView: NSViewRepresentable {
                 let cell = tableView.makeView(withIdentifier: NameCellView.identifier, owner: nil) as? NameCellView ?? NameCellView()
                 cell.iconView.image = FileIcons.icon(for: item)
                 cell.label.stringValue = item.title(showExtensions: presentation.showExtensions)
-                cell.label.delegate = self
                 cell.setEditing(false)
                 cell.alphaValue = alpha
                 return cell
@@ -283,59 +291,15 @@ struct FileListView: NSViewRepresentable {
         // MARK: Inline rename
 
         func beginEditing(row: Int) {
-            guard let table, row < items.count else { return }
+            guard let table, let tab, row < items.count else { return }
             table.scrollRowToVisible(row)
             guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCellView else { return }
-            let item = items[row]
-            // With extensions hidden, only the stem is edited and the extension is kept, like Explorer.
-            let ext = (item.name as NSString).pathExtension
-            let keepExtension = !presentation.showExtensions && !item.isNavigable && !ext.isEmpty ? ext : nil
-            editing = (row, item.url, keepExtension)
-            renameCancelled = false
-            cell.label.stringValue = keepExtension == nil ? item.name : (item.name as NSString).deletingPathExtension
-            cell.setEditing(true)
-            table.window?.makeFirstResponder(cell.label)
-            if let editor = cell.label.currentEditor() {
-                let stem = keepExtension == nil && !item.isNavigable && !ext.isEmpty
-                    ? (item.name as NSString).deletingPathExtension
-                    : cell.label.stringValue
-                editor.selectedRange = NSRange(location: 0, length: (stem as NSString).length)
+            renamer.begin(field: cell.label, item: items[row], showExtensions: presentation.showExtensions, tab: tab) { editing in
+                cell.setEditing(editing)
             }
         }
 
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            if selector == #selector(NSResponder.cancelOperation(_:)) {
-                renameCancelled = true
-                control.abortEditing()
-                finishEditing(control as? NSTextField)
-                return true
-            }
-            return false
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            finishEditing(notification.object as? NSTextField)
-        }
-
-        private func finishEditing(_ field: NSTextField?) {
-            guard let current = editing else { return }
-            editing = nil
-            let newName = (field?.stringValue ?? "") + (current.keepExtension.map { ".\($0)" } ?? "")
-            (field?.superview as? NameCellView)?.setEditing(false)
-            if renameCancelled || newName == current.url.lastPathComponent {
-                tab?.renameRequest = nil
-                syncing { table?.reloadData(forRowIndexes: IndexSet(integer: current.row), columnIndexes: IndexSet(integer: 0)) }
-            } else {
-                tab?.commitRename(of: current.url, to: newName)
-            }
-            if needsReloadAfterEdit {
-                needsReloadAfterEdit = false
-                syncing { table?.reloadData() }
-            }
-            table?.window?.makeFirstResponder(table)
-        }
-
-        // MARK: FileTableCommands
+        // MARK: FileViewCommands
 
         func openSelection() { tab?.openSelection() }
         func beginRename() { tab?.beginRename() }

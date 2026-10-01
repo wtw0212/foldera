@@ -3,7 +3,7 @@ import AppKit
 /// Commands the table forwards to its owner. Keeps key handling and the responder chain in AppKit
 /// while the actual behavior lives in `BrowserTab`.
 @MainActor
-protocol FileTableCommands: AnyObject {
+protocol FileViewCommands: AnyObject {
     func openSelection()
     func beginRename()
     func goUp()
@@ -17,28 +17,48 @@ protocol FileTableCommands: AnyObject {
     func contextMenu(forRow row: Int) -> NSMenu?
 }
 
-final class FileTableView: NSTableView {
-    weak var commands: FileTableCommands?
-
-    override func keyDown(with event: NSEvent) {
-        guard let commands else { return super.keyDown(with: event) }
+/// Keyboard shortcuts and Edit-menu validation shared by the list and icon views.
+enum FileKeys {
+    /// Handles Explorer-style keys; returns false to let the view handle the event.
+    static func handle(_ event: NSEvent, _ commands: FileViewCommands) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): // Return / Enter opens, like Explorer
-            commands.openSelection()
-        case (125, .command): // ⌘↓
-            commands.openSelection()
-        case (126, .command): // ⌘↑
-            commands.goUp()
-        case (120, []): // F2
-            commands.beginRename()
-        case (51, []): // ⌫ goes back, like Explorer's Backspace
-            commands.goBack()
-        case (51, .command), (117, []): // ⌘⌫ or forward delete
-            commands.trashSelection()
-        default:
-            super.keyDown(with: event)
+        case (36, []), (76, []): commands.openSelection() // Return / Enter opens, like Explorer
+        case (125, .command): commands.openSelection() // ⌘↓
+        case (126, .command): commands.goUp() // ⌘↑
+        case (120, []): commands.beginRename() // F2
+        case (51, []): commands.goBack() // ⌫ goes back, like Explorer's Backspace
+        case (51, .command), (117, []): commands.trashSelection() // ⌘⌫ or forward delete
+        default: return false
         }
+        return true
+    }
+
+    /// Validation for copy/cut/paste/delete/undo/redo; nil for other actions.
+    static func validate(_ item: any NSValidatedUserInterfaceItem, _ commands: FileViewCommands?) -> Bool? {
+        switch item.action {
+        case #selector(NSText.copy(_:)), #selector(NSText.cut(_:)), #selector(NSText.delete(_:)):
+            return commands?.hasSelection ?? false
+        case #selector(NSText.paste(_:)):
+            return commands?.canPaste ?? false
+        case Selector(("undo:")):
+            (item as? NSMenuItem)?.title = FileUndo.shared.undoTitle
+            return FileUndo.shared.canUndo
+        case Selector(("redo:")):
+            (item as? NSMenuItem)?.title = FileUndo.shared.redoTitle
+            return FileUndo.shared.canRedo
+        default:
+            return nil
+        }
+    }
+}
+
+final class FileTableView: NSTableView {
+    weak var commands: FileViewCommands?
+
+    override func keyDown(with event: NSEvent) {
+        if let commands, FileKeys.handle(event, commands) { return }
+        super.keyDown(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -64,20 +84,7 @@ final class FileTableView: NSTableView {
     @objc func redo(_ sender: Any?) { FileUndo.shared.redo() }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
-        case #selector(copy(_:)), #selector(cut(_:)), #selector(delete(_:)):
-            return commands?.hasSelection ?? false
-        case #selector(paste(_:)):
-            return commands?.canPaste ?? false
-        case #selector(undo(_:)):
-            (item as? NSMenuItem)?.title = FileUndo.shared.undoTitle
-            return FileUndo.shared.canUndo
-        case #selector(redo(_:)):
-            (item as? NSMenuItem)?.title = FileUndo.shared.redoTitle
-            return FileUndo.shared.canRedo
-        default:
-            return super.validateUserInterfaceItem(item)
-        }
+        FileKeys.validate(item, commands) ?? super.validateUserInterfaceItem(item)
     }
 
     override func drawBackground(inClipRect clipRect: NSRect) {
