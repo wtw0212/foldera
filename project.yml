@@ -1,0 +1,59 @@
+name: Foldera
+options:
+  bundleIdPrefix: com.wtw0212
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Foldera:
+    type: application
+    platform: macOS
+    sources:
+      - Foldera
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera
+        PRODUCT_NAME: Foldera
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Foldera
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_HARDENED_RUNTIME: YES
+        # A file manager needs unrestricted file system access, so the app is not sandboxed.
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES
+        CODE_SIGN_ENTITLEMENTS: Foldera/Foldera.entitlements
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: Foldera asks Finder to show the Get Info window for items you select.
+  FolderaTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - FolderaTests
+    dependencies:
+      - target: Foldera
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Foldera.app/Contents/MacOS/Foldera
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  Foldera:
+    build:
+      targets:
+        Foldera: all
+        FolderaTests: [test]
+    test:
+      targets:
+        - FolderaTests

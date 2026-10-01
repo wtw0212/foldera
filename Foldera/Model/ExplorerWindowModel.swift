@@ -1,0 +1,84 @@
+import AppKit
+import Observation
+import SwiftUI
+
+/// State for one explorer window: its tabs and window-level focus requests.
+@Observable
+final class ExplorerWindowModel {
+    private(set) var tabs: [BrowserTab]
+    var activeTabID: BrowserTab.ID
+    var isEditingAddress = false
+    /// Bumped to move keyboard focus to the search box.
+    private(set) var focusSearchToken = 0
+
+    /// The first window opens at `-initialPath <path>` when given (e.g. `open Foldera.app --args -initialPath ~/Downloads`).
+    static var defaultURL: URL {
+        if let path = UserDefaults.standard.string(forKey: "initialPath") {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    init(url: URL = ExplorerWindowModel.defaultURL) {
+        let tab = BrowserTab(url: url)
+        tabs = [tab]
+        activeTabID = tab.id
+    }
+
+    var activeTab: BrowserTab {
+        tabs.first { $0.id == activeTabID } ?? tabs[0]
+    }
+
+    func newTab(url: URL? = nil) {
+        let tab = BrowserTab(url: url ?? FileManager.default.homeDirectoryForCurrentUser)
+        let index = tabs.firstIndex { $0.id == activeTabID }.map { $0 + 1 } ?? tabs.endIndex
+        tabs.insert(tab, at: index)
+        activeTabID = tab.id
+    }
+
+    func duplicateActiveTab() {
+        newTab(url: activeTab.url)
+    }
+
+    /// Closes a tab; returns false when it was the last one so the caller can close the window.
+    @discardableResult
+    func closeTab(_ id: BrowserTab.ID) -> Bool {
+        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return false }
+        tabs.remove(at: index)
+        if activeTabID == id {
+            activeTabID = tabs[min(index, tabs.count - 1)].id
+        }
+        return true
+    }
+
+    func closeActiveTabOrWindow() {
+        if !closeTab(activeTabID) {
+            NSApp.keyWindow?.performClose(nil)
+        }
+    }
+
+    func selectTab(offset: Int) {
+        guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
+        activeTabID = tabs[(index + offset + tabs.count) % tabs.count].id
+    }
+
+    func selectTab(number: Int) {
+        guard !tabs.isEmpty else { return }
+        activeTabID = number >= 9 ? tabs[tabs.count - 1].id : tabs[min(number, tabs.count) - 1].id
+    }
+
+    func moveTab(_ id: BrowserTab.ID, before target: BrowserTab.ID) {
+        guard id != target, let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let tab = tabs.remove(at: from)
+        let to = tabs.firstIndex { $0.id == target } ?? tabs.endIndex
+        tabs.insert(tab, at: to)
+    }
+
+    func focusSearch() {
+        focusSearchToken += 1
+    }
+}
+
+extension FocusedValues {
+    @Entry var explorer: ExplorerWindowModel?
+}
