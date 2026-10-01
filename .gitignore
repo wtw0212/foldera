@@ -9,3 +9,6 @@ DerivedData/
 Foldera.xcodeproj/
 # macOS
 .DS_Store
+
+# Personal signing settings
+Config/Local.xcconfig

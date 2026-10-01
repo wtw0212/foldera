@@ -15,6 +15,9 @@ targets:
   Foldera:
     type: application
     platform: macOS
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     sources:
       - Foldera
     settings:
@@ -30,10 +33,13 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         # A file manager needs unrestricted file system access, so the app is not sandboxed.
         ENABLE_APP_SANDBOX: NO
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
         COMBINE_HIDPI_IMAGES: YES
         CODE_SIGN_ENTITLEMENTS: Foldera/Foldera.entitlements
+        INFOPLIST_KEY_NSDesktopFolderUsageDescription: Foldera shows and manages the files in your Desktop folder.
+        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Foldera shows and manages the files in your Documents folder.
+        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: Foldera shows and manages the files in your Downloads folder.
+        INFOPLIST_KEY_NSRemovableVolumesUsageDescription: Foldera shows and manages files on removable drives.
+        INFOPLIST_KEY_NSNetworkVolumesUsageDescription: Foldera shows and manages files on network drives.
         INFOPLIST_KEY_NSAppleEventsUsageDescription: Foldera asks Finder to show the Get Info window for items you select.
   FolderaTests:
     type: bundle.unit-test

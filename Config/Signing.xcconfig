@@ -1,0 +1,9 @@
+// Signing defaults. Put your team in Config/Local.xcconfig (not committed):
+//   DEVELOPMENT_TEAM = ABCDE12345
+// A stable signing identity matters: macOS privacy permissions (Full Disk Access,
+// Desktop/Documents/Downloads access) are tied to the signature, and an ad-hoc
+// signature changes on every build, which makes macOS ask again.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+
+#include? "Local.xcconfig"

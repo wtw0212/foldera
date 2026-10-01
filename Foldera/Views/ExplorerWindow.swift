@@ -5,6 +5,7 @@ struct ExplorerWindow: View {
     @State private var model = ExplorerWindowModel()
     @State private var settings = AppSettings.shared
     @State private var clipboard = FileClipboard.shared
+    @State private var diskAccess = DiskAccess.shared
 
     var body: some View {
         let tab = model.activeTab
@@ -20,13 +21,20 @@ struct ExplorerWindow: View {
 
             Rectangle().fill(Theme.divider.swiftUI).frame(height: 1)
 
+            if diskAccess.showsBanner {
+                FullDiskAccessBar(access: diskAccess)
+            }
+
             HSplitView {
                 if settings.showNavigationPane {
+                    // Starts at its minimum width; drag the divider to widen it.
                     NavigationPane(model: model, tab: tab)
-                        .frame(minWidth: 160, idealWidth: 220, maxWidth: 400)
+                        .frame(minWidth: 180, idealWidth: 180, maxWidth: 400)
+                        .layoutPriority(0)
                 }
                 fileList(tab)
                     .frame(minWidth: 320, maxWidth: .infinity)
+                    .layoutPriority(1)
             }
 
             StatusBar(tab: tab)
@@ -70,6 +78,35 @@ struct ExplorerWindow: View {
         if let error = tab.loadError { return error }
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
         return tab.isSearchActive ? "No items match your search." : "This folder is empty."
+    }
+}
+
+/// Explorer-style info bar offering Full Disk Access, so macOS stops asking folder by folder.
+private struct FullDiskAccessBar: View {
+    let access: DiskAccess
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(Theme.accent.swiftUI)
+            Text("Give Foldera Full Disk Access so it can open every folder without asking each time.")
+                .foregroundStyle(Theme.text.swiftUI)
+            Spacer()
+            Button("Open Settings") { access.openSettings() }
+                .buttonStyle(SubtleButtonStyle())
+                .foregroundStyle(Theme.accent.swiftUI)
+            Button {
+                access.isBannerDismissed = true
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
+            .help("Don't show again")
+        }
+        .font(Theme.font)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.selection.swiftUI.opacity(0.6))
     }
 }
 
