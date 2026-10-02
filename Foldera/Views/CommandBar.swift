@@ -15,23 +15,23 @@ struct CommandBar: View {
                 menu.add("Text Document", symbol: "doc.text") { tab.newTextDocument() }
                 return menu
             } label: {
-                labeled("New", symbol: "plus.circle.fill", tint: Theme.accent.swiftUI, dropdown: true)
+                labeled("New", symbol: "add_circle_filled", tint: Theme.accent.swiftUI, dropdown: true)
             }
 
             VerticalSeparator()
 
-            IconButton(symbol: "scissors", help: "Cut (⌘X)") { tab.cutSelection() }
+            IconButton(symbol: "cut_regular", help: "Cut (⌘X)") { tab.cutSelection() }
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "doc.on.doc", help: "Copy (⌘C)") { tab.copySelection() }
+            IconButton(symbol: "copy_regular", help: "Copy (⌘C)") { tab.copySelection() }
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "doc.on.clipboard", help: "Paste (⌘V)") { tab.paste() }
-            IconButton(symbol: "character.cursor.ibeam", help: tab.selection.count > 1 ? "Rename \(tab.selection.count) items (F2)" : "Rename (F2)") {
+            IconButton(symbol: "clipboard_paste_regular", help: "Paste (⌘V)") { tab.paste() }
+            IconButton(symbol: "rename_regular", help: tab.selection.count > 1 ? "Rename \(tab.selection.count) items (F2)" : "Rename (F2)") {
                 tab.beginRename()
             }
             .disabled(!tab.hasSelection)
             ShareButton(urls: tab.selectedItems.map(\.url))
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "trash", help: "Delete (⌘⌫)") { tab.trashSelection() }
+            IconButton(symbol: "delete_regular", help: "Delete (⌘⌫)") { tab.trashSelection() }
                 .disabled(!tab.hasSelection)
 
             if model.isDualPane {
@@ -51,7 +51,7 @@ struct CommandBar: View {
             MenuButton(help: "Sort items") {
                 sortMenu()
             } label: {
-                labeled("Sort", symbol: "arrow.up.arrow.down", dropdown: true)
+                labeled("Sort", symbol: "arrow_sort_regular", dropdown: true)
             }
             MenuButton(help: "Layout and view options") {
                 viewMenu()
@@ -64,8 +64,7 @@ struct CommandBar: View {
             MenuButton(help: "See more") {
                 moreMenu()
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14))
+                AppIcon(name: "more_horizontal_regular")
                     .frame(width: 18, height: 18)
             }
 
@@ -75,7 +74,7 @@ struct CommandBar: View {
             Button {
                 settings.toggle(.details)
             } label: {
-                labeled("Details", symbol: "sidebar.right")
+                labeled("Details", symbol: "panel_right_regular")
             }
             .buttonStyle(SubtleButtonStyle())
             .background(RoundedRectangle(cornerRadius: 4).fill(settings.sidePane == .details ? Theme.selection.swiftUI : .clear))
@@ -87,13 +86,11 @@ struct CommandBar: View {
 
     private func labeled(_ title: String, symbol: String, tint: Color? = nil, dropdown: Bool = false) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 14))
+            AppIcon(name: symbol)
                 .foregroundStyle(tint ?? Theme.text.swiftUI)
             Text(title)
             if dropdown {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                AppIcon(name: "chevron_down_regular", size: 10)
                     .foregroundStyle(Theme.secondaryText.swiftUI)
             }
         }
@@ -158,7 +155,7 @@ private struct ShareButton: View {
     @State private var frame: CGRect = .zero
 
     var body: some View {
-        IconButton(symbol: "square.and.arrow.up", help: "Share") {
+        IconButton(symbol: "share_regular", help: "Share") {
             guard let view = NSApp.keyWindow?.contentView else { return }
             let rect = view.isFlipped ? frame : NSRect(
                 x: frame.minX, y: view.bounds.height - frame.maxY, width: frame.width, height: frame.height

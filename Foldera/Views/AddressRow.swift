@@ -7,17 +7,17 @@ struct AddressRow: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            IconButton(symbol: "arrow.left", help: "Back (⌘[)") { tab.goBack() }
+            IconButton(symbol: "arrow_left_regular", help: "Back (⌘[)") { tab.goBack() }
                 .disabled(!tab.canGoBack)
                 .contextMenu { historyMenu(tab.backHistory, back: true) }
-            IconButton(symbol: "arrow.right", help: "Forward (⌘])") { tab.goForward() }
+            IconButton(symbol: "arrow_right_regular", help: "Forward (⌘])") { tab.goForward() }
                 .disabled(!tab.canGoForward)
                 .contextMenu { historyMenu(tab.forwardHistory, back: false) }
-            IconButton(symbol: "arrow.up", help: "Up to “\(BrowserTab.displayName(of: tab.url.deletingLastPathComponent()))” (⌘↑)") {
+            IconButton(symbol: "arrow_up_regular", help: "Up to “\(BrowserTab.displayName(of: tab.url.deletingLastPathComponent()))” (⌘↑)") {
                 tab.goUp()
             }
             .disabled(!tab.canGoUp)
-            IconButton(symbol: "arrow.clockwise", help: "Refresh (⌘R)") { tab.reload() }
+            IconButton(symbol: "arrow_clockwise_regular", help: "Refresh (⌘R)") { tab.reload() }
                 .padding(.trailing, 4)
 
             AddressBar(model: model, tab: tab)
@@ -167,8 +167,7 @@ private struct Segment: View {
             Button {
                 popUpMenu(SubfolderMenu.make(for: url, tab: tab))
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                AppIcon(name: "chevron_right_regular", size: 12)
                     .foregroundStyle(Theme.secondaryText.swiftUI)
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4)))
@@ -252,15 +251,13 @@ private struct SearchBox: View {
                 }
                 .onSubmit { tab.requestListFocus() }
             if tab.searchText.isEmpty {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                AppIcon(name: "search_regular", size: 14)
                     .foregroundStyle(Theme.secondaryText.swiftUI)
             } else {
                 Button {
                     tab.searchText = ""
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                    AppIcon(name: "dismiss_regular", size: 12)
                 }
                 .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
             }

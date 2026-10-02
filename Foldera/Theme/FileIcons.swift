@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// Icon lookup with caching. Plain folders get a Windows 11 style yellow folder; everything else uses the system icon.
@@ -41,5 +42,26 @@ enum FileIcons {
         let image = make()
         cache.setObject(image, forKey: key as NSString)
         return image
+    }
+}
+
+/// An interface icon: a Fluent UI System Icon from the asset catalog when one exists
+/// (e.g. "cut_regular"), otherwise an SF Symbol with that name.
+struct AppIcon: View {
+    let name: String
+    var size: CGFloat = 16
+
+    var body: some View {
+        if NSImage(named: "Fluent/" + name) != nil {
+            Image("Fluent/" + name)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: name)
+                .font(.system(size: size * 0.85))
+                .frame(width: size, height: size)
+        }
     }
 }

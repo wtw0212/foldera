@@ -57,7 +57,7 @@ final class QuickAccess {
         return Location(
             url: url,
             title: FileManager.default.displayName(atPath: url.path),
-            symbol: "folder.fill",
+            symbol: "folder_filled",
             tint: Theme.folderFront.swiftUI
         )
     }

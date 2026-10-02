@@ -45,13 +45,13 @@ struct IconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14))
+            AppIcon(name: symbol, size: 16)
                 .foregroundStyle(tint ?? Theme.text.swiftUI)
                 .frame(width: 18, height: 18)
         }
         .buttonStyle(SubtleButtonStyle())
         .help(help)
+        .accessibilityLabel(Text(help.replacingOccurrences(of: #" \(.*\)$"#, with: "", options: .regularExpression)))
     }
 }
 

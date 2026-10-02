@@ -23,7 +23,7 @@ struct NavigationPane: View {
                 divider
                 NavigationRow(
                     title: "This Mac",
-                    icon: AnyView(symbol("desktopcomputer", tint: Theme.accent.swiftUI)),
+                    icon: AnyView(symbol("laptop_filled", tint: Theme.accent.swiftUI)),
                     isSelected: false,
                     expansion: $isThisMacExpanded,
                     action: { isThisMacExpanded.toggle() }
@@ -58,7 +58,7 @@ struct NavigationPane: View {
             isSelected: tab.url == location.url.normalizedFileURL,
             indent: indent,
             expansion: expansion(key: key, url: location.url),
-            trailingSymbol: pinned ? "pin" : nil,
+            trailingSymbol: pinned ? "pin_regular" : nil,
             action: { open(location.url) }
         )
         .help(location.url.path)
@@ -112,10 +112,8 @@ struct NavigationPane: View {
     }
 
     private func symbol(_ name: String, tint: Color) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 14))
+        AppIcon(name: name, size: 18)
             .foregroundStyle(tint)
-            .frame(width: 18, height: 18)
     }
 }
 
@@ -134,8 +132,7 @@ private struct NavigationRow: View {
         HStack(spacing: 6) {
             Group {
                 if let expansion {
-                    Image(systemName: expansion.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    AppIcon(name: expansion.wrappedValue ? "chevron_down_regular" : "chevron_right_regular", size: 12)
                         .foregroundStyle(Theme.secondaryText.swiftUI)
                         .frame(width: 12, height: 20)
                         .contentShape(Rectangle())
@@ -152,8 +149,7 @@ private struct NavigationRow: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             if let trailingSymbol {
-                Image(systemName: trailingSymbol)
-                    .font(.system(size: 10))
+                AppIcon(name: trailingSymbol, size: 13)
                     .foregroundStyle(Theme.tertiaryText.swiftUI)
             }
         }

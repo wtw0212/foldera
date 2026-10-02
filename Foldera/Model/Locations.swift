@@ -17,24 +17,24 @@ enum StandardLocations {
 
     static var home: Location {
         let url = fileManager.homeDirectoryForCurrentUser
-        return Location(url: url, title: "Home", symbol: "house.fill", tint: Color(nsColor: .init(hex: 0x4F8BD6)))
+        return Location(url: url, title: "Home", symbol: "home_filled", tint: Color(nsColor: .init(hex: 0x4F8BD6)))
     }
 
     static var iCloudDrive: Location? {
         let url = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         guard fileManager.fileExists(atPath: url.path) else { return nil }
-        return Location(url: url, title: "iCloud Drive", symbol: "icloud.fill", tint: Color(nsColor: .init(hex: 0x3D9BE9)))
+        return Location(url: url, title: "iCloud Drive", symbol: "cloud_filled", tint: Color(nsColor: .init(hex: 0x3D9BE9)))
     }
 
     static var pinned: [Location] {
         let entries: [(FileManager.SearchPathDirectory, String, String, UInt32)] = [
-            (.desktopDirectory, "Desktop", "menubar.dock.rectangle", 0x3A86D9),
-            (.downloadsDirectory, "Downloads", "arrow.down.circle.fill", 0x2E9D57),
-            (.documentDirectory, "Documents", "doc.text.fill", 0x6A7B8F),
-            (.picturesDirectory, "Pictures", "photo.fill", 0x2F8FD8),
-            (.musicDirectory, "Music", "music.note", 0xE8663C),
-            (.moviesDirectory, "Movies", "film.fill", 0x8B5CD6),
-            (.applicationDirectory, "Applications", "square.grid.2x2.fill", 0x4F8BD6),
+            (.desktopDirectory, "Desktop", "desktop_filled", 0x3A86D9),
+            (.downloadsDirectory, "Downloads", "arrow_circle_down_filled", 0x2E9D57),
+            (.documentDirectory, "Documents", "document_filled", 0x6A7B8F),
+            (.picturesDirectory, "Pictures", "image_filled", 0x2F8FD8),
+            (.musicDirectory, "Music", "music_note_2_filled", 0xE8663C),
+            (.moviesDirectory, "Movies", "video_filled", 0x8B5CD6),
+            (.applicationDirectory, "Applications", "apps_filled", 0x4F8BD6),
         ]
         return entries.compactMap { directory, title, symbol, tint in
             let domain: FileManager.SearchPathDomainMask = directory == .applicationDirectory ? .localDomainMask : .userDomainMask
@@ -71,8 +71,9 @@ final class VolumeMonitor {
             return Location(
                 url: url,
                 title: values?.volumeLocalizedName ?? url.lastPathComponent,
-                symbol: external ? "externaldrive.fill" : "internaldrive.fill",
-                tint: Color(nsColor: .init(hex: 0x7A8594))
+                symbol: "hard_drive_filled",
+                // Removable and external drives get a blue tint so they stand out from the startup disk.
+                tint: Color(nsColor: .init(hex: external ? 0x3A86D9 : 0x7A8594))
             )
         }
     }
