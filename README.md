@@ -32,6 +32,18 @@ A stable signature matters: macOS ties folder permissions and Full Disk Access t
 
 For folders protected by macOS privacy controls (Mail, Safari and so on), grant Foldera **Full Disk Access** in System Settings › Privacy & Security.
 
+## Install from a DMG
+
+```bash
+./scripts/make-dmg.sh
+```
+
+builds a Release app and writes `build/Foldera-<version>.dmg`. Open it and drag Foldera to Applications.
+
+Then grant Full Disk Access once: Foldera ▸ Settings ▸ Access ▸ **Open Privacy & Security Settings**, and drag Foldera (shown in Finder) into the Full Disk Access list, or click **+** and pick `/Applications/Foldera.app`. macOS never adds apps to that list by itself.
+
+The DMG is signed with your development certificate, so it runs on your Macs. To share it with other people, set `SIGN_IDENTITY` to a Developer ID certificate and `NOTARY_PROFILE` to a notarytool profile (see the script header).
+
 ## Layout
 
 | Path | Contents |

@@ -80,6 +80,14 @@ private struct AccessSettings: View {
                 .foregroundStyle(.secondary)
             if !access.hasFullDiskAccess {
                 Button("Open Privacy & Security Settings") { access.openSettings() }
+                Text("macOS doesn't add apps to this list by itself. Drag Foldera (revealed in Finder) into the list, or click + and choose it, then turn it on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if access.isRunningOutsideApplications {
+                    Text("Foldera is running from \(access.appLocation). Install it in Applications first (from the DMG) so the permission sticks to the copy you use.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Toggle("Show the reminder bar in windows", isOn: Binding(
                     get: { !access.isBannerDismissed },
                     set: { access.isBannerDismissed = !$0 }

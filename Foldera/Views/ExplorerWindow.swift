@@ -184,7 +184,8 @@ private struct FullDiskAccessBar: View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle.fill")
                 .foregroundStyle(Theme.accent.swiftUI)
-            Text("Give Foldera Full Disk Access so it can open every folder without asking each time.")
+            Text("Give Foldera Full Disk Access so it can open every folder without asking. In Settings, drag Foldera (shown in Finder) into the list, or click + and choose it.")
+                .lineLimit(2)
                 .foregroundStyle(Theme.text.swiftUI)
             Spacer()
             Button("Open Settings") { access.openSettings() }
