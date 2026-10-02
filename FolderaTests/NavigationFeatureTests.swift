@@ -30,7 +30,7 @@ struct NavigationFeatureTests {
 
     @Test func addressCommandParsing() {
         #expect(AddressCommand.split("  code  src/app ") == ("code", "src/app"))
-        #expect(AddressCommand.split("cmd") == ("cmd", ""))
+        #expect(AddressCommand.split("terminal") == ("terminal", ""))
         #expect(AddressCommand.shellQuoted("/Users/me/it's here") == "'/Users/me/it'\\''s here'")
         #expect(AddressCommand.executableOnPath("ls"))
         #expect(!AddressCommand.executableOnPath("definitely-not-a-command-xyz"))

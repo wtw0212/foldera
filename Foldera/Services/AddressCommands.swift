@@ -1,11 +1,11 @@
 import AppKit
 
-/// Commands typed in the address bar, like Explorer's ("cmd" opens a terminal in the current folder).
+/// Commands typed in the address bar.
 ///
-/// - `cmd`, `terminal`, `term`, `zsh`, `bash`, `powershell`… open the terminal here; with arguments
-///   (`cmd git status`, `zsh -c 'make'`), they run that command here in Terminal.
+/// - `terminal`, `zsh`, `bash`, `sh`, `fish` open the terminal here; with arguments
+///   (`terminal make`, `zsh -c 'make'`) they run that command here in Terminal.
 /// - `code`, `cursor`, `zed`, `subl`, `xed` open the folder (or a named file) in that editor.
-/// - `finder`, `notepad`, `calc`, `taskmgr`, `control` open their Mac counterparts.
+/// - `finder` (or `open .`) shows the folder in Finder.
 /// - Any app name (`safari`, `Music`) launches it; any command on the PATH (`ls -la`, `git log`) runs in Terminal.
 nonisolated enum AddressCommand {
     /// Terminal app choices for Settings, by bundle identifier.
@@ -19,7 +19,7 @@ nonisolated enum AddressCommand {
         ("org.alacritty", "Alacritty"),
     ]
 
-    private static let terminalAliases: Set<String> = ["cmd", "terminal", "term", "shell", "powershell", "pwsh", "wt", "sh", "zsh", "bash", "fish"]
+    private static let terminalAliases: Set<String> = ["terminal", "sh", "zsh", "bash", "fish"]
     /// Shells keep their name in the command (`bash script.sh`); the rest are just "open a terminal".
     private static let shells: Set<String> = ["sh", "zsh", "bash", "fish"]
 
@@ -31,16 +31,7 @@ nonisolated enum AddressCommand {
         "xed": ["com.apple.dt.Xcode"],
     ]
 
-    /// Windows commands people type out of habit, mapped to the Mac app that does the job.
-    private static let windowsApps: [String: String] = [
-        "notepad": "com.apple.TextEdit",
-        "calc": "com.apple.calculator",
-        "taskmgr": "com.apple.ActivityMonitor",
-        "control": "com.apple.systempreferences",
-        "mspaint": "com.apple.Preview",
-    ]
-
-    /// Built-in commands (terminal, editors, Windows names). Checked before relative paths.
+    /// Built-in commands (terminal, editors, Finder). Checked before relative paths.
     /// Returns false when `text` isn't one.
     @MainActor
     static func runBuiltIn(_ text: String, in folder: URL) -> Bool {
@@ -50,10 +41,7 @@ nonisolated enum AddressCommand {
             if arguments.isEmpty {
                 openTerminal(at: folder)
             } else {
-                var line = shells.contains(name) ? text : arguments
-                // `cmd /k dir` / `cmd /c dir` from Windows habit.
-                if line.lowercased().hasPrefix("/k ") || line.lowercased().hasPrefix("/c ") { line = String(line.dropFirst(3)) }
-                runInTerminal(line, in: folder)
+                runInTerminal(shells.contains(name) ? text : arguments, in: folder)
             }
             return true
         }
@@ -68,12 +56,8 @@ nonisolated enum AddressCommand {
             }
             return true
         }
-        if name == "finder" || name == "explorer" {
+        if (name == "finder" && arguments.isEmpty) || (name == "open" && arguments == ".") {
             NSWorkspace.shared.open(folder)
-            return true
-        }
-        if arguments.isEmpty, let bundleID = windowsApps[name], let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            launch(app)
             return true
         }
         return false

@@ -83,14 +83,14 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 
 ## Address bar commands
 
-Like Explorer, the address bar takes more than paths:
+The address bar takes more than paths:
 
 | Type | Does |
 |---|---|
-| `cmd`, `terminal`, `zsh` … | Opens the terminal (Settings ▸ General) in the current folder |
-| `cmd git status`, `ls -la` | Runs the command in Terminal, in the current folder |
+| `terminal`, `zsh`, `bash` … | Opens the terminal (Settings ▸ General) in the current folder |
+| `git status`, `ls -la` | Runs the command in Terminal, in the current folder |
 | `code`, `cursor`, `zed`, `subl`, `xed` | Opens the folder in that editor (`code README.md` opens a file) |
-| `notepad`, `calc`, `taskmgr`, `control` | TextEdit, Calculator, Activity Monitor, System Settings |
+| `finder`, `open .` | Shows the folder in Finder |
 | an app name (`safari`) | Launches the app |
 | `https://…`, `smb://server/share` | Opens the link or connects to the share |
 | `Documents`, `../dist` | Relative paths from the current folder |

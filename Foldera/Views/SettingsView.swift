@@ -37,7 +37,7 @@ private struct GeneralSettings: View {
             Picker("Terminal:", selection: $settings.terminalApp) {
                 ForEach(installedTerminals, id: \.id) { Text($0.name).tag($0.id) }
             }
-            Text("Type “cmd” or “terminal” in the address bar to open it in the current folder, or a command (“git status”) to run it there.")
+            Text("Type “terminal” in the address bar to open it in the current folder, or a command (“git status”) to run it there.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
