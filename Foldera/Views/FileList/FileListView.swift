@@ -253,6 +253,9 @@ struct FileListView: NSViewRepresentable {
             if column == .name {
                 let cell = tableView.makeView(withIdentifier: NameCellView.identifier, owner: nil) as? NameCellView ?? NameCellView()
                 cell.iconView.image = FileIcons.icon(for: item)
+                // Hidden items (shown with "Hidden items" on) get a faded icon and gray name, like Explorer.
+                cell.iconView.alphaValue = item.isHidden ? 0.45 : 1
+                cell.label.textColor = item.isHidden ? Theme.tertiaryText : Theme.text
                 cell.label.stringValue = item.title(showExtensions: presentation.showExtensions)
                 cell.setEditing(false)
                 cell.alphaValue = alpha

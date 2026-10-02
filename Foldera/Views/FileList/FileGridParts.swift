@@ -110,6 +110,9 @@ final class FileGridCell: NSView {
             label.isHidden = index >= details.count
         }
         alphaValue = dimmed ? 0.5 : 1
+        // Hidden items get a faded icon and gray name, like Explorer.
+        iconView.alphaValue = item.isHidden ? 0.45 : 1
+        nameLabel.textColor = item.isHidden ? Theme.tertiaryText : Theme.text
         toolTip = item.name
         needsLayout = true
     }

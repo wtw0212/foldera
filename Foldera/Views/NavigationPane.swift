@@ -68,9 +68,13 @@ struct NavigationPane: View {
         ForEach(tree.rows(under: location.url, section: key)) { row in
             NavigationRow(
                 title: FileManager.default.displayName(atPath: row.url.path),
-                icon: AnyView(Image(nsImage: FileIcons.folder).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                icon: AnyView(
+                    Image(nsImage: FileIcons.folder).resizable().frame(width: 16, height: 16).frame(width: 18)
+                        .opacity(Self.isHidden(row.url) ? 0.45 : 1)
+                ),
                 isSelected: tab.url == row.url,
                 indent: indent + row.depth,
+                dimmed: Self.isHidden(row.url),
                 expansion: expansion(key: row.key, url: row.url),
                 action: { open(row.url) }
             )
@@ -111,6 +115,10 @@ struct NavigationPane: View {
         }
     }
 
+    private static func isHidden(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isHiddenKey]).isHidden) ?? url.lastPathComponent.hasPrefix(".")
+    }
+
     private func symbol(_ name: String, tint: Color) -> some View {
         AppIcon(name: name, size: 18)
             .foregroundStyle(tint)
@@ -122,6 +130,7 @@ private struct NavigationRow: View {
     let icon: AnyView
     let isSelected: Bool
     var indent = 0
+    var dimmed = false
     var expansion: Binding<Bool>? = nil
     var trailingSymbol: String? = nil
     let action: () -> Void
@@ -145,7 +154,7 @@ private struct NavigationRow: View {
             icon
             Text(title)
                 .font(Theme.font)
-                .foregroundStyle(Theme.text.swiftUI)
+                .foregroundStyle(dimmed ? Theme.tertiaryText.swiftUI : Theme.text.swiftUI)
                 .lineLimit(1)
             Spacer(minLength: 4)
             if let trailingSymbol {
