@@ -5,10 +5,21 @@
 # Optional, for sharing with other Macs (needs a paid Apple Developer account):
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"   sign the app and DMG for distribution
 #   NOTARY_PROFILE=foldera   notarize with a profile saved by `xcrun notarytool store-credentials foldera`
+#   SIGN_IDENTITY=-   build with ad-hoc signing, without an Apple developer certificate
+#   VERSION=0.2.0 BUILD_NUMBER=42   override the version and build number for a release
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION=$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml | head -1)
+VERSION=${VERSION:-$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' project.yml | head -1)}
+if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo "Version must be MAJOR.MINOR.PATCH, for example 0.2.0" >&2
+    exit 1
+fi
+BUILD_NUMBER=${BUILD_NUMBER:-1}
+if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Build number must be a positive integer" >&2
+    exit 1
+fi
 mkdir -p dist
 DMG="dist/Foldera-${VERSION}.dmg"
 APP="build.noindex/release/Build/Products/Release/Foldera.app"
@@ -17,10 +28,14 @@ echo "▸ Building Foldera ${VERSION} (Release)"
 xcodegen generate --quiet
 SIGN_ARGS=()
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
-    SIGN_ARGS=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=${SIGN_IDENTITY}" OTHER_CODE_SIGN_FLAGS=--timestamp)
+    SIGN_ARGS=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=${SIGN_IDENTITY}")
+    if [[ "$SIGN_IDENTITY" != "-" ]]; then
+        SIGN_ARGS+=(OTHER_CODE_SIGN_FLAGS=--timestamp)
+    fi
 fi
 xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' \
-    -derivedDataPath build.noindex/release ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
+    -derivedDataPath build.noindex/release "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
+    'ARCHS=arm64 x86_64' ONLY_ACTIVE_ARCH=NO ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
 
 echo "▸ Staging DMG contents"
 rm -rf build.noindex/dmg
@@ -33,7 +48,11 @@ rm -f "$DMG"
 hdiutil create -volname "Foldera ${VERSION}" -srcfolder build.noindex/dmg -ov -format UDZO "$DMG" >/dev/null 2>&1
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
-    codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG"
+    if [[ "$SIGN_IDENTITY" == "-" ]]; then
+        codesign --sign - "$DMG"
+    else
+        codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG"
+    fi
 fi
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
     echo "▸ Notarizing"

@@ -1,0 +1,28 @@
+# Releasing Foldera
+
+Push a version tag on the commit you want to distribute:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The Release workflow tests the tagged source, builds a universal app for Apple Silicon and Intel Macs, and publishes `Foldera-0.2.0.dmg` and `SHA256SUMS.txt` in a GitHub release with generated release notes. Tags must use `vMAJOR.MINOR.PATCH`. The tag sets the app's version, so `project.yml` does not need a separate version edit. The Actions run number sets the build number.
+
+Pull requests changing the release workflow, packaging script or project configuration run the same tests and packaging checks. They save build artifacts without publishing a release. **Run workflow** in GitHub Actions also performs a build without publishing.
+
+The workflow uses GitHub's built-in token; no personal access token is needed. Published builds are **ad-hoc signed and not notarized by Apple**. Developer ID signing and notarization require Apple Developer credentials and are not configured in this workflow. The local packaging script still supports `SIGN_IDENTITY` and `NOTARY_PROFILE` for signed and notarized builds.
+
+For a local CI-style package:
+
+```bash
+VERSION=0.2.0 BUILD_NUMBER=42 SIGN_IDENTITY=- bash scripts/make-dmg.sh
+```
+
+Download both release files into the same directory and verify the checksum with:
+
+```bash
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+The app requires macOS 15 or later. After installing, grant Full Disk Access as described in the README.
