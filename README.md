@@ -14,8 +14,8 @@ open Foldera.xcodeproj
 Or from the command line:
 
 ```bash
-xcodebuild -project Foldera.xcodeproj -scheme Foldera -derivedDataPath build/DerivedData build
-open build/DerivedData/Build/Products/Debug/Foldera.app
+xcodebuild -project Foldera.xcodeproj -scheme Foldera -derivedDataPath build.noindex/debug build
+open build.noindex/debug/Build/Products/Debug/Foldera.app
 ```
 
 `Foldera.xcodeproj` is generated from `project.yml`. Edit `project.yml`, not the project file.
@@ -38,7 +38,7 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 ./scripts/make-dmg.sh
 ```
 
-builds a Release app and writes `build/Foldera-<version>.dmg`. Open it and drag Foldera to Applications.
+builds a Release app and writes `dist/Foldera-<version>.dmg`. Open it and drag Foldera to Applications.
 
 Then grant Full Disk Access once: Foldera ▸ Settings ▸ Access ▸ **Open Privacy & Security Settings**, and drag Foldera (shown in Finder) into the Full Disk Access list, or click **+** and pick `/Applications/Foldera.app`. macOS never adds apps to that list by itself.
 

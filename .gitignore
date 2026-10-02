@@ -1,5 +1,7 @@
-# Xcode
+# Xcode — build output lives in *.noindex folders so Spotlight and Launchpad don't list stray app copies
 build/
+build.noindex/
+dist/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/

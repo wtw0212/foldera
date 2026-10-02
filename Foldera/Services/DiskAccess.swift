@@ -15,6 +15,7 @@ final class DiskAccess {
     var showsBanner: Bool { !hasFullDiskAccess && !isBannerDismissed }
 
     @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
 
     private init() {
         isBannerDismissed = UserDefaults.standard.bool(forKey: "fullDiskAccessBannerDismissed")
@@ -24,6 +25,7 @@ final class DiskAccess {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.hasFullDiskAccess = DiskAccess.check() }
         }
+        if !hasFullDiskAccess { startPolling() }
     }
 
     /// macOS never lists apps under Full Disk Access by itself: the user has to add them with "+"
@@ -48,10 +50,35 @@ final class DiskAccess {
         !Bundle.main.bundleURL.path.contains("/Applications/")
     }
 
-    /// The TCC database folder is only listable with Full Disk Access, and reading it never triggers a prompt.
-    private static func check() -> Bool {
-        let probe = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/com.apple.TCC")
-        return (try? FileManager.default.contentsOfDirectory(atPath: probe.path)) != nil
+    /// Folders that only an app with Full Disk Access can list. Reading them never shows a prompt.
+    /// Several are tried because not every Mac has all of them.
+    private static let probes = [
+        "Library/Application Support/com.apple.TCC",
+        "Library/Safari",
+        "Library/Mail",
+        "Library/Messages",
+    ]
+
+    static func check() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return probes.contains { path in
+            let url = home.appendingPathComponent(path)
+            guard FileManager.default.fileExists(atPath: url.path) else { return false }
+            return (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
+        }
+    }
+
+    /// Re-checks every few seconds while access is missing, so the bar disappears soon after it's granted.
+    private func startPolling() {
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard let self else { return }
+                if DiskAccess.check() {
+                    self.hasFullDiskAccess = true
+                    return
+                }
+            }
+        }
     }
 }

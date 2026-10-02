@@ -80,7 +80,7 @@ private struct AccessSettings: View {
                 .foregroundStyle(.secondary)
             if !access.hasFullDiskAccess {
                 Button("Open Privacy & Security Settings") { access.openSettings() }
-                Text("macOS doesn't add apps to this list by itself. Drag Foldera (revealed in Finder) into the list, or click + and choose it, then turn it on.")
+                Text("macOS doesn't add apps to this list by itself. Drag Foldera (revealed in Finder) into the list, or click + and choose it, then turn it on. If it still says Not granted, quit and reopen Foldera — macOS applies the change on relaunch.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if access.isRunningOutsideApplications {
