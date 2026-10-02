@@ -102,7 +102,7 @@ final class AppSettings {
 
     private init() {
         language = .saved
-        theme = defaults.string(forKey: Key.theme).flatMap(AppTheme.init(rawValue:)) ?? .system
+        theme = defaults.string(forKey: Key.theme).flatMap { AppTheme(rawValue: $0.lowercased()) } ?? .system
         defaults.register(defaults: [
             Key.showHiddenFiles: false,
             Key.showExtensions: true,
