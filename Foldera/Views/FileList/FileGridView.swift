@@ -12,6 +12,7 @@ struct FileGridView: NSViewRepresentable {
     let renameRequest: BrowserTab.RenameRequest?
     let focusToken: Int
     let openInNewTab: (URL) -> Void
+    let openInBackgroundTab: (URL) -> Void
     var onFocus: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -246,6 +247,10 @@ struct FileGridView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func openInBackgroundTab(index: Int) {
+            guard index < items.count, items[index].isNavigable else { return }
+            parent?.openInBackgroundTab(items[index].url)
+        }
         func toggleQuickLook() {
             QuickLook.shared.toggle { [weak self] in self?.tab?.selectedItems.map(\.url) ?? [] }
         }

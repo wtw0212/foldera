@@ -8,6 +8,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             ViewSettings()
                 .tabItem { Label("View", systemImage: "eye") }
+            CloudSettings()
+                .tabItem { Label("Cloud", systemImage: "cloud") }
             AccessSettings()
                 .tabItem { Label("Access", systemImage: "lock.shield") }
         }
@@ -32,7 +34,58 @@ private struct GeneralSettings: View {
             Text("F2 always renames. ⌘↓ always opens.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Picker("Terminal:", selection: $settings.terminalApp) {
+                ForEach(installedTerminals, id: \.id) { Text($0.name).tag($0.id) }
+            }
+            Text("Type “cmd” or “terminal” in the address bar to open it in the current folder, or a command (“git status”) to run it there.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+    }
+
+    private var installedTerminals: [(id: String, name: String)] {
+        AddressCommand.terminals.filter { $0.id == settings.terminalApp || NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.id) != nil }
+    }
+}
+
+private struct CloudSettings: View {
+    @State private var cloud = CloudDrives.shared
+
+    var body: some View {
+        Form {
+            LabeledContent("Cloud drives:") {
+                VStack(alignment: .leading, spacing: 6) {
+                    if cloud.locations.isEmpty {
+                        Text("None found").foregroundStyle(.secondary)
+                    }
+                    ForEach(cloud.locations) { location in
+                        HStack {
+                            Label(location.title, systemImage: "cloud.fill")
+                                .foregroundStyle(location.tint)
+                            Spacer()
+                            if cloud.isAdded(location.url) {
+                                Button("Remove") { cloud.remove(location.url) }
+                            }
+                        }
+                        .help(location.url.path)
+                    }
+                    Button("Add Folder…") { cloud.chooseFolder() }
+                }
+            }
+            Text("OneDrive, Google Drive, Dropbox and Box show up here by themselves once their app is set up. Add Folder shows any other synced or network folder in the navigation pane.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !cloud.missingProviders.isEmpty {
+                LabeledContent("Get a cloud app:") {
+                    HStack {
+                        ForEach(cloud.missingProviders) { provider in
+                            Button(provider.name) { NSWorkspace.shared.open(provider.download) }
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { cloud.refresh() }
     }
 }
 

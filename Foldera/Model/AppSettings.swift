@@ -38,6 +38,8 @@ final class AppSettings {
     /// Return renames like Finder instead of opening like Explorer.
     var returnKeyRenames: Bool { didSet { defaults.set(returnKeyRenames, forKey: Key.returnKeyRenames) } }
     var startLocation: StartLocation { didSet { defaults.set(startLocation.rawValue, forKey: Key.startLocation) } }
+    /// Bundle ID of the terminal that "cmd" in the address bar opens.
+    var terminalApp: String { didSet { defaults.set(terminalApp, forKey: Key.terminalApp) } }
 
     /// Shows `pane`, or hides it if it is already showing (like Explorer's toggles).
     func toggle(_ pane: SidePane) {
@@ -56,6 +58,7 @@ final class AppSettings {
         static let sidePane = "sidePane"
         static let returnKeyRenames = "returnKeyRenames"
         static let startLocation = "startLocation"
+        static let terminalApp = "terminalApp"
     }
 
     private init() {
@@ -71,6 +74,7 @@ final class AppSettings {
         showNavigationPane = defaults.bool(forKey: Key.showNavigationPane)
         returnKeyRenames = defaults.bool(forKey: Key.returnKeyRenames)
         startLocation = defaults.string(forKey: Key.startLocation).flatMap(StartLocation.init(rawValue:)) ?? .home
+        terminalApp = defaults.string(forKey: Key.terminalApp) ?? "com.apple.Terminal"
         // "preview" was a separate pane in earlier builds; it is part of Details now.
         let storedPane = defaults.string(forKey: Key.sidePane)
         sidePane = storedPane == "preview" ? .details : storedPane.flatMap(SidePane.init(rawValue:)) ?? .none

@@ -22,6 +22,10 @@ struct TabStrip: View {
                         if !model.closeTab(tab.id) { NSApp.keyWindow?.performClose(nil) }
                     }
                 )
+                // Middle-click closes, like a browser or Explorer.
+                .onMiddleClick {
+                    if !model.closeTab(tab.id) { NSApp.keyWindow?.performClose(nil) }
+                }
                 .draggable(tab.id.uuidString)
                 .dropDestination(for: String.self) { ids, _ in
                     guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }

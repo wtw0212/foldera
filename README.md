@@ -79,6 +79,27 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 | Dual pane on/off | ⌥⌘D |
 | Copy / move selection to other pane | F5 / F6 |
+| Open folder in background tab / close tab | Middle-click a folder / a tab |
+
+## Address bar commands
+
+Like Explorer, the address bar takes more than paths:
+
+| Type | Does |
+|---|---|
+| `cmd`, `terminal`, `zsh` … | Opens the terminal (Settings ▸ General) in the current folder |
+| `cmd git status`, `ls -la` | Runs the command in Terminal, in the current folder |
+| `code`, `cursor`, `zed`, `subl`, `xed` | Opens the folder in that editor (`code README.md` opens a file) |
+| `notepad`, `calc`, `taskmgr`, `control` | TextEdit, Calculator, Activity Monitor, System Settings |
+| an app name (`safari`) | Launches the app |
+| `https://…`, `smb://server/share` | Opens the link or connects to the share |
+| `Documents`, `../dist` | Relative paths from the current folder |
+
+## Cloud drives
+
+OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.
+
+Drag a folder onto the edge of a Quick access pin, or onto the dividers around the pins, to pin it there; dropping on the middle of a pin still moves or copies into that folder.
 
 ## Roadmap
 

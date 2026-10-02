@@ -234,6 +234,13 @@ final class FileCollectionView: NSCollectionView {
         }
     }
 
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
+        if let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+            commands?.openInBackgroundTab(index: indexPath.item)
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         if let commands, FileKeys.handle(event, commands) { return }
         super.keyDown(with: event)

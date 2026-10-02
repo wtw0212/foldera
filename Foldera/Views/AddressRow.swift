@@ -63,7 +63,7 @@ private struct AddressBar: View {
                         isFocused = true
                     }
             } else {
-                Breadcrumbs(tab: tab)
+                Breadcrumbs(model: model, tab: tab)
                     .padding(.leading, 6)
             }
         }
@@ -85,18 +85,31 @@ private struct AddressBar: View {
         .onTapGesture { model.isEditingAddress = true }
     }
 
+    /// Like Explorer's address bar: a path (absolute, ~, or relative to this folder), a web address,
+    /// or a command (see `AddressCommand`).
     private func commit() {
-        let path = (text.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
-        var isDirectory: ObjCBool = false
+        let input = text.trimmingCharacters(in: .whitespaces)
         model.isEditingAddress = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            let alert = NSAlert()
-            alert.messageText = "Foldera can’t find “\(text)”."
-            alert.informativeText = "Check the spelling and try again."
-            alert.alertStyle = .warning
-            alert.runModal()
+        guard !input.isEmpty else { return }
+        if input.contains("://") || input.lowercased().hasPrefix("mailto:"), let url = URL(string: input) {
+            NSWorkspace.shared.open(url) // https://…, smb://server/share, mailto:…
             return
         }
+        let expanded = (input as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            if !openPath(expanded) { notFound(input) }
+            return
+        }
+        if AddressCommand.runBuiltIn(input, in: tab.url) { return }
+        if openPath(tab.url.appendingPathComponent(expanded).standardizedFileURL.path) { return }
+        if AddressCommand.runFallback(input, in: tab.url) { return }
+        notFound(input)
+    }
+
+    /// Opens a folder here, or a file in its app. False when nothing is at `path`.
+    private func openPath(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return false }
         let url = URL(fileURLWithPath: path)
         if isDirectory.boolValue {
             tab.navigate(to: url)
@@ -104,6 +117,15 @@ private struct AddressBar: View {
             NSWorkspace.shared.open(url)
         }
         tab.requestListFocus()
+        return true
+    }
+
+    private func notFound(_ input: String) {
+        let alert = NSAlert()
+        alert.messageText = "Foldera can’t find “\(input)”."
+        alert.informativeText = "Check the spelling and try again."
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     private func cancel() {
@@ -112,6 +134,7 @@ private struct AddressBar: View {
 }
 
 private struct Breadcrumbs: View {
+    let model: ExplorerWindowModel
     let tab: BrowserTab
 
     var body: some View {
@@ -128,7 +151,7 @@ private struct Breadcrumbs: View {
                             OverflowButton(hidden: Array(segments.prefix(dropped)), tab: tab)
                         }
                         ForEach(segments.dropFirst(dropped), id: \.self) { url in
-                            Segment(url: url, tab: tab)
+                            Segment(model: model, url: url, tab: tab)
                         }
                     }
                     .fixedSize()
@@ -153,6 +176,7 @@ private struct Breadcrumbs: View {
 }
 
 private struct Segment: View {
+    let model: ExplorerWindowModel
     let url: URL
     let tab: BrowserTab
 
@@ -163,6 +187,7 @@ private struct Segment: View {
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)))
             .folderDropTarget(url)
+            .onMiddleClick { model.newTab(url: url, activate: false) }
 
             Button {
                 popUpMenu(SubfolderMenu.make(for: url, tab: tab))

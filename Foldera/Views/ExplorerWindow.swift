@@ -135,6 +135,7 @@ struct ExplorerWindow: View {
                     renameRequest: tab.renameRequest,
                     focusToken: tab.focusListToken,
                     openInNewTab: { model.newTab(url: $0) },
+                    openInBackgroundTab: { model.newTab(url: $0, activate: false) },
                     onFocus: onFocus
                 )
             }
@@ -165,6 +166,7 @@ struct ExplorerWindow: View {
             focusToken: tab.focusListToken,
             isSearchResults: tab.isSearchActive,
             openInNewTab: { model.newTab(url: $0) },
+            openInBackgroundTab: { model.newTab(url: $0, activate: false) },
             onFocus: onFocus
         )
     }
