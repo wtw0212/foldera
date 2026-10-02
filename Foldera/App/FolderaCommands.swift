@@ -113,6 +113,12 @@ struct FolderaCommands: Commands {
             Divider()
         }
 
+        CommandGroup(before: .help) {
+            Button(L10n.text("Welcome to Foldera")) { explorer?.isShowingWelcome = true }
+                .disabled(explorer == nil)
+            Divider()
+        }
+
         CommandGroup(before: .windowList) {
             Button(L10n.text("Show Next Tab")) { explorer?.selectTab(offset: 1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])

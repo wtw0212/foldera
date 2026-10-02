@@ -59,7 +59,14 @@ struct ExplorerWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
-        .onAppear { TextFieldClickAway.install() }
+        .onAppear {
+            TextFieldClickAway.install()
+            model.offerWelcomeIfNeeded()
+        }
+        .sheet(isPresented: $model.isShowingWelcome) {
+            WelcomeView { model.isShowingWelcome = false }
+                .environment(\.locale, L10n.locale)
+        }
         .sheet(isPresented: Binding(
             get: { tab.bulkRenameItems != nil },
             set: { if !$0 { tab.bulkRenameItems = nil } }

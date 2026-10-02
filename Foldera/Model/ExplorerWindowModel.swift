@@ -12,6 +12,18 @@ final class ExplorerWindowModel {
     /// The newest tab opened in the background from the active tab, so further ones line up after it (like a browser).
     @ObservationIgnored private var lastBackgroundTabID: BrowserTab.ID?
     var isEditingAddress = false
+    /// The welcome sheet (first launch, or Help ▸ Welcome to Foldera).
+    var isShowingWelcome = false
+    /// The first-launch welcome goes to one window only.
+    @ObservationIgnored private static var didOfferWelcome = false
+
+    /// Shows the welcome sheet if this is the first launch (not while running tests).
+    func offerWelcomeIfNeeded() {
+        guard !Self.didOfferWelcome, !WelcomeView.hasBeenSeen,
+              ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        Self.didOfferWelcome = true
+        isShowingWelcome = true
+    }
     /// Bumped to move keyboard focus to the search box.
     private(set) var focusSearchToken = 0
 

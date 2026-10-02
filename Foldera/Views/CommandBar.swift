@@ -5,6 +5,7 @@ struct CommandBar: View {
     let model: ExplorerWindowModel
     let tab: BrowserTab
     @State private var settings = AppSettings.shared
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: 2) {
@@ -82,6 +83,8 @@ struct CommandBar: View {
             .buttonStyle(SubtleButtonStyle())
             .background(RoundedRectangle(cornerRadius: 4).fill(settings.sidePane == .details ? Theme.selection.swiftUI : .clear))
             .help(L10n.text("Details pane with preview (⌥⌘P)"))
+
+            IconButton(symbol: "settings_regular", help: L10n.text("Settings (⌘,)")) { openSettings() }
         }
         .padding(.horizontal, 8)
         .frame(height: 44)
