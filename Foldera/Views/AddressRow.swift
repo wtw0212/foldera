@@ -60,7 +60,12 @@ private struct AddressBar: View {
                     }
                     .onAppear {
                         text = tab.isThisMac ? "This Mac" : tab.url.path
-                        isFocused = true
+                        // Focus once the field is in the window; setting it during onAppear can lose to
+                        // the search box. Then select the whole path, like Explorer.
+                        DispatchQueue.main.async {
+                            isFocused = true
+                            DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                        }
                     }
             } else {
                 Breadcrumbs(model: model, tab: tab)
@@ -283,6 +288,7 @@ private struct SearchBox: View {
                 .textFieldStyle(.plain)
                 .font(Theme.font)
                 .focused($isFocused)
+                .disabled(tab.isThisMac) // nothing to search on the drives page
                 .onExitCommand {
                     tab.searchText = ""
                     tab.requestListFocus()

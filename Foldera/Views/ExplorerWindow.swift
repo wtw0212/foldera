@@ -59,6 +59,7 @@ struct ExplorerWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
+        .onAppear { TextFieldClickAway.install() }
         .sheet(isPresented: Binding(
             get: { tab.bulkRenameItems != nil },
             set: { if !$0 { tab.bulkRenameItems = nil } }

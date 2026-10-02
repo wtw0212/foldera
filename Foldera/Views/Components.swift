@@ -203,3 +203,25 @@ extension View {
         overlay(MiddleClickCatcher(action: action))
     }
 }
+
+/// Clicking outside a focused text field (address bar, search box, rename field) ends editing,
+/// like Windows. AppKit otherwise keeps the field focused until something else takes focus,
+/// and empty areas (toolbar, navigation pane, status bar) never do.
+enum TextFieldClickAway {
+    private static var monitor: Any?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+            guard let window = event.window,
+                  let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSView else { return event }
+            // A little slack so clicks on the field's own padding keep editing.
+            let hitArea = field.bounds.insetBy(dx: -10, dy: -6)
+            if !hitArea.contains(field.convert(event.locationInWindow, from: nil)) {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
+    }
+}
