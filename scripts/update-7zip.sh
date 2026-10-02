@@ -8,7 +8,8 @@ SHA256=${2:?sha256 of the download}
 NAME="7z${VERSION//./}-mac.tar.xz"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-curl -fsSL -o "$WORK/$NAME" "https://github.com/ip7z/7zip/releases/download/$VERSION/$NAME"
+# HTTPS only, including redirects (GitHub serves releases from another host).
+curl --proto '=https' --proto-redir '=https' -fsSL -o "$WORK/$NAME" "https://github.com/ip7z/7zip/releases/download/$VERSION/$NAME"
 echo "$SHA256  $WORK/$NAME" | shasum -a 256 -c -
 tar -xf "$WORK/$NAME" -C "$WORK"
 install -m 755 "$WORK/7zz" ThirdParty/7-Zip/7zz
