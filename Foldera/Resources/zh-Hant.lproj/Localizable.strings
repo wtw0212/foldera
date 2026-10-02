@@ -215,3 +215,9 @@
 "“%@” isn’t installed." = "尚未安裝「%@」。";
 "Names can’t contain a null character" = "名稱不可包含空字元";
 "Some items may have changed. Their remaining changes are available in Undo or Redo." = "部分項目可能已變更。其餘變更可透過「還原」或「重做」處理。";
+"Extract here" = "解壓縮到此處";
+"Extract to “%@”" = "解壓縮至「%@」";
+"Extract each to separate folders" = "分別解壓縮至各自的資料夾";
+"Compress to ZIP file" = "壓縮為 ZIP 檔案";
+"Extract" = "解壓縮";
+"Compress" = "壓縮";

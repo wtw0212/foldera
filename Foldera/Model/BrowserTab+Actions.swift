@@ -104,6 +104,60 @@ extension BrowserTab {
         }
     }
 
+    // MARK: Archives
+
+    enum ExtractDestination { case here, ownFolder }
+
+    var selectedArchives: [URL] { selectedItems.map(\.url).filter(Archives.isArchive) }
+
+    /// Extracts the selected archives: into this folder, or each into a folder named after it.
+    func extractSelection(_ destination: ExtractDestination) {
+        let archives = selectedArchives
+        guard !archives.isEmpty else { return }
+        runArchiveJob(name: "Extract") {
+            var created: [URL] = []
+            var failure: Error?
+            for archive in archives {
+                do {
+                    switch destination {
+                    case .here: created += try Archives.extractHere(archive, into: archive.deletingLastPathComponent())
+                    case .ownFolder: created.append(try Archives.extractToFolder(archive))
+                    }
+                } catch {
+                    failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
+                }
+            }
+            return (created, failure)
+        }
+    }
+
+    /// Finder-style Compress: "<name>.zip" for one item, "Archive.zip" for several.
+    func compressSelection() {
+        let items = selectedItems.map(\.url)
+        guard !items.isEmpty else { return }
+        let folder = url
+        runArchiveJob(name: "Compress") {
+            do {
+                return ([try Archives.compress(items, fallbackFolder: folder)], nil)
+            } catch {
+                return ([], error)
+            }
+        }
+    }
+
+    /// Runs zip/unzip off the main thread, then records undo and selects what was created.
+    private func runArchiveJob(name: String, _ job: @escaping @Sendable () -> ([URL], Error?)) {
+        Task {
+            let (created, error) = await Task.detached(priority: .userInitiated, operation: job).value
+            if !created.isEmpty {
+                FileUndo.shared.record(.created(created), name: name)
+                selection = Set(created.map(\.normalizedFileURL))
+                reload()
+            }
+            if let error { Self.present(error) }
+        }
+    }
+
     func copyPathOfSelection() {
         let paths = (hasSelection ? selectedItems.map(\.url) : [url]).map(\.path)
         NSPasteboard.general.clearContents()

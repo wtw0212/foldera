@@ -29,6 +29,17 @@ enum ContextMenus {
         menu.add(items.count > 1 ? L10n.format("rename.items.menu", items.count) : L10n.text("Rename"), symbol: "character.cursor.ibeam") { tab.beginRename() }
         menu.add(L10n.text("Delete"), symbol: "trash") { tab.trashSelection() }
         menu.addSeparator()
+        let archives = tab.selectedArchives
+        if !archives.isEmpty {
+            menu.add(L10n.text("Extract here"), symbol: "arrow.up.bin") { tab.extractSelection(.here) }
+            if archives.count == 1 {
+                menu.add(L10n.format("Extract to “%@”", Archives.baseName(of: archives[0])), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
+            } else {
+                menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
+            }
+        }
+        menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection() }
+        menu.addSeparator()
         let folders = items.filter(\.isNavigable)
         if !folders.isEmpty {
             let quickAccess = QuickAccess.shared

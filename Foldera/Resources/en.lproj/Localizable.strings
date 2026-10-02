@@ -215,3 +215,9 @@
 "“%@” isn’t installed." = "“%@” isn’t installed.";
 "Names can’t contain a null character" = "Names can’t contain a null character";
 "Some items may have changed. Their remaining changes are available in Undo or Redo." = "Some items may have changed. Their remaining changes are available in Undo or Redo.";
+"Extract here" = "Extract here";
+"Extract to “%@”" = "Extract to “%@”";
+"Extract each to separate folders" = "Extract each to separate folders";
+"Compress to ZIP file" = "Compress to ZIP file";
+"Extract" = "Extract";
+"Compress" = "Compress";
