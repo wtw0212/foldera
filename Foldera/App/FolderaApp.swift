@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct FolderaApp: App {
+    init() {
+        AppSettings.shared.applyTheme()
+    }
+
     var body: some Scene {
         WindowGroup {
             ExplorerWindow()

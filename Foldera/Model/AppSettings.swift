@@ -1,9 +1,33 @@
-import Foundation
+import AppKit
 import Observation
 
 /// The optional pane on the right of the file list (View ▸ Show). The Details pane includes a live preview.
 enum SidePane: String {
     case none, details
+}
+
+/// Light, dark, or follow macOS (Settings ▸ View ▸ Theme).
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: L10n.text("System")
+        case .light: L10n.text("Light")
+        case .dark: L10n.text("Dark")
+        }
+    }
+
+    /// nil follows the system appearance.
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 /// Where new windows and tabs open.
@@ -32,6 +56,18 @@ final class AppSettings {
 
     var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: AppLanguage.preferenceKey) } }
 
+    var theme: AppTheme {
+        didSet {
+            defaults.set(theme.rawValue, forKey: Key.theme)
+            applyTheme()
+        }
+    }
+
+    /// Every window and Theme color follows the app's appearance.
+    func applyTheme() {
+        NSApplication.shared.appearance = theme.appearance
+    }
+
     var showHiddenFiles: Bool { didSet { defaults.set(showHiddenFiles, forKey: Key.showHiddenFiles) } }
     var showExtensions: Bool { didSet { defaults.set(showExtensions, forKey: Key.showExtensions) } }
     var compactView: Bool { didSet { defaults.set(compactView, forKey: Key.compactView) } }
@@ -54,6 +90,7 @@ final class AppSettings {
 
     private enum Key {
         static let showHiddenFiles = "showHiddenFiles"
+        static let theme = "theme"
         static let showExtensions = "showExtensions"
         static let compactView = "compactView"
         static let showNavigationPane = "showNavigationPane"
@@ -65,6 +102,7 @@ final class AppSettings {
 
     private init() {
         language = .saved
+        theme = defaults.string(forKey: Key.theme).flatMap(AppTheme.init(rawValue:)) ?? .system
         defaults.register(defaults: [
             Key.showHiddenFiles: false,
             Key.showExtensions: true,

@@ -102,6 +102,11 @@ private struct ViewSettings: View {
 
     var body: some View {
         Form {
+            Picker(L10n.text("Theme:"), selection: $settings.theme) {
+                ForEach(AppTheme.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
             Picker(L10n.text("Layout for new folders:"), selection: $defaultMode) {
                 ForEach(ViewMode.allCases) { Text($0.title).tag($0) }
             }
