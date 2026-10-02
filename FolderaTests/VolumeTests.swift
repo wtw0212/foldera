@@ -4,9 +4,110 @@ import Testing
 
 @MainActor
 struct VolumeTests {
+    private func makeTree(_ directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in ["a", "b", "c"] { try Data(name.utf8).write(to: directory.appendingPathComponent(name)) }
+    }
+
+    private func expectComplete(_ directory: URL) throws {
+        for name in ["a", "b", "c"] {
+            #expect(try String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8) == name)
+        }
+    }
+
+    @Test func partiallyDeletedMoveSourceIsRebuiltBeforeUndoRemovesCompleteCopy() throws {
+        try withVolume("HFS+") { root, volume in
+            let fm = FileManager()
+            let source = volume.appendingPathComponent("source"), destination = root.appendingPathComponent("destination")
+            try makeTree(source)
+            let delegate = PartialRemovalDelegate(blocked: source.appendingPathComponent("b"))
+            let previous = fm.delegate
+            fm.delegate = delegate
+            defer { fm.delegate = previous }
+            let plan = FileTransfers.planItem(.move, source: source, destination: destination)
+            #expect(!plan.isRename)
+            let result = FileTransfers.execute([plan], progress: TransferProgress(), fileManager: fm)
+            #expect(result.error != nil && result.created.isEmpty && result.moved.isEmpty)
+            #expect(result.moveCleanups.count == 1 && result.results == [destination])
+            #expect(try fm.contentsOfDirectory(atPath: source.path) == ["b"])
+            try expectComplete(destination)
+            fm.delegate = previous
+            let undo = FileUndo(fileManager: fm)
+            undo.record(FileChange(result, kind: .move), name: "Move")
+            #expect(undo.undo() == nil)
+            try expectComplete(source)
+            #expect(!FileOperations.exists(destination))
+            // Redo restores the exact partial state; the full destination must remain authoritative.
+            #expect(undo.redo() == nil)
+            #expect(try fm.contentsOfDirectory(atPath: source.path) == ["b"])
+            try expectComplete(destination)
+            #expect(undo.undo() == nil)
+            try expectComplete(source)
+            #expect(!FileOperations.exists(destination))
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func inversePartialRemovalRebuildsFromCompleteCopy(redo: Bool) throws {
+        try withVolume("HFS+") { root, volume in
+            let fm = FileManager()
+            let source = root.appendingPathComponent("source"), destination = volume.appendingPathComponent("destination")
+            try makeTree(source)
+            try FileOperations.moveItem(source, to: destination)
+            let undo = FileUndo(fileManager: fm)
+            undo.record(.moved([(source, destination)]), name: "Move")
+            if redo { #expect(undo.undo() == nil) }
+            let partiallyRemoved = redo ? source : destination
+            let authoritative = redo ? destination : source
+            let delegate = PartialRemovalDelegate(blocked: partiallyRemoved.appendingPathComponent("b"))
+            let previous = fm.delegate
+            fm.delegate = delegate
+            defer { fm.delegate = previous }
+            #expect((redo ? undo.redo() : undo.undo()) != nil)
+            #expect(try fm.contentsOfDirectory(atPath: partiallyRemoved.path) == ["b"])
+            try expectComplete(authoritative)
+            fm.delegate = previous
+            #expect((redo ? undo.undo() : undo.redo()) == nil)
+            try expectComplete(partiallyRemoved)
+            #expect(!FileOperations.exists(authoritative))
+        }
+    }
+
+    @Test func fatCopyFitsOnePayloadAndCountsFallbackMoveProgress() throws {
+        try withVolume("MS-DOS") { root, volume in
+            let bytes = 20 * 1024 * 1024
+            let source = root.appendingPathComponent("large"), destination = volume.appendingPathComponent("large")
+            try Data(repeating: 7, count: bytes).write(to: source)
+            let available = try #require(volume.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity)
+            #expect(available > bytes && available < 2 * bytes)
+            let progress = TransferProgress(), finished = TransferProgress(), rewound = TransferProgress()
+            let group = DispatchGroup()
+            group.enter()
+            DispatchQueue.global().async {
+                defer { group.leave() }
+                var last: Int64 = 0
+                while !finished.isCancelled {
+                    let current = progress.completedBytes
+                    if current < last { rewound.cancel() }
+                    last = current
+                    Thread.sleep(forTimeInterval: 0.001)
+                }
+            }
+            defer { finished.cancel(); group.wait() }
+            try CopyEngine.copy(source, to: destination, progress: progress, baseBytes: 0)
+            finished.cancel()
+            group.wait()
+            #expect(!rewound.isCancelled && progress.completedBytes == Int64(bytes))
+            #expect(try Data(contentsOf: destination) == Data(contentsOf: source))
+            let plan = FileTransfers.planItem(.move, source: destination, destination: volume.appendingPathComponent("moved"))
+            #expect(FileOperations.sameVolume(destination, volume) && !plan.isRename)
+            #expect(plan.deleteSourceAfterCopy && FileTransfers.totalBytes([plan]) == Int64(bytes))
+        }
+    }
+
     /// Real mounted filesystems, not a forced copy/delete branch. Images and mounts are disposable.
     private func withVolume(_ filesystem: String, perform: (URL, URL) throws -> Void) throws {
-        let fm = FileManager.default
+        let fm = FileManager()
         let root = fm.temporaryDirectory.appendingPathComponent("FolderaVolume-\(UUID())")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
@@ -34,7 +135,7 @@ struct VolumeTests {
 
     @Test func crossVolumeUndoAndRedoJournalFailedSourceRemoval() async throws {
         try withVolume("HFS+") { root, volume in
-            let fm = FileManager.default
+            let fm = FileManager()
             let source = root.appendingPathComponent("source")
             let directory = volume.appendingPathComponent("destination")
             try fm.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -43,7 +144,7 @@ struct VolumeTests {
             #expect(!FileOperations.sameVolume(source, directory))
             try FileOperations.moveItem(source, to: destination)
             #expect(!FileOperations.exists(source) && FileOperations.exists(destination))
-            let undo = FileUndo()
+            let undo = FileUndo(fileManager: fm)
             undo.record(.moved([(source, destination)]), name: "Move")
             try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
             defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
@@ -51,12 +152,14 @@ struct VolumeTests {
             #expect(undo.canUndo && undo.canRedo)
             #expect(try String(contentsOf: source, encoding: .utf8) == "complete copy")
             #expect(try String(contentsOf: destination, encoding: .utf8) == "complete copy")
-            // Redo knows about the newly created inverse copy; it does not try a conflicting move.
+            // Redo must back up/rebuild the old source, so denied cleanup retains both complete copies.
+            #expect(undo.redo() != nil)
+            #expect(FileOperations.exists(source) && FileOperations.exists(destination))
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
             #expect(undo.redo() == nil)
             #expect(!FileOperations.exists(source) && FileOperations.exists(destination))
             #expect(undo.undo() == nil)
             #expect(FileOperations.exists(source) && FileOperations.exists(destination))
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
             #expect(undo.undo() == nil)
             #expect(FileOperations.exists(source) && !FileOperations.exists(destination))
 
@@ -71,6 +174,8 @@ struct VolumeTests {
             #expect(redo.canUndo && redo.canRedo)
             #expect(try String(contentsOf: source, encoding: .utf8) == "complete copy")
             #expect(try String(contentsOf: destination, encoding: .utf8) == "complete copy")
+            #expect(redo.undo() != nil)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
             #expect(redo.undo() == nil)
             #expect(FileOperations.exists(source) && !FileOperations.exists(destination))
         }
@@ -78,7 +183,7 @@ struct VolumeTests {
 
     @Test func volumeWithoutExclusiveRenameSupportsCopyMoveAndBulkRollback() throws {
         try withVolume("MS-DOS") { root, volume in
-            let fm = FileManager.default
+            let fm = FileManager()
             #expect(try volume.resourceValues(forKeys: [.volumeSupportsExclusiveRenamingKey]).volumeSupportsExclusiveRenaming == false)
             let source = root.appendingPathComponent("source")
             try fm.createDirectory(at: source.appendingPathComponent("inner"), withIntermediateDirectories: true)
@@ -90,6 +195,27 @@ struct VolumeTests {
             try FileOperations.moveItem(copied, to: moved)
             #expect(!FileOperations.exists(copied))
             #expect(try String(contentsOf: moved.appendingPathComponent("inner/file"), encoding: .utf8) == "payload")
+
+            // A fallback bulk staging move can also partially delete a source tree.
+            let tree = volume.appendingPathComponent("tree")
+            try makeTree(tree)
+            let delegate = PartialRemovalDelegate(blocked: tree.appendingPathComponent("b"))
+            let previous = fm.delegate
+            fm.delegate = delegate
+            defer { fm.delegate = previous }
+            do {
+                try BulkRename.apply([(tree, volume.appendingPathComponent("renamed-tree"))], fileManager: fm)
+                Issue.record("Expected partial source removal during bulk staging")
+            } catch let failure as FileChange.Failure {
+                #expect(failure.remaining.moveCleanups.count == 1)
+                #expect(try fm.contentsOfDirectory(atPath: tree.path) == ["b"])
+                try expectComplete(try #require(failure.remaining.moveCleanups.first?.completeCopy))
+                fm.delegate = previous
+                let undo = FileUndo(fileManager: fm)
+                undo.record(failure.remaining, name: "Rename")
+                #expect(undo.undo() == nil)
+                try expectComplete(tree)
+            }
 
             let a = volume.appendingPathComponent("a"), b = volume.appendingPathComponent("b")
             try Data("A".utf8).write(to: a)
@@ -109,5 +235,17 @@ struct VolumeTests {
             #expect(try String(contentsOf: b, encoding: .utf8) == "A")
             #expect(try String(contentsOf: moved.appendingPathComponent("inner/file"), encoding: .utf8) == "payload")
         }
+    }
+}
+
+/// Skipping one child still removes its siblings, then native recursive removal fails at the root.
+/// This exercises a real partial deletion without depending on directory traversal order.
+nonisolated private final class PartialRemovalDelegate: NSObject, FileManagerDelegate {
+    let blockedPath: String
+
+    init(blocked: URL) { blockedPath = blocked.resolvingSymlinksInPath().path }
+
+    func fileManager(_ fileManager: FileManager, shouldRemoveItemAt url: URL) -> Bool {
+        url.resolvingSymlinksInPath().path != blockedPath
     }
 }

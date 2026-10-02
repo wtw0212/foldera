@@ -34,7 +34,7 @@ struct FileTransfersTests {
         #expect(fm.fileExists(atPath: root.appendingPathComponent("file.txt").path))
     }
 
-    @Test func failedSourceRemovalRecordsDestinationAsCopy() throws {
+    @Test func failedSourceRemovalRecordsAuthoritativeCopy() throws {
         let locked = root.appendingPathComponent("locked")
         try fm.createDirectory(at: locked, withIntermediateDirectories: false)
         let source = locked.appendingPathComponent("source"), destination = root.appendingPathComponent("dest/source")
@@ -47,10 +47,13 @@ struct FileTransfersTests {
         let plan = FileTransfers.PlanItem(source: source, destination: destination, isRename: false, deleteSourceAfterCopy: true)
         let result = FileTransfers.execute([plan], progress: TransferProgress())
         #expect(result.error != nil)
-        #expect(result.created == [destination] && result.results == [destination])
+        #expect(result.created.isEmpty && result.results == [destination])
+        #expect(result.moveCleanups.count == 1)
+        #expect(result.moveCleanups.first?.source == source && result.moveCleanups.first?.completeCopy == destination)
         #expect(result.moved.isEmpty)
         #expect(FileOperations.exists(source))
         #expect(try String(contentsOf: destination, encoding: .utf8) == "complete copy")
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
         let redo = try FileUndo.revert(FileChange(result, kind: .move))
         #expect(!FileOperations.exists(destination))
         _ = try FileUndo.revert(redo)

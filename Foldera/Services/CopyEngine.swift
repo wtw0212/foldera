@@ -47,6 +47,10 @@ nonisolated enum CopyEngine {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: destination.path])
         }
         if progress.isCancelled { throw Cancelled() }
+        if !FileOperations.supportsExclusiveRename(in: destination.deletingLastPathComponent()) {
+            try copyExclusively(source, to: destination, progress: progress, baseBytes: baseBytes)
+            return
+        }
         let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true)
         defer { try? fm.removeItem(at: staging) }
         let payload = staging.appendingPathComponent("payload")
@@ -108,6 +112,7 @@ nonisolated enum CopyEngine {
         }
         defer { if destinationFD >= 0 { close(destinationFD) } }
         do {
+            progress.setCurrentName(destination.lastPathComponent)
             if destinationFD < 0 {
                 destinationFD = open(destination.path, O_RDONLY | (isLink ? O_SYMLINK : O_NOFOLLOW))
                 guard destinationFD >= 0 else { throw posixError() }

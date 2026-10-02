@@ -80,7 +80,7 @@ struct CopyEngineTests {
             Issue.record("Expected unreadable child to fail")
         } catch let failure as FileChange.Failure {
             #expect(failure.remaining.createdURLs == [destination])
-            #expect(!failure.sourceRemovalFailed)
+            #expect(failure.remaining.moveCleanups.isEmpty)
             #expect(FileOperations.exists(blocked) && FileOperations.exists(destination))
             let undo = FileUndo()
             undo.record(failure.remaining, name: "Copy")
