@@ -62,6 +62,74 @@ final class FileTableView: NSTableView {
         return accepted
     }
 
+    // MARK: Hover
+    // One tracking area for the whole list, so at most one row is ever highlighted. Per-row tracking
+    // missed "mouse exited" events when rows were scrolled or reloaded under the pointer, leaving
+    // stale highlights behind.
+
+    private var hoverTracking: NSTrackingArea?
+    private var hoveredRow = -1 {
+        didSet {
+            guard hoveredRow != oldValue else { return }
+            setHover(oldValue, false)
+            setHover(hoveredRow, true)
+        }
+    }
+
+    private func setHover(_ row: Int, _ hovered: Bool) {
+        guard row >= 0, row < numberOfRows else { return }
+        (rowView(atRow: row, makeIfNecessary: false) as? FileRowView)?.isHovered = hovered
+    }
+
+    /// Re-reads which row is under the pointer (after scrolling, reloading or a mouse move).
+    func refreshHover() {
+        guard let window else { hoveredRow = -1; return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let inside = visibleRect.contains(point) && window.isKeyWindow
+        // Clear every row first so nothing stale survives a reload.
+        let visible = rows(in: visibleRect)
+        for row in visible.location..<(visible.location + visible.length) {
+            if let view = rowView(atRow: row, makeIfNecessary: false) as? FileRowView, view.isHovered, row != hoveredRow {
+                view.isHovered = false
+            }
+        }
+        let row = inside ? self.row(at: point) : -1
+        if row == hoveredRow { setHover(row, true) } else { hoveredRow = row }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        hoveredRow = row(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoveredRow = -1
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        super.scrollWheel(with: event)
+        refreshHover()
+    }
+
+    override func reloadData() {
+        super.reloadData()
+        DispatchQueue.main.async { [weak self] in self?.refreshHover() }
+    }
+
+    override func didAdd(_ rowView: NSTableRowView, forRow row: Int) {
+        super.didAdd(rowView, forRow: row)
+        (rowView as? FileRowView)?.isHovered = row == hoveredRow
+    }
+
     override func keyDown(with event: NSEvent) {
         if let commands, FileKeys.handle(event, commands) { return }
         super.keyDown(with: event)

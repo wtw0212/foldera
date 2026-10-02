@@ -2,26 +2,13 @@ import AppKit
 
 // MARK: - Row
 
-/// Row with Explorer-style hover and selection fills.
+/// Row with Explorer-style hover and selection fills. The table decides which single row is hovered.
 final class FileRowView: NSTableRowView {
-    private var isHovered = false {
+    var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
 
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
 
     override func prepareForReuse() {
         super.prepareForReuse()

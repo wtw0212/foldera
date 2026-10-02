@@ -61,7 +61,8 @@ final class FileGridCell: NSView {
         didSet { if mode != oldValue { applyMode() } }
     }
     var isSelected = false { didSet { needsDisplay = true } }
-    private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
+    /// Set by the collection view, which tracks the single item under the pointer.
+    var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isEditingName = false
 
     override var isFlipped: Bool { true }
@@ -185,14 +186,6 @@ final class FileGridCell: NSView {
         }
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
 }
 
 final class FileGridItem: NSCollectionViewItem {
@@ -214,6 +207,7 @@ final class FileGridItem: NSCollectionViewItem {
         super.prepareForReuse()
         representedURL = nil
         cell.setEditing(false)
+        cell.isHovered = false
     }
 }
 
@@ -257,6 +251,54 @@ final class FileCollectionView: NSCollectionView {
             delegate?.collectionView?(self, didDeselectItemsAt: previous)
         }
         return commands?.contextMenu(forRow: indexPath?.item ?? -1)
+    }
+
+    // MARK: Hover (one tracking area for the whole grid; see FileTableView)
+
+    private var hoverTracking: NSTrackingArea?
+    private var hoveredIndex: IndexPath? {
+        didSet { if hoveredIndex != oldValue { applyHover() } }
+    }
+
+    private func applyHover() {
+        for indexPath in indexPathsForVisibleItems() {
+            (item(at: indexPath) as? FileGridItem)?.cell.isHovered = indexPath == hoveredIndex
+        }
+    }
+
+    func refreshHover() {
+        guard let window else { hoveredIndex = nil; return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        hoveredIndex = window.isKeyWindow && visibleRect.contains(point) ? indexPathForItem(at: point) : nil
+        applyHover()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        hoveredIndex = indexPathForItem(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoveredIndex = nil
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        super.scrollWheel(with: event)
+        refreshHover()
+    }
+
+    override func reloadData() {
+        super.reloadData()
+        DispatchQueue.main.async { [weak self] in self?.refreshHover() }
     }
 
     /// Called when the grid takes keyboard focus (used to track the active pane).
