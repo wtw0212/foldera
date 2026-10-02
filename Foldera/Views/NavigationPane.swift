@@ -1,22 +1,24 @@
 import SwiftUI
 
-/// Left navigation pane: Home, iCloud Drive, pinned folders and "This Mac" volumes.
+/// Left navigation pane: Home, iCloud Drive, Quick access pins and "This Mac", each expandable into a folder tree.
 struct NavigationPane: View {
     let model: ExplorerWindowModel
     let tab: BrowserTab
     @State private var volumes = VolumeMonitor.shared
+    @State private var quickAccess = QuickAccess.shared
+    @State private var tree = FolderTree()
     @State private var isThisMacExpanded = true
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 1) {
-                row(StandardLocations.home)
+                section(StandardLocations.home, key: "home")
                 if let iCloud = StandardLocations.iCloudDrive {
-                    row(iCloud)
+                    section(iCloud, key: "icloud")
                 }
                 divider
-                ForEach(StandardLocations.pinned) { location in
-                    row(location, pinned: true)
+                ForEach(quickAccess.locations) { location in
+                    section(location, key: "pin:" + location.url.path, pinned: true)
                 }
                 divider
                 NavigationRow(
@@ -28,7 +30,7 @@ struct NavigationPane: View {
                 )
                 if isThisMacExpanded {
                     ForEach(volumes.volumes) { volume in
-                        row(volume, indent: 1, ejectable: volume.url.path != "/")
+                        section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: volume.url.path != "/")
                     }
                 }
             }
@@ -47,28 +49,65 @@ struct NavigationPane: View {
             .padding(.horizontal, 6)
     }
 
-    private func row(_ location: Location, pinned: Bool = false, indent: Int = 0, ejectable: Bool = false) -> some View {
+    /// A top-level entry plus its expanded subfolders.
+    @ViewBuilder
+    private func section(_ location: Location, key: String, pinned: Bool = false, indent: Int = 0, ejectable: Bool = false) -> some View {
         NavigationRow(
             title: location.title,
             icon: AnyView(symbol(location.symbol, tint: location.tint)),
             isSelected: tab.url == location.url.normalizedFileURL,
             indent: indent,
+            expansion: expansion(key: key, url: location.url),
             trailingSymbol: pinned ? "pin" : nil,
-            action: {
-                tab.navigate(to: location.url)
-                tab.requestListFocus()
-            }
+            action: { open(location.url) }
         )
         .help(location.url.path)
         .folderDropTarget(location.url)
-        .contextMenu {
-            Button("Open") { tab.navigate(to: location.url) }
-            Button("Open in new tab") { model.newTab(url: location.url) }
-            Button("Show in Finder") { NSWorkspace.shared.open(location.url) }
-            if ejectable {
-                Divider()
-                Button("Eject") { volumes.eject(location) }
-            }
+        .contextMenu { folderMenu(location.url, ejectable: ejectable ? location : nil) }
+
+        ForEach(tree.rows(under: location.url, section: key)) { row in
+            NavigationRow(
+                title: FileManager.default.displayName(atPath: row.url.path),
+                icon: AnyView(Image(nsImage: FileIcons.folder).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                isSelected: tab.url == row.url,
+                indent: indent + row.depth,
+                expansion: expansion(key: row.key, url: row.url),
+                action: { open(row.url) }
+            )
+            .help(row.url.path)
+            .folderDropTarget(row.url)
+            .contextMenu { folderMenu(row.url) }
+        }
+    }
+
+    /// Chevron state for a folder; hidden once it's known to have no subfolders.
+    private func expansion(key: String, url: URL) -> Binding<Bool>? {
+        if let children = tree.knownChildren(key), children.isEmpty, !tree.isExpanded(key) { return nil }
+        return Binding(
+            get: { tree.isExpanded(key) },
+            set: { _ in tree.toggle(key, url: url) }
+        )
+    }
+
+    private func open(_ url: URL) {
+        tab.navigate(to: url)
+        tab.requestListFocus()
+    }
+
+    @ViewBuilder
+    private func folderMenu(_ url: URL, ejectable volume: Location? = nil) -> some View {
+        Button("Open") { open(url) }
+        Button("Open in new tab") { model.newTab(url: url) }
+        Divider()
+        if quickAccess.isPinned(url) {
+            Button("Unpin from Quick access") { quickAccess.unpin(url) }
+        } else {
+            Button("Pin to Quick access") { quickAccess.pin(url) }
+        }
+        Button("Show in Finder") { NSWorkspace.shared.open(url) }
+        if let volume {
+            Divider()
+            Button("Eject") { volumes.eject(volume) }
         }
     }
 
@@ -98,6 +137,8 @@ private struct NavigationRow: View {
                     Image(systemName: expansion.wrappedValue ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.secondaryText.swiftUI)
+                        .frame(width: 12, height: 20)
+                        .contentShape(Rectangle())
                         .onTapGesture { expansion.wrappedValue.toggle() }
                 }
             }

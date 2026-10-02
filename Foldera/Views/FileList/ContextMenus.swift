@@ -29,6 +29,15 @@ enum ContextMenus {
         menu.add(items.count > 1 ? "Rename \(items.count) items…" : "Rename", symbol: "character.cursor.ibeam") { tab.beginRename() }
         menu.add("Delete", symbol: "trash") { tab.trashSelection() }
         menu.addSeparator()
+        let folders = items.filter(\.isNavigable)
+        if !folders.isEmpty {
+            let quickAccess = QuickAccess.shared
+            if folders.allSatisfy({ quickAccess.isPinned($0.url) }) {
+                menu.add("Unpin from Quick access", symbol: "pin.slash") { folders.forEach { quickAccess.unpin($0.url) } }
+            } else {
+                menu.add("Pin to Quick access", symbol: "pin") { folders.forEach { quickAccess.pin($0.url) } }
+            }
+        }
         menu.add("Copy as path", symbol: "link") { tab.copyPathOfSelection() }
         menu.add("Show in Finder", symbol: "macwindow") { tab.showInFinder() }
         menu.addSeparator()
@@ -64,6 +73,12 @@ enum ContextMenus {
         newItem.submenu = newMenu
         menu.addItem(newItem)
         menu.addSeparator()
+        let quickAccess = QuickAccess.shared
+        if quickAccess.isPinned(tab.url) {
+            menu.add("Unpin from Quick access", symbol: "pin.slash") { quickAccess.unpin(tab.url) }
+        } else {
+            menu.add("Pin to Quick access", symbol: "pin") { quickAccess.pin(tab.url) }
+        }
         menu.add("Open in Terminal", symbol: "terminal") { tab.openInTerminal() }
         menu.add("Show in Finder", symbol: "macwindow") { tab.showInFinder() }
         menu.add("Properties", symbol: "info.circle") { tab.showProperties() }
