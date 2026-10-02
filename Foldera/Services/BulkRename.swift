@@ -150,20 +150,28 @@ nonisolated enum BulkRename {
             }
             return changes
         } catch {
+            var created = (error as? FileChange.Failure)?.remaining.createdURLs ?? []
             // Free original names before restoring a batch that may contain cycles.
             for index in staged.indices where staged[index].current == staged[index].to {
                 do {
                     try FileOperations.moveItem(staged[index].current, to: staged[index].temp)
                     staged[index].current = staged[index].temp
-                } catch { /* Keep the actual path in the recovery journal below. */ }
+                } catch {
+                    created += (error as? FileChange.Failure)?.remaining.createdURLs ?? []
+                }
             }
             for index in staged.indices {
                 do {
                     try FileOperations.moveItem(staged[index].current, to: staged[index].from)
                     staged[index].current = staged[index].from
-                } catch { /* Other items must still get a chance to be restored. */ }
+                } catch {
+                    created += (error as? FileChange.Failure)?.remaining.createdURLs ?? []
+                }
             }
             let remaining = staged.filter { $0.current.path != $0.from.path }.map { (from: $0.from, to: $0.current) }
+            if !created.isEmpty {
+                throw FileChange.Failure(cause: error, remaining: .composite([.batchRenamed(remaining), .created(Array(Set(created)))]))
+            }
             if !remaining.isEmpty { throw FileChange.Failure(cause: error, remaining: .batchRenamed(remaining)) }
             throw error
         }

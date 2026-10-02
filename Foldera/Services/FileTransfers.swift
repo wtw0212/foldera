@@ -111,7 +111,7 @@ final class FileTransfers {
                 case .cancel: return TransferResult(error: CopyEngine.Cancelled())
                 }
             }
-            let rename = kind == .move && Self.sameVolume(source, directory)
+            let rename = kind == .move && FileOperations.sameVolume(source, directory)
             plan.append(PlanItem(source: source, destination: destination, isRename: rename, deleteSourceAfterCopy: kind == .move && !rename, replaceExisting: replaceExisting))
         }
         guard !plan.isEmpty else { return empty }
@@ -168,33 +168,35 @@ final class FileTransfers {
                     }
                 }
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
-                if item.isRename {
-                    try FileOperations.moveItem(item.source, to: item.destination)
+                let size = item.isRename ? 0 : CopyEngine.size(of: item.source)
+                if item.isRename || item.deleteSourceAfterCopy {
+                    try FileOperations.moveItem(item.source, to: item.destination, progress: progress, baseBytes: base, allowRename: item.isRename)
                     result.moved.append((item.source, item.destination))
                     result.results.append(item.destination)
                 } else {
-                    let size = CopyEngine.size(of: item.source)
                     try CopyEngine.copy(item.source, to: item.destination, progress: progress, baseBytes: base)
                     destinationCreated = true
                     result.created.append(item.destination)
                     result.results.append(item.destination)
-                    base += size
-                    progress.setCompleted(base)
-                    if item.deleteSourceAfterCopy {
-                        if progress.isCancelled { throw CopyEngine.Cancelled() }
-                        // Keep the complete destination on failure: removing a source tree can partially succeed.
-                        try FileManager.default.removeItem(at: item.source)
-                        result.created.removeLast()
-                        result.moved.append((item.source, item.destination))
-                    }
                 }
+                base += size
+                progress.setCompleted(base)
             } catch {
-                result.error = error
+                result.error = (error as? FileChange.Failure)?.cause ?? error
+                if let failure = error as? FileChange.Failure, case .created(let urls) = failure.remaining {
+                    destinationCreated = !urls.isEmpty
+                    result.created += urls
+                    result.results += urls
+                }
                 if let replacement, !destinationCreated {
                     do {
                         try FileOperations.moveItem(replacement.trashed, to: replacement.original)
                         result.replaced.removeLast()
                     } catch {
+                        if let failure = error as? FileChange.Failure, case .created(let urls) = failure.remaining {
+                            result.created += urls
+                            result.results += urls
+                        }
                         result.error = FileChange.Failure(cause: error, remaining: .trashed([replacement]))
                     }
                 }
@@ -202,13 +204,6 @@ final class FileTransfers {
             }
         }
         return result
-    }
-
-    private static func sameVolume(_ a: URL, _ b: URL) -> Bool {
-        let key = URLResourceKey.volumeIdentifierKey
-        guard let va = try? a.resourceValues(forKeys: [key]).volumeIdentifier,
-              let vb = try? b.resourceValues(forKeys: [key]).volumeIdentifier else { return false }
-        return va.isEqual(vb)
     }
 
     private static func alert(_ message: String, detail: String) {

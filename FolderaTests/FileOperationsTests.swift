@@ -63,6 +63,49 @@ struct FileOperationsTests {
 }
 
 struct CopyEngineTests {
+    @Test @MainActor func fallbackFailureJournalsOnlyItsOwnedRoot() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("FolderaFallback-\(UUID())")
+        let source = root.appendingPathComponent("source"), destination = root.appendingPathComponent("destination")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        let blocked = source.appendingPathComponent("blocked")
+        try Data("must survive".utf8).write(to: blocked)
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blocked.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: blocked.path)
+            try? fm.removeItem(at: root)
+        }
+        do {
+            try CopyEngine.copyExclusively(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+            Issue.record("Expected unreadable child to fail")
+        } catch let failure as FileChange.Failure {
+            #expect(failure.remaining.createdURLs == [destination])
+            #expect(!failure.sourceRemovalFailed)
+            #expect(FileOperations.exists(blocked) && FileOperations.exists(destination))
+            let undo = FileUndo()
+            undo.record(failure.remaining, name: "Copy")
+            #expect(undo.undo() == nil)
+            #expect(FileOperations.exists(blocked) && !FileOperations.exists(destination))
+        }
+    }
+
+    @Test func fallbackPreservesSymbolicLinksAndReadOnlyDirectoryMetadata() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("FolderaFallbackLinks-\(UUID())")
+        let source = root.appendingPathComponent("source"), destination = root.appendingPathComponent("destination")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: source.appendingPathComponent("link").path, withDestinationPath: "missing-target")
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: source.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: source.path)
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+            try? fm.removeItem(at: root)
+        }
+        try CopyEngine.copyExclusively(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+        #expect(try fm.destinationOfSymbolicLink(atPath: destination.appendingPathComponent("link").path) == "missing-target")
+        #expect((try fm.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber)?.intValue == 0o555)
+    }
+
     @Test func copiesFolderTreeAndReportsBytes() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("FolderaCopy-\(UUID().uuidString)")

@@ -9,15 +9,39 @@ nonisolated enum FileOperations {
         return lstat(url.path, &info) == 0
     }
 
-    /// Atomic same-volume move that never replaces a racing destination.
-    static func moveItem(_ source: URL, to destination: URL) throws {
+    /// Moves without replacing a racing destination; reports a surviving copy if deletion fails.
+    static func moveItem(_ source: URL, to destination: URL, progress: TransferProgress = TransferProgress(), baseBytes: Int64 = 0, allowRename: Bool = true) throws {
         guard source.isFileURL, destination.isFileURL, !source.path.isEmpty, !destination.path.isEmpty,
               !source.path(percentEncoded: false).contains("\0"), !destination.path(percentEncoded: false).contains("\0") else {
             throw OperationError.invalidName(destination.lastPathComponent)
         }
-        guard renameatx_np(AT_FDCWD, source.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL)) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        if allowRename, try renameExclusively(source, to: destination) { return }
+        try CopyEngine.copy(source, to: destination, progress: progress, baseBytes: baseBytes)
+        do {
+            if progress.isCancelled { throw CopyEngine.Cancelled() }
+            // Recursive removal may partially succeed, so keep the complete destination on failure.
+            try FileManager.default.removeItem(at: source)
+        } catch {
+            throw FileChange.Failure(cause: error, remaining: .created([destination]), sourceRemovalFailed: true)
         }
+    }
+
+    /// Returns false when a copy is needed. Never falls back to a check followed by plain rename.
+    static func renameExclusively(_ source: URL, to destination: URL) throws -> Bool {
+        let parent = destination.deletingLastPathComponent()
+        guard sameVolume(source, parent),
+              (try? parent.resourceValues(forKeys: [.volumeSupportsExclusiveRenamingKey]).volumeSupportsExclusiveRenaming) == true else { return false }
+        if renameatx_np(AT_FDCWD, source.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL)) == 0 { return true }
+        let code = errno
+        if code == ENOTSUP { return false }
+        throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+    }
+
+    static func sameVolume(_ a: URL, _ b: URL) -> Bool {
+        let key = URLResourceKey.volumeIdentifierKey
+        guard let va = try? a.resourceValues(forKeys: [key]).volumeIdentifier,
+              let vb = try? b.resourceValues(forKeys: [key]).volumeIdentifier else { return false }
+        return va.isEqual(vb)
     }
 
     enum OperationError: LocalizedError {

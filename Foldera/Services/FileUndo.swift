@@ -16,6 +16,8 @@ nonisolated enum FileChange: Sendable {
         let cause: Error
         let remaining: FileChange
         var inverse: FileChange = .composite([])
+        /// A move copied all data before failing to remove its source.
+        var sourceRemovalFailed = false
 
         var errorDescription: String? { cause.localizedDescription }
         var recoverySuggestion: String? {
@@ -35,6 +37,22 @@ nonisolated enum FileChange: Sendable {
         case .renamed: false
         case .moved(let pairs), .batchRenamed(let pairs): pairs.isEmpty
         case .composite(let changes): changes.allSatisfy(\.isEmpty)
+        }
+    }
+
+    var createdURLs: [URL] {
+        switch self {
+        case .created(let urls): urls
+        case .composite(let changes): changes.flatMap(\.createdURLs)
+        default: []
+        }
+    }
+
+    var batchRenames: [(from: URL, to: URL)] {
+        switch self {
+        case .batchRenamed(let pairs): pairs
+        case .composite(let changes): changes.flatMap(\.batchRenames)
+        default: []
         }
     }
 }
@@ -104,18 +122,33 @@ final class FileUndo {
             if pairs.count > 1 { return try revertSteps(pairs.reversed().map { .trashed([$0]) }) }
             var restored: [URL] = []
             for pair in pairs.reversed() {
-                try fm.moveItem(at: pair.trashed, to: pair.original)
+                do {
+                    try FileOperations.moveItem(pair.trashed, to: pair.original)
+                } catch let failure as FileChange.Failure {
+                    // Remove a surviving copy before retrying the restore; keep the Trash receipt.
+                    throw inverseMoveFailure(failure, source: pair.trashed, change: change)
+                }
                 restored.append(pair.original)
             }
             return .created(restored)
         case .renamed(let from, let to):
-            try fm.moveItem(at: to, to: from)
+            do {
+                try FileOperations.moveItem(to, to: from)
+            } catch let failure as FileChange.Failure {
+                throw inverseMoveFailure(failure, source: to, change: change)
+            }
             return .renamed(from: to, to: from)
         case .moved(let pairs):
             if pairs.count > 1 { return try revertSteps(pairs.reversed().map { .moved([$0]) }) }
             var back: [(from: URL, to: URL)] = []
             for pair in pairs.reversed() {
-                try fm.moveItem(at: pair.to, to: pair.from)
+                do {
+                    try FileOperations.moveItem(pair.to, to: pair.from)
+                } catch let failure as FileChange.Failure {
+                    // The source may be partially removed. Keep the complete inverse copy,
+                    // and let the next Undo remove what remains at the old location.
+                    throw inverseMoveFailure(failure, source: pair.to, change: change)
+                }
                 back.append((pair.to, pair.from))
             }
             return .moved(back)
@@ -123,7 +156,7 @@ final class FileUndo {
             do {
                 return .batchRenamed(try BulkRename.apply(pairs.map { ($0.to, $0.from) }))
             } catch let failure as FileChange.Failure {
-                guard case .batchRenamed(let actual) = failure.remaining else { throw failure }
+                let actual = failure.remaining.batchRenames
                 var pending: [(from: URL, to: URL)] = []
                 var inverse: [(from: URL, to: URL)] = []
                 for pair in pairs {
@@ -131,11 +164,20 @@ final class FileUndo {
                     if current.path == pair.from.path { inverse.append((pair.to, current)) }
                     else { pending.append((pair.from, current)) }
                 }
-                throw FileChange.Failure(cause: failure.cause, remaining: .batchRenamed(pending), inverse: .batchRenamed(inverse))
+                let remaining: FileChange = failure.remaining.createdURLs.isEmpty ? .batchRenamed(pending)
+                    : .composite([.batchRenamed(pending), .created(failure.remaining.createdURLs)])
+                throw FileChange.Failure(cause: failure.cause, remaining: remaining, inverse: .batchRenamed(inverse))
             }
         case .composite(let changes):
             return try revertSteps(Array(changes.reversed()))
         }
+    }
+
+    private static func inverseMoveFailure(_ failure: FileChange.Failure, source: URL, change: FileChange) -> FileChange.Failure {
+        if failure.sourceRemovalFailed {
+            return FileChange.Failure(cause: failure.cause, remaining: .created([source]), inverse: failure.remaining)
+        }
+        return FileChange.Failure(cause: failure.cause, remaining: .composite([change, failure.remaining]))
     }
 
     /// Steps are in undo order; pending composite changes must retain the opposite order.
