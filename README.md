@@ -76,6 +76,16 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 - [x] **Phase 4:** bulk rename (Finder-style Replace / Add / Format with a live preview)
 - [x] **Phase 5:** optional dual pane, settings window, Fluent icons
 
+## App icon
+
+The icon is drawn in code by `scripts/make-icon.swift`. To regenerate it:
+
+```bash
+swift scripts/make-icon.swift /tmp/icon-1024.png
+```
+
+then resize into `Foldera/Resources/Assets.xcassets/AppIcon.appiconset` (16–1024 px, e.g. with `sips -z`).
+
 ## Credits
 
 Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) by Microsoft, used under the MIT License (see `ThirdParty/FluentUI-System-Icons-LICENSE.txt`).
