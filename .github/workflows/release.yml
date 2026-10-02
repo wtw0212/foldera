@@ -57,9 +57,25 @@ jobs:
       - name: Generate project and run tests
         run: |
           xcodegen generate --quiet
+          mkdir -p build.noindex
+          # Not -quiet: Swift Testing failures only appear in the full output. Show the
+          # interesting lines here; the full log and result bundle are uploaded on failure.
           xcodebuild -project Foldera.xcodeproj -scheme Foldera \
             -destination 'platform=macOS' -derivedDataPath build.noindex/tests \
-            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test -quiet
+            -resultBundlePath build.noindex/TestResults.xcresult \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test > build.noindex/test.log 2>&1 || true
+          grep -E '✘|✔ Test run|recorded an issue|Expectation failed|error:|\*\* TEST' build.noindex/test.log || true
+          grep -q '\*\* TEST SUCCEEDED \*\*' build.noindex/test.log
+
+      - name: Save test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results
+          path: |
+            build.noindex/test.log
+            build.noindex/TestResults.xcresult
+          retention-days: 7
 
       - name: Build universal DMG
         env:
