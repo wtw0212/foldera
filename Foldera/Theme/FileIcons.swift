@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Icon lookup with caching. Plain folders get a Windows 11 style yellow folder; everything else uses the system icon.
+/// Icon lookup with caching. Folders and files get Windows 11 style icons; apps, packages and drives keep their own.
 enum FileIcons {
     private static let cache = NSCache<NSString, NSImage>()
 
@@ -29,8 +29,8 @@ enum FileIcons {
         if item.isPackage || item.isVolume || item.contentType?.conforms(to: .application) == true {
             return cached(key: "file:" + item.url.path) { NSWorkspace.shared.icon(forFile: item.url.path) }
         }
-        let type = item.contentType ?? .data
-        return cached(key: "type:" + type.identifier) { NSWorkspace.shared.icon(for: type) }
+        // Everything else gets a Windows-style icon for its kind (photo, video, zip…).
+        return FileKind.of(item.url, type: item.contentType).icon
     }
 
     static func icon(forPath url: URL) -> NSImage {

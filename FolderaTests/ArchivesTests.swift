@@ -115,3 +115,24 @@ struct ArchivesTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("bad").path))
     }
 }
+
+struct FileKindTests {
+    @Test func classifiesCommonFiles() {
+        func kind(_ name: String) -> FileKind { FileKind.of(URL(fileURLWithPath: "/x/" + name), type: nil) }
+        #expect(kind("a.jpg") == .image)
+        #expect(kind("a.mp4") == .video)
+        #expect(kind("a.mp3") == .audio)
+        #expect(kind("a.zip") == .archive)
+        #expect(kind("a.7z") == .archive)
+        #expect(kind("a.rar") == .archive)
+        #expect(kind("a.dmg") == .diskImage)
+        #expect(kind("a.bin") != .archive)
+        #expect(kind("a.pdf") == .pdf)
+        #expect(kind("a.docx") == .document)
+        #expect(kind("a.xlsx") == .spreadsheet)
+        #expect(kind("a.pptx") == .presentation)
+        #expect(kind("a.swift") == .code)
+        #expect(kind("a.sh") == .script)
+        #expect(kind("a.txt") == .text)
+    }
+}
