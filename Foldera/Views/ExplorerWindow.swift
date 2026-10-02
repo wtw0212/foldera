@@ -6,6 +6,7 @@ struct ExplorerWindow: View {
     @State private var settings = AppSettings.shared
     @State private var clipboard = FileClipboard.shared
     @State private var diskAccess = DiskAccess.shared
+    @State private var swipe = SwipeFeedback()
 
     var body: some View {
         let tab = model.activeTab
@@ -35,6 +36,7 @@ struct ExplorerWindow: View {
                 filePanes
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
+                    .overlay { SwipeArrowOverlay(feedback: swipe).clipped() }
                 if settings.sidePane == .details {
                     DetailsPane(tab: tab)
                         .frame(minWidth: 240, idealWidth: 320, maxWidth: 700)
@@ -47,6 +49,7 @@ struct ExplorerWindow: View {
         .background(VisualEffectBackground())
         .background(
             NavigationGestures(
+                feedback: swipe,
                 back: { model.activeTab.goBack() },
                 forward: { model.activeTab.goForward() },
                 canGoBack: { model.activeTab.canGoBack },
