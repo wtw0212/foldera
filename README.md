@@ -55,6 +55,12 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | `Foldera/Views/FileList` | `NSTableView`-based details view, context menus |
 | `Foldera/Theme` | Windows 11 colors and icons |
 
+## Languages
+
+Settings ▸ General ▸ Language switches between **Follow System**, **English** and **繁體中文** immediately and remembers the selection. Unsupported system languages fall back to English. File names, paths and shortcuts are preserved; macOS-owned dialogs and file-type descriptions use the system language.
+
+Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`, `Localizable.stringsdict` for plurals, and `InfoPlist.strings` for privacy prompts). To add a language, copy those resources, translate them, add a case to `AppLanguage` and a region to `project.yml`, then regenerate the project.
+
 ## Keyboard
 
 | Action | Shortcut |

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Icon, List, Tiles and Content layouts, backed by `NSCollectionView`.
 struct FileGridView: NSViewRepresentable {
+    @Environment(\.locale) private var locale
     let tab: BrowserTab
     let mode: ViewMode
     let items: [FileItem]
@@ -56,7 +57,7 @@ struct FileGridView: NSViewRepresentable {
 
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id
-        let presentation = Coordinator.Presentation(mode: mode, showExtensions: showExtensions, cutURLs: cutURLs)
+        let presentation = Coordinator.Presentation(mode: mode, showExtensions: showExtensions, cutURLs: cutURLs, localeIdentifier: locale.identifier)
         if tabChanged || coordinator.items != items || coordinator.presentation != presentation {
             let modeChanged = coordinator.presentation.mode != mode
             coordinator.items = items
@@ -94,6 +95,7 @@ struct FileGridView: NSViewRepresentable {
             var mode: ViewMode = .largeIcons
             var showExtensions = true
             var cutURLs: Set<URL> = []
+            var localeIdentifier = ""
         }
 
         var parent: FileGridView?

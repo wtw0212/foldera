@@ -51,7 +51,7 @@ struct IconButton: View {
         }
         .buttonStyle(SubtleButtonStyle())
         .help(help)
-        .accessibilityLabel(Text(help.replacingOccurrences(of: #" \(.*\)$"#, with: "", options: .regularExpression)))
+        .accessibilityLabel(Text(help.replacingOccurrences(of: #"\s*[（(][^）)]*[）)]$"#, with: "", options: .regularExpression)))
     }
 }
 

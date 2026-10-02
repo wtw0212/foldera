@@ -28,6 +28,10 @@ final class TransferWindow {
         panel?.orderOut(nil)
     }
 
+    func updateTitle() {
+        panel?.title = L10n.text("File operations")
+    }
+
     private func show() {
         if panel == nil {
             let panel = NSPanel(
@@ -36,7 +40,7 @@ final class TransferWindow {
                 backing: .buffered,
                 defer: false
             )
-            panel.title = "File operations"
+            panel.title = L10n.text("File operations")
             panel.isFloatingPanel = true
             panel.hidesOnDeactivate = false
             panel.isReleasedWhenClosed = false
@@ -45,6 +49,7 @@ final class TransferWindow {
             self.panel = panel
         }
         panel?.orderFront(nil)
+        updateTitle()
     }
 }
 
@@ -60,6 +65,8 @@ private struct TransferList: View {
         .padding(16)
         .frame(width: 440, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
+        .environment(\.locale, L10n.locale)
+        .onChange(of: AppSettings.shared.language) { TransferWindow.shared.updateTitle() }
     }
 }
 
@@ -74,7 +81,7 @@ private struct TransferRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             HStack {
-                Text("\(Int(transfer.fraction * 100))% complete")
+                Text(L10n.format("%lld%% complete", Int(transfer.fraction * 100)))
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Button {
@@ -84,19 +91,19 @@ private struct TransferRow: View {
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
-                .help("Cancel")
+                .help(L10n.text("Cancel"))
                 .disabled(transfer.isCancelled)
             }
             ProgressView(value: transfer.fraction)
                 .progressViewStyle(.linear)
                 .tint(Color(nsColor: .init(hex: 0x06B025)))
             HStack {
-                Text("Name: \(transfer.currentName)")
+                Text(L10n.format("Name: %@", transfer.currentName))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
                 if transfer.bytesPerSecond > 0 {
-                    Text("Speed: \(FileFormat.totalSize(Int64(transfer.bytesPerSecond)))/s")
+                    Text(L10n.format("Speed: %@/s", FileFormat.totalSize(Int64(transfer.bytesPerSecond))))
                 }
             }
             .font(.system(size: 11))
@@ -109,14 +116,17 @@ private struct TransferRow: View {
 
     private var remainingText: String {
         let remaining = max(0, transfer.totalBytes - transfer.completedBytes)
-        var text = "Remaining: \(FileFormat.totalSize(remaining))"
+        var text = L10n.format("Remaining: %@", FileFormat.totalSize(remaining))
         if transfer.bytesPerSecond > 0 {
             let seconds = Double(remaining) / transfer.bytesPerSecond
             let formatter = DateComponentsFormatter()
+            var calendar = Calendar.current
+            calendar.locale = L10n.locale
+            formatter.calendar = calendar
             formatter.unitsStyle = .abbreviated
             formatter.allowedUnits = seconds > 3600 ? [.hour, .minute] : [.minute, .second]
-            if let time = formatter.string(from: seconds) { text += " · about \(time) left" }
+            if let time = formatter.string(from: seconds) { text += L10n.format(" · about %@ left", time) }
         }
-        return transfer.isCancelled ? "Cancelling…" : text
+        return transfer.isCancelled ? L10n.text("Cancelling…") : text
     }
 }

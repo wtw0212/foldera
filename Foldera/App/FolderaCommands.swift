@@ -11,34 +11,34 @@ struct FolderaCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("New Tab") { explorer?.newTab() }
+            Button(L10n.text("New Tab")) { explorer?.newTab() }
                 .keyboardShortcut("t")
-            Button("Duplicate Tab") { explorer?.duplicateActiveTab() }
+            Button(L10n.text("Duplicate Tab")) { explorer?.duplicateActiveTab() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
             Divider()
-            Button("New Folder") { tab?.newFolder() }
+            Button(L10n.text("New Folder")) { tab?.newFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-            Button("New Text Document") { tab?.newTextDocument() }
+            Button(L10n.text("New Text Document")) { tab?.newTextDocument() }
             Divider()
-            Button("Open") { tab?.openSelection() }
+            Button(L10n.text("Open")) { tab?.openSelection() }
                 .keyboardShortcut(.downArrow)
                 .disabled(tab?.hasSelection != true)
-            Button((tab?.selection.count ?? 0) > 1 ? "Rename \(tab?.selection.count ?? 0) Items…" : "Rename") { tab?.beginRename() }
+            Button((tab?.selection.count ?? 0) > 1 ? L10n.format("rename.items.menu", tab?.selection.count ?? 0) : L10n.text("Rename")) { tab?.beginRename() }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [])
                 .disabled(tab?.hasSelection != true)
-            Button("Properties") { tab?.showProperties() }
+            Button(L10n.text("Properties")) { tab?.showProperties() }
                 .keyboardShortcut("i")
             Divider()
-            Button("Copy to Other Pane") { explorer?.transferToOtherPane(.copy) }
+            Button(L10n.text("Copy to Other Pane")) { explorer?.transferToOtherPane(.copy) }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF5FunctionKey)!)), modifiers: [])
                 .disabled(explorer?.otherTab == nil || tab?.hasSelection != true)
-            Button("Move to Other Pane") { explorer?.transferToOtherPane(.move) }
+            Button(L10n.text("Move to Other Pane")) { explorer?.transferToOtherPane(.move) }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF6FunctionKey)!)), modifiers: [])
                 .disabled(explorer?.otherTab == nil || tab?.hasSelection != true)
         }
 
         CommandGroup(replacing: .saveItem) {
-            Button("Close Tab") { explorer?.closeActiveTabOrWindow() }
+            Button(L10n.text("Close Tab")) { explorer?.closeActiveTabOrWindow() }
                 .keyboardShortcut("w")
         }
 
@@ -58,65 +58,66 @@ struct FolderaCommands: Commands {
 
         CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Copy Path") { tab?.copyPathOfSelection() }
+            Button(L10n.text("Copy Path")) { tab?.copyPathOfSelection() }
                 .keyboardShortcut("c", modifiers: [.command, .option])
-            Button("Invert Selection") { tab?.invertSelection() }
+            Button(L10n.text("Invert Selection")) { tab?.invertSelection() }
         }
 
-        CommandMenu("Go") {
-            Button("Back") { tab?.goBack() }
+        CommandMenu(L10n.text("Go")) {
+            Button(L10n.text("Back")) { tab?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(tab?.canGoBack != true)
-            Button("Forward") { tab?.goForward() }
+            Button(L10n.text("Forward")) { tab?.goForward() }
                 .keyboardShortcut("]")
                 .disabled(tab?.canGoForward != true)
-            Button("Enclosing Folder") { tab?.goUp() }
+            Button(L10n.text("Enclosing Folder")) { tab?.goUp() }
                 .keyboardShortcut(.upArrow)
                 .disabled(tab?.canGoUp != true)
             Divider()
-            go("Home", StandardLocations.home.url, key: "h")
+            go(L10n.text("This Mac"), BrowserTab.thisMacURL, key: "c")
+            go(L10n.text("Home"), StandardLocations.home.url, key: "h")
             ForEach(StandardLocations.pinned) { location in
                 Button(location.title) { open(location.url) }
             }
             Divider()
-            Button("Go to Folder…") { explorer?.isEditingAddress = true }
+            Button(L10n.text("Go to Folder…")) { explorer?.isEditingAddress = true }
                 .keyboardShortcut("l")
-            Button("Search") { explorer?.focusSearch() }
+            Button(L10n.text("Search")) { explorer?.focusSearch() }
                 .keyboardShortcut("f")
         }
 
         CommandGroup(before: .toolbar) {
-            Button("Refresh") { tab?.reload() }
+            Button(L10n.text("Refresh")) { tab?.reload() }
                 .keyboardShortcut("r")
             Divider()
-            Toggle("Navigation Pane", isOn: $settings.showNavigationPane)
-            Button(explorer?.isDualPane == true ? "Single Pane" : "Dual Pane") { explorer?.toggleDualPane() }
+            Toggle(L10n.text("Navigation Pane"), isOn: $settings.showNavigationPane)
+            Button(explorer?.isDualPane == true ? L10n.text("Single Pane") : L10n.text("Dual Pane")) { explorer?.toggleDualPane() }
                 .keyboardShortcut("d", modifiers: [.command, .option])
-            Button(settings.sidePane == .details ? "Hide Details Pane" : "Show Details Pane") { settings.toggle(.details) }
+            Button(settings.sidePane == .details ? L10n.text("Hide Details Pane") : L10n.text("Show Details Pane")) { settings.toggle(.details) }
                 .keyboardShortcut("p", modifiers: [.command, .option])
-            Toggle("File Name Extensions", isOn: $settings.showExtensions)
-            Toggle("Hidden Items", isOn: $settings.showHiddenFiles)
+            Toggle(L10n.text("File Name Extensions"), isOn: $settings.showExtensions)
+            Toggle(L10n.text("Hidden Items"), isOn: $settings.showHiddenFiles)
                 .keyboardShortcut(".", modifiers: [.command, .shift])
-            Toggle("Compact View", isOn: $settings.compactView)
+            Toggle(L10n.text("Compact View"), isOn: $settings.compactView)
             Divider()
             ForEach(ViewMode.allCases) { mode in
                 Button(mode.title) { tab?.viewMode = mode }
                     .keyboardShortcut(KeyEquivalent(Character(String(mode.shortcutNumber))), modifiers: [.command, .option])
             }
             Divider()
-            Picker("Sort By", selection: sortField) {
+            Picker(L10n.text("Sort By"), selection: sortField) {
                 ForEach(SortField.allCases) { Text($0.title).tag($0) }
             }
             Divider()
         }
 
         CommandGroup(before: .windowList) {
-            Button("Show Next Tab") { explorer?.selectTab(offset: 1) }
+            Button(L10n.text("Show Next Tab")) { explorer?.selectTab(offset: 1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
-            Button("Show Previous Tab") { explorer?.selectTab(offset: -1) }
+            Button(L10n.text("Show Previous Tab")) { explorer?.selectTab(offset: -1) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
             ForEach(1...9, id: \.self) { number in
-                Button("Tab \(number)") { explorer?.selectTab(number: number) }
+                Button(L10n.format("Tab %lld", number)) { explorer?.selectTab(number: number) }
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")))
             }
             Divider()

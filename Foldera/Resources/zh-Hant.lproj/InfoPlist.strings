@@ -1,0 +1,6 @@
+"NSDesktopFolderUsageDescription" = "Foldera 會顯示及管理「桌面」資料夾內的檔案。";
+"NSDocumentsFolderUsageDescription" = "Foldera 會顯示及管理「文件」資料夾內的檔案。";
+"NSDownloadsFolderUsageDescription" = "Foldera 會顯示及管理「下載項目」資料夾內的檔案。";
+"NSRemovableVolumesUsageDescription" = "Foldera 會顯示及管理卸除式磁碟上的檔案。";
+"NSNetworkVolumesUsageDescription" = "Foldera 會顯示及管理網絡磁碟上的檔案。";
+"NSAppleEventsUsageDescription" = "Foldera 會要求 Finder 顯示所選項目的「取得資訊」視窗。";

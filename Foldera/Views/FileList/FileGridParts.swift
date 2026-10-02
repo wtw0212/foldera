@@ -96,12 +96,12 @@ final class FileGridCell: NSView {
         nameLabel.stringValue = item.title(showExtensions: showExtensions)
         let details: [String] = switch mode {
         case .tiles:
-            [item.kind, item.isNavigable ? "" : FileFormat.size(item.size)]
+            [item.localizedKind, item.isNavigable ? "" : FileFormat.size(item.size)]
         case .content:
             [
-                item.kind,
-                item.dateModified.map { "Date modified: \(FileFormat.date($0))" } ?? "",
-                item.isNavigable ? "" : "Size: \(FileFormat.size(item.size))",
+                item.localizedKind,
+                item.dateModified.map { L10n.format("Date modified: %@", FileFormat.date($0)) } ?? "",
+                item.isNavigable ? "" : L10n.format("Size: %@", FileFormat.size(item.size)),
             ]
         default: []
         }

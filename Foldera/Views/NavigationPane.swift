@@ -30,12 +30,13 @@ struct NavigationPane: View {
                 }
                 pinDivider(id: "qa-end") { quickAccess.insert($0, before: nil) }
                 NavigationRow(
-                    title: "This Mac",
+                    title: L10n.text("This Mac"),
                     icon: AnyView(symbol("laptop_filled", tint: Theme.accent.swiftUI)),
-                    isSelected: false,
+                    isSelected: tab.isThisMac,
                     expansion: $isThisMacExpanded,
-                    action: { isThisMacExpanded.toggle() }
+                    action: { open(BrowserTab.thisMacURL) }
                 )
+                .onMiddleClick { model.newTab(url: BrowserTab.thisMacURL, activate: false) }
                 if isThisMacExpanded {
                     ForEach(volumes.volumes) { volume in
                         section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: volume.url.path != "/")
@@ -173,23 +174,23 @@ struct NavigationPane: View {
 
     @ViewBuilder
     private func folderMenu(_ url: URL, ejectable volume: Location? = nil, cloud isCloud: Bool = false) -> some View {
-        Button("Open") { open(url) }
-        Button("Open in new tab") { model.newTab(url: url) }
+        Button(L10n.text("Open")) { open(url) }
+        Button(L10n.text("Open in new tab")) { model.newTab(url: url) }
         Divider()
         if quickAccess.isPinned(url) {
-            Button("Unpin from Quick access") { quickAccess.unpin(url) }
+            Button(L10n.text("Unpin from Quick access")) { quickAccess.unpin(url) }
         } else {
-            Button("Pin to Quick access") { quickAccess.pin(url) }
+            Button(L10n.text("Pin to Quick access")) { quickAccess.pin(url) }
         }
-        Button("Show in Finder") { NSWorkspace.shared.open(url) }
+        Button(L10n.text("Show in Finder")) { NSWorkspace.shared.open(url) }
         if let volume {
             Divider()
-            Button("Eject") { volumes.eject(volume) }
+            Button(L10n.text("Eject")) { volumes.eject(volume) }
         }
         if isCloud {
             Divider()
             if cloud.isAdded(url) {
-                Button("Remove from navigation pane") { cloud.remove(url) }
+                Button(L10n.text("Remove from navigation pane")) { cloud.remove(url) }
             }
             AddCloudDriveMenu()
         }
@@ -210,12 +211,12 @@ struct AddCloudDriveMenu: View {
     @State private var cloud = CloudDrives.shared
 
     var body: some View {
-        Menu("Add cloud drive") {
-            Button("Choose Folder…") { cloud.chooseFolder() }
+        Menu(L10n.text("Add cloud drive")) {
+            Button(L10n.text("Choose Folder…")) { cloud.chooseFolder() }
             if !cloud.missingProviders.isEmpty {
                 Divider()
                 ForEach(cloud.missingProviders) { provider in
-                    Button("Get \(provider.name)…") { NSWorkspace.shared.open(provider.download) }
+                    Button(L10n.format("Get %@…", provider.name)) { NSWorkspace.shared.open(provider.download) }
                 }
             }
         }

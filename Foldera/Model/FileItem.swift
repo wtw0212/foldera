@@ -20,6 +20,10 @@ nonisolated struct FileItem: Identifiable, Hashable, Sendable {
     /// Folders the explorer navigates into instead of opening (packages such as .app open like files).
     var isNavigable: Bool { isDirectory && !isPackage }
 
+    @MainActor var localizedKind: String {
+        isNavigable ? L10n.text("Folder") : L10n.text(kind)
+    }
+
     static let resourceKeys: [URLResourceKey] = [
         .nameKey, .localizedNameKey, .isDirectoryKey, .isPackageKey, .isVolumeKey, .isHiddenKey,
         .fileSizeKey, .totalFileAllocatedSizeKey, .contentModificationDateKey, .creationDateKey,
@@ -55,7 +59,8 @@ nonisolated extension URL {
     /// Standardized file URL without a trailing slash, so URLs for the same item always compare equal
     /// (directory listings add a trailing slash to folders; URLs we build do not).
     var normalizedFileURL: URL {
-        URL(fileURLWithPath: standardizedFileURL.path, isDirectory: false)
+        guard isFileURL else { return self } // e.g. the "This Mac" page
+        return URL(fileURLWithPath: standardizedFileURL.path, isDirectory: false)
     }
 }
 

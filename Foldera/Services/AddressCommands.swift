@@ -47,7 +47,7 @@ nonisolated enum AddressCommand {
         }
         if let bundleIDs = editors[name] {
             guard let app = bundleIDs.lazy.compactMap(NSWorkspace.shared.urlForApplication(withBundleIdentifier:)).first else {
-                fail("“\(command)” isn’t installed.")
+                fail(L10n.format("“%@” isn’t installed.", command))
                 return true
             }
             let target = arguments.isEmpty || arguments == "." ? folder : resolve(arguments, in: folder)

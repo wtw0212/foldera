@@ -8,14 +8,14 @@ enum ViewMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .extraLargeIcons: "Extra large icons"
-        case .largeIcons: "Large icons"
-        case .mediumIcons: "Medium icons"
-        case .smallIcons: "Small icons"
-        case .list: "List"
-        case .details: "Details"
-        case .tiles: "Tiles"
-        case .content: "Content"
+        case .extraLargeIcons: L10n.text("Extra large icons")
+        case .largeIcons: L10n.text("Large icons")
+        case .mediumIcons: L10n.text("Medium icons")
+        case .smallIcons: L10n.text("Small icons")
+        case .list: L10n.text("List")
+        case .details: L10n.text("Details")
+        case .tiles: L10n.text("Tiles")
+        case .content: L10n.text("Content")
         }
     }
 

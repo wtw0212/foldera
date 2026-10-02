@@ -39,8 +39,8 @@ final class FileUndo {
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
-    var undoTitle: String { undoStack.last.map { "Undo \($0.name)" } ?? "Undo" }
-    var redoTitle: String { redoStack.last.map { "Redo \($0.name)" } ?? "Redo" }
+    var undoTitle: String { undoStack.last.map { L10n.format("Undo %@", L10n.text($0.name)) } ?? L10n.text("Undo") }
+    var redoTitle: String { redoStack.last.map { L10n.format("Redo %@", L10n.text($0.name)) } ?? L10n.text("Redo") }
 
     func record(_ change: FileChange, name: String) {
         guard !change.isEmpty else { return }

@@ -122,7 +122,14 @@ struct ExplorerWindow: View {
     private func fileList(_ tab: BrowserTab, pane: ExplorerWindowModel.Pane) -> some View {
         let onFocus = { if model.focusedPane != pane { model.focusedPane = pane } }
         return Group {
-            if tab.viewMode == .details {
+            if tab.isThisMac {
+                ThisMacView(
+                    tab: tab,
+                    openInNewTab: { model.newTab(url: $0) },
+                    openInBackgroundTab: { model.newTab(url: $0, activate: false) },
+                    onFocus: onFocus
+                )
+            } else if tab.viewMode == .details {
                 detailsList(tab, onFocus: onFocus)
             } else {
                 FileGridView(
@@ -172,9 +179,10 @@ struct ExplorerWindow: View {
     }
 
     private func emptyMessage(_ tab: BrowserTab) -> String? {
+        guard !tab.isThisMac else { return nil }
         if let error = tab.loadError { return error }
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
-        return tab.isSearchActive ? "No items match your search." : "This folder is empty."
+        return tab.isSearchActive ? L10n.text("No items match your search.") : L10n.text("This folder is empty.")
     }
 }
 
@@ -186,11 +194,11 @@ private struct FullDiskAccessBar: View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle.fill")
                 .foregroundStyle(Theme.accent.swiftUI)
-            Text("Give Foldera Full Disk Access so it can open every folder without asking. In Settings, drag Foldera (shown in Finder) into the list, or click + and choose it.")
+            Text(L10n.text("Give Foldera Full Disk Access so it can open every folder without asking. In Settings, drag Foldera (shown in Finder) into the list, or click + and choose it."))
                 .lineLimit(2)
                 .foregroundStyle(Theme.text.swiftUI)
             Spacer()
-            Button("Open Settings") { access.openSettings() }
+            Button(L10n.text("Open Settings")) { access.openSettings() }
                 .buttonStyle(SubtleButtonStyle())
                 .foregroundStyle(Theme.accent.swiftUI)
             Button {
@@ -199,7 +207,7 @@ private struct FullDiskAccessBar: View {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
-            .help("Don't show again")
+            .help(L10n.text("Don't show again"))
         }
         .font(Theme.font)
         .padding(.horizontal, 12)
@@ -214,17 +222,17 @@ private struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(countText(tab.visibleItems.count))
+            Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count) : L10n.format("items.count", tab.visibleItems.count))
             if !tab.selection.isEmpty {
                 separator
-                Text("\(countText(tab.selection.count)) selected")
+                Text(L10n.format("items.selected", tab.selection.count))
                 if let size = selectedSize {
                     Text(FileFormat.totalSize(size)).padding(.leading, 8)
                 }
             }
             Spacer()
             if tab.isSearching {
-                Text("Searching…").foregroundStyle(Theme.secondaryText.swiftUI).padding(.trailing, 6)
+                Text(L10n.text("Searching…")).foregroundStyle(Theme.secondaryText.swiftUI).padding(.trailing, 6)
             }
             if tab.isLoading || tab.isSearching {
                 ProgressView().controlSize(.mini).padding(.trailing, 8)
@@ -258,10 +266,6 @@ private struct StatusBar: View {
             .fill(Theme.divider.swiftUI)
             .frame(width: 1, height: 14)
             .padding(.horizontal, 10)
-    }
-
-    private func countText(_ count: Int) -> String {
-        count == 1 ? "1 item" : "\(count) items"
     }
 
     /// Explorer only shows a size when the selection is files only.

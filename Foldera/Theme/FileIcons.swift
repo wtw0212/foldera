@@ -34,7 +34,8 @@ enum FileIcons {
     }
 
     static func icon(forPath url: URL) -> NSImage {
-        cached(key: "file:" + url.path) { NSWorkspace.shared.icon(forFile: url.path) }
+        if url == BrowserTab.thisMacURL { return NSImage(named: NSImage.computerName) ?? folder }
+        return cached(key: "file:" + url.path) { NSWorkspace.shared.icon(forFile: url.path) }
     }
 
     private static func cached(key: String, make: () -> NSImage) -> NSImage {

@@ -76,8 +76,8 @@ final class CloudDrives {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "Add"
-        panel.message = "Choose a cloud or network folder to show in the navigation pane."
+        panel.prompt = L10n.text("Add")
+        panel.message = L10n.text("Choose a cloud or network folder to show in the navigation pane.")
         panel.directoryURL = FileManager.default.fileExists(atPath: Self.storageFolder.path) ? Self.storageFolder : URL(fileURLWithPath: "/Volumes")
         guard panel.runModal() == .OK else { return }
         panel.urls.forEach(add)

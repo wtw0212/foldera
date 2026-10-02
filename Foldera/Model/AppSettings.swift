@@ -11,7 +11,7 @@ enum StartLocation: String, CaseIterable, Identifiable {
     case home, desktop, documents, downloads
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { L10n.text(rawValue.capitalized) }
 
     var url: URL {
         let fm = FileManager.default
@@ -29,6 +29,8 @@ enum StartLocation: String, CaseIterable, Identifiable {
 @Observable
 final class AppSettings {
     static let shared = AppSettings()
+
+    var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: AppLanguage.preferenceKey) } }
 
     var showHiddenFiles: Bool { didSet { defaults.set(showHiddenFiles, forKey: Key.showHiddenFiles) } }
     var showExtensions: Bool { didSet { defaults.set(showExtensions, forKey: Key.showExtensions) } }
@@ -62,6 +64,7 @@ final class AppSettings {
     }
 
     private init() {
+        language = .saved
         defaults.register(defaults: [
             Key.showHiddenFiles: false,
             Key.showExtensions: true,

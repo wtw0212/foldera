@@ -5,6 +5,7 @@ struct FolderaApp: App {
     var body: some Scene {
         WindowGroup {
             ExplorerWindow()
+                .environment(\.locale, L10n.locale)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 720)
@@ -14,6 +15,7 @@ struct FolderaApp: App {
 
         Settings {
             SettingsView()
+                .environment(\.locale, L10n.locale)
         }
     }
 }
