@@ -80,13 +80,45 @@ final class FileTableView: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if point.x > columnsMaxX {
-            // Clicking empty space clears the selection instead of selecting the row.
-            window?.makeFirstResponder(self)
-            deselectAll(nil)
+        // Empty space (right of the columns or below the last row) starts a selection box, like Explorer.
+        if point.x > columnsMaxX || row(at: point) < 0, event.clickCount == 1 {
+            trackSelectionBox(from: event)
             return
         }
         super.mouseDown(with: event)
+    }
+
+    /// Drags a selection box; rows it touches (within the columns) become selected. ⌘ or ⇧ adds to the selection.
+    private func trackSelectionBox(from event: NSEvent) {
+        window?.makeFirstResponder(self)
+        let start = convert(event.locationInWindow, from: nil)
+        let flags = event.modifierFlags
+        let extending = flags.contains(.command) || flags.contains(.shift)
+        let initial = extending ? selectedRowIndexes : IndexSet()
+        if !extending { deselectAll(nil) }
+
+        let box = SelectionBoxView()
+        addSubview(box)
+        defer { box.removeFromSuperview() }
+
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), next.type == .leftMouseDragged {
+            autoscroll(with: next)
+            let current = convert(next.locationInWindow, from: nil)
+            let rect = NSRect(
+                x: min(start.x, current.x), y: min(start.y, current.y),
+                width: abs(current.x - start.x), height: abs(current.y - start.y)
+            )
+            box.frame = rect
+            var touched = IndexSet()
+            if rect.minX <= columnsMaxX {
+                let range = rows(in: rect)
+                touched = IndexSet(integersIn: range.location..<(range.location + range.length))
+            }
+            let selection = initial.union(touched)
+            if selection != selectedRowIndexes {
+                selectRowIndexes(selection, byExtendingSelection: false)
+            }
+        }
     }
 
     // MARK: Hover
@@ -197,4 +229,25 @@ final class FileTableView: NSTableView {
         Theme.content.setFill()
         clipRect.fill()
     }
+}
+
+/// Translucent accent rectangle shown while drag-selecting.
+final class SelectionBoxView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.borderWidth = 1
+        updateLayer()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.borderColor = Theme.accent.cgColor
+        layer?.backgroundColor = Theme.accent.withAlphaComponent(0.15).cgColor
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
