@@ -221,3 +221,7 @@
 "Compress to ZIP file" = "壓縮為 ZIP 檔案";
 "Extract" = "解壓縮";
 "Compress" = "壓縮";
+"Compress to 7z file" = "壓縮為 7z 檔案";
+"Enter the password for “%@”" = "輸入「%@」的密碼";
+"The password is incorrect. Try again." = "密碼不正確，請再試一次。";
+"This archive is protected with a password." = "此封存檔受密碼保護。";

@@ -22,6 +22,14 @@ targets:
       Release: Config/Signing.xcconfig
     sources:
       - Foldera
+      # 7-Zip's console program, run by Archives.swift; signed with the app.
+      - path: ThirdParty/7-Zip/7zz
+        buildPhase:
+          copyFiles:
+            destination: executables
+        attributes: [CodeSignOnCopy]
+      - path: ThirdParty/7-Zip/7-Zip-License.txt
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera

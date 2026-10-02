@@ -38,7 +38,10 @@ enum ContextMenus {
                 menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
             }
         }
-        menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection() }
+        menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
+        if Archives.canCreate7z {
+            menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
+        }
         menu.addSeparator()
         let folders = items.filter(\.isNavigable)
         if !folders.isEmpty {

@@ -111,51 +111,76 @@ extension BrowserTab {
     var selectedArchives: [URL] { selectedItems.map(\.url).filter(Archives.isArchive) }
 
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
+    /// Encrypted archives ask for their password (again if it was wrong).
     func extractSelection(_ destination: ExtractDestination) {
         let archives = selectedArchives
         guard !archives.isEmpty else { return }
-        runArchiveJob(name: "Extract") {
+        Task {
             var created: [URL] = []
             var failure: Error?
             for archive in archives {
-                do {
-                    switch destination {
-                    case .here: created += try Archives.extractHere(archive, into: archive.deletingLastPathComponent())
-                    case .ownFolder: created.append(try Archives.extractToFolder(archive))
+                var password: String?
+                while true {
+                    do {
+                        created += try await Task.detached(priority: .userInitiated) { [password] in
+                            switch destination {
+                            case .here: try Archives.extractHere(archive, into: archive.deletingLastPathComponent(), password: password)
+                            case .ownFolder: [try Archives.extractToFolder(archive, password: password)]
+                            }
+                        }.value
+                    } catch let needed as Archives.PasswordRequired {
+                        password = Self.askPassword(for: archive, wasWrong: needed.wasWrong)
+                        if password != nil { continue }
+                    } catch {
+                        failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                     }
-                } catch {
-                    failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
+                    break
                 }
             }
-            return (created, failure)
+            finishArchiveJob(name: "Extract", created: created, error: failure)
         }
     }
 
-    /// Finder-style Compress: "<name>.zip" for one item, "Archive.zip" for several.
-    func compressSelection() {
+    /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
+    func compressSelection(_ format: Archives.Format = .zip) {
         let items = selectedItems.map(\.url)
         guard !items.isEmpty else { return }
         let folder = url
-        runArchiveJob(name: "Compress") {
+        Task {
             do {
-                return ([try Archives.compress(items, fallbackFolder: folder)], nil)
+                let archive = try await Task.detached(priority: .userInitiated) {
+                    try Archives.compress(items, format: format, fallbackFolder: folder)
+                }.value
+                finishArchiveJob(name: "Compress", created: [archive], error: nil)
             } catch {
-                return ([], error)
+                finishArchiveJob(name: "Compress", created: [], error: error)
             }
         }
     }
 
-    /// Runs zip/unzip off the main thread, then records undo and selects what was created.
-    private func runArchiveJob(name: String, _ job: @escaping @Sendable () -> ([URL], Error?)) {
-        Task {
-            let (created, error) = await Task.detached(priority: .userInitiated, operation: job).value
-            if !created.isEmpty {
-                FileUndo.shared.record(.created(created), name: name)
-                selection = Set(created.map(\.normalizedFileURL))
-                reload()
-            }
-            if let error { Self.present(error) }
+    /// Records undo and selects what was created.
+    private func finishArchiveJob(name: String, created: [URL], error: Error?) {
+        if !created.isEmpty {
+            FileUndo.shared.record(.created(created), name: name)
+            selection = Set(created.map(\.normalizedFileURL))
+            reload()
         }
+        if let error { Self.present(error) }
+    }
+
+    /// Asks for an archive's password. Nil when cancelled.
+    private static func askPassword(for archive: URL, wasWrong: Bool) -> String? {
+        let alert = NSAlert()
+        alert.messageText = L10n.format("Enter the password for “%@”", archive.lastPathComponent)
+        alert.informativeText = wasWrong ? L10n.text("The password is incorrect. Try again.") : L10n.text("This archive is protected with a password.")
+        alert.alertStyle = wasWrong ? .warning : .informational
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        alert.accessoryView = field
+        alert.addButton(withTitle: L10n.text("Extract"))
+        alert.addButton(withTitle: L10n.text("Cancel"))
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
     }
 
     func copyPathOfSelection() {

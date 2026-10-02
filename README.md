@@ -101,6 +101,12 @@ The address bar takes more than paths:
 | `https://…`, `smb://server/share` | Opens the link or connects to the share |
 | `Documents`, `../dist` | Relative paths from the current folder |
 
+## Archives
+
+Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**; right-click anything to **Compress to ZIP file** or **Compress to 7z file**. Extraction never overwrites existing items, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
+
+Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdParty/7-Zip`) and runs it as a separate process. tar archives use the system `tar`; single-item ZIPs use `ditto`, like Finder.
+
 ## Cloud drives
 
 OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.
@@ -128,3 +134,5 @@ then resize into `Foldera/Resources/Assets.xcassets/AppIcon.appiconset` (16–10
 ## Credits
 
 Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) by Microsoft, used under the MIT License (see `ThirdParty/FluentUI-System-Icons-LICENSE.txt`).
+
+Archive extraction and .7z creation use [7-Zip](https://www.7-zip.org/) by Igor Pavlov (unmodified `7zz` 26.03), licensed under the GNU LGPL 2.1 with the unRAR restriction plus BSD parts (see `ThirdParty/7-Zip/7-Zip-License.txt`, also inside the app).

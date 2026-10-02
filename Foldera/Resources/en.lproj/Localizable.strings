@@ -221,3 +221,7 @@
 "Compress to ZIP file" = "Compress to ZIP file";
 "Extract" = "Extract";
 "Compress" = "Compress";
+"Compress to 7z file" = "Compress to 7z file";
+"Enter the password for “%@”" = "Enter the password for “%@”";
+"The password is incorrect. Try again." = "The password is incorrect. Try again.";
+"This archive is protected with a password." = "This archive is protected with a password.";
