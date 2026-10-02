@@ -9,8 +9,8 @@ final class FileTransfer: Identifiable {
     let id = UUID()
     let kind: Kind
     let itemCount: Int
-    let sourceName: String
-    let destinationName: String
+    let source: URL
+    let destination: URL
     let startedAt = Date()
     var totalBytes: Int64 = 0
     private(set) var completedBytes: Int64 = 0
@@ -20,14 +20,15 @@ final class FileTransfer: Identifiable {
     init(kind: Kind, itemCount: Int, source: URL, destination: URL) {
         self.kind = kind
         self.itemCount = itemCount
-        self.sourceName = BrowserTab.displayName(of: source)
-        self.destinationName = BrowserTab.displayName(of: destination)
+        self.source = source
+        self.destination = destination
     }
 
+    var sourceName: String { BrowserTab.displayName(of: source) }
+    var destinationName: String { BrowserTab.displayName(of: destination) }
+
     var title: String {
-        let verb = kind == .copy ? "Copying" : "Moving"
-        let items = itemCount == 1 ? "1 item" : "\(itemCount) items"
-        return "\(verb) \(items) from \(sourceName) to \(destinationName)"
+        L10n.format(kind == .copy ? "transfer.copy" : "transfer.move", itemCount, sourceName, destinationName)
     }
 
     var fraction: Double {
@@ -84,8 +85,8 @@ final class FileTransfers {
 
         if let source = sources.first(where: { directory.path == $0.path || directory.path.hasPrefix($0.path + "/") }) {
             Self.alert(
-                "The destination folder is a subfolder of the source folder.",
-                detail: "“\(source.lastPathComponent)” can’t be \(kind == .copy ? "copied" : "moved") into itself."
+                L10n.text("The destination folder is a subfolder of the source folder."),
+                detail: L10n.format(kind == .copy ? "“%@” can’t be copied into itself." : "“%@” can’t be moved into itself.", source.lastPathComponent)
             )
             return result
         }
@@ -216,16 +217,16 @@ private final class ConflictResolver {
     func resolve(name: String, remaining: Int) -> Choice {
         if let remembered { return remembered }
         let alert = NSAlert()
-        alert.messageText = "The destination already has an item named “\(name)”"
-        alert.informativeText = "\(kind == .copy ? "Copying" : "Moving") to \(BrowserTab.displayName(of: destination)). "
-            + "Replacing moves the existing item to the Trash."
-        alert.addButton(withTitle: "Replace")
-        alert.addButton(withTitle: "Keep Both")
-        alert.addButton(withTitle: "Skip")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.format("The destination already has an item named “%@”", name)
+        alert.informativeText = L10n.format(kind == .copy ? "Copying to %@. " : "Moving to %@. ", BrowserTab.displayName(of: destination))
+            + L10n.text("Replacing moves the existing item to the Trash.")
+        alert.addButton(withTitle: L10n.text("Replace"))
+        alert.addButton(withTitle: L10n.text("Keep Both"))
+        alert.addButton(withTitle: L10n.text("Skip"))
+        alert.addButton(withTitle: L10n.text("Cancel"))
         if remaining > 1 {
             alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = "Do this for all conflicts"
+            alert.suppressionButton?.title = L10n.text("Do this for all conflicts")
         }
         let choice: Choice = switch alert.runModal() {
         case .alertFirstButtonReturn: .replace

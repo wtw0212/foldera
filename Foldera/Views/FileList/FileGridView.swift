@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Icon, List, Tiles and Content layouts, backed by `NSCollectionView`.
 struct FileGridView: NSViewRepresentable {
+    @Environment(\.locale) private var locale
     let tab: BrowserTab
     let mode: ViewMode
     let items: [FileItem]
@@ -12,6 +13,7 @@ struct FileGridView: NSViewRepresentable {
     let renameRequest: BrowserTab.RenameRequest?
     let focusToken: Int
     let openInNewTab: (URL) -> Void
+    let openInBackgroundTab: (URL) -> Void
     var onFocus: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -55,7 +57,7 @@ struct FileGridView: NSViewRepresentable {
 
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id
-        let presentation = Coordinator.Presentation(mode: mode, showExtensions: showExtensions, cutURLs: cutURLs)
+        let presentation = Coordinator.Presentation(mode: mode, showExtensions: showExtensions, cutURLs: cutURLs, localeIdentifier: locale.identifier)
         if tabChanged || coordinator.items != items || coordinator.presentation != presentation {
             let modeChanged = coordinator.presentation.mode != mode
             coordinator.items = items
@@ -93,6 +95,7 @@ struct FileGridView: NSViewRepresentable {
             var mode: ViewMode = .largeIcons
             var showExtensions = true
             var cutURLs: Set<URL> = []
+            var localeIdentifier = ""
         }
 
         var parent: FileGridView?
@@ -246,6 +249,10 @@ struct FileGridView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func openInBackgroundTab(index: Int) {
+            guard index < items.count, items[index].isNavigable else { return }
+            parent?.openInBackgroundTab(items[index].url)
+        }
         func toggleQuickLook() {
             QuickLook.shared.toggle { [weak self] in self?.tab?.selectedItems.map(\.url) ?? [] }
         }

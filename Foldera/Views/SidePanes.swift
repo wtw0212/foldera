@@ -35,15 +35,18 @@ struct DetailsPane: View {
                 if selected.count == 1, let item = selected.first {
                     ItemDetails(item: item)
                 } else if selected.count > 1 {
-                    header(icon: FileIcons.icon(for: selected[0]), title: "\(selected.count) items selected")
+                    header(icon: FileIcons.icon(for: selected[0]), title: L10n.format("items.selected", selected.count))
                     let files = selected.filter { !$0.isNavigable }
                     if !files.isEmpty {
-                        property("Size", FileFormat.totalSize(files.reduce(0) { $0 + ($1.size ?? 0) }))
+                        property(L10n.text("Size"), FileFormat.totalSize(files.reduce(0) { $0 + ($1.size ?? 0) }))
                     }
+                } else if tab.isThisMac {
+                    header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
+                    property(L10n.text("Drives"), "\(VolumeMonitor.shared.volumes.count)")
                 } else {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
-                    property("Items", "\(tab.visibleItems.count)")
-                    property("Location", (tab.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+                    property(L10n.text("Items"), "\(tab.visibleItems.count)")
+                    property(L10n.text("Location"), (tab.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
                 }
             }
             .padding(16)
@@ -75,18 +78,18 @@ private struct ItemDetails: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.text.swiftUI)
                 .textSelection(.enabled)
-            Text(item.kind)
+            Text(item.localizedKind)
                 .font(Theme.font)
                 .foregroundStyle(Theme.secondaryText.swiftUI)
             Divider()
-            Text("Properties")
+            Text(L10n.text("Properties"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.text.swiftUI)
-            if !item.isNavigable { property("Size", FileFormat.totalSize(item.size ?? 0)) }
-            if let dimensions { property("Dimensions", dimensions) }
-            property("Date modified", FileFormat.date(item.dateModified))
-            property("Date created", FileFormat.date(item.dateCreated))
-            property("Location", FileFormat.location(of: item.url))
+            if !item.isNavigable { property(L10n.text("Size"), FileFormat.totalSize(item.size ?? 0)) }
+            if let dimensions { property(L10n.text("Dimensions"), dimensions) }
+            property(L10n.text("Date modified"), FileFormat.date(item.dateModified))
+            property(L10n.text("Date created"), FileFormat.date(item.dateCreated))
+            property(L10n.text("Location"), FileFormat.location(of: item.url))
         }
         .task(id: item.url) {
             dimensions = Self.imageDimensions(item.url)

@@ -55,6 +55,12 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | `Foldera/Views/FileList` | `NSTableView`-based details view, context menus |
 | `Foldera/Theme` | Windows 11 colors and icons |
 
+## Languages
+
+Settings ▸ General ▸ Language switches between **Follow System**, **English** and **繁體中文** immediately and remembers the selection. Unsupported system languages fall back to English. File names, paths and shortcuts are preserved; macOS-owned dialogs and file-type descriptions use the system language.
+
+Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`, `Localizable.stringsdict` for plurals, and `InfoPlist.strings` for privacy prompts). To add a language, copy those resources, translate them, add a case to `AppLanguage` and a region to `project.yml`, then regenerate the project.
+
 ## Keyboard
 
 | Action | Shortcut |
@@ -79,6 +85,27 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 | Dual pane on/off | ⌥⌘D |
 | Copy / move selection to other pane | F5 / F6 |
+| Open folder in background tab / close tab | Middle-click a folder / a tab |
+
+## Address bar commands
+
+The address bar takes more than paths:
+
+| Type | Does |
+|---|---|
+| `terminal`, `zsh`, `bash` … | Opens the terminal (Settings ▸ General) in the current folder |
+| `git status`, `ls -la` | Runs the command in Terminal, in the current folder |
+| `code`, `cursor`, `zed`, `subl`, `xed` | Opens the folder in that editor (`code README.md` opens a file) |
+| `finder`, `open .` | Shows the folder in Finder |
+| an app name (`safari`) | Launches the app |
+| `https://…`, `smb://server/share` | Opens the link or connects to the share |
+| `Documents`, `../dist` | Relative paths from the current folder |
+
+## Cloud drives
+
+OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.
+
+Drag a folder onto the edge of a Quick access pin, or onto the dividers around the pins, to pin it there; dropping on the middle of a pin still moves or copies into that folder.
 
 ## Roadmap
 

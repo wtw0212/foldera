@@ -8,39 +8,40 @@ struct CommandBar: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            MenuButton(help: "Create a new item in the current location") {
+            MenuButton(help: L10n.text("Create a new item in the current location")) {
                 let menu = NSMenu()
-                menu.add("Folder", symbol: "folder") { tab.newFolder() }
+                menu.add(L10n.text("Folder"), symbol: "folder") { tab.newFolder() }
                 menu.addSeparator()
-                menu.add("Text Document", symbol: "doc.text") { tab.newTextDocument() }
+                menu.add(L10n.text("Text Document"), symbol: "doc.text") { tab.newTextDocument() }
                 return menu
             } label: {
-                labeled("New", symbol: "add_circle_filled", tint: Theme.accent.swiftUI, dropdown: true)
+                labeled(L10n.text("New"), symbol: "add_circle_filled", tint: Theme.accent.swiftUI, dropdown: true)
             }
+            .disabled(tab.isThisMac)
 
             VerticalSeparator()
 
-            IconButton(symbol: "cut_regular", help: "Cut (⌘X)") { tab.cutSelection() }
+            IconButton(symbol: "cut_regular", help: L10n.text("Cut (⌘X)")) { tab.cutSelection() }
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "copy_regular", help: "Copy (⌘C)") { tab.copySelection() }
+            IconButton(symbol: "copy_regular", help: L10n.text("Copy (⌘C)")) { tab.copySelection() }
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "clipboard_paste_regular", help: "Paste (⌘V)") { tab.paste() }
-            IconButton(symbol: "rename_regular", help: tab.selection.count > 1 ? "Rename \(tab.selection.count) items (F2)" : "Rename (F2)") {
+            IconButton(symbol: "clipboard_paste_regular", help: L10n.text("Paste (⌘V)")) { tab.paste() }
+            IconButton(symbol: "rename_regular", help: tab.selection.count > 1 ? L10n.format("rename.items.help", tab.selection.count) : L10n.text("Rename (F2)")) {
                 tab.beginRename()
             }
             .disabled(!tab.hasSelection)
             ShareButton(urls: tab.selectedItems.map(\.url))
                 .disabled(!tab.hasSelection)
-            IconButton(symbol: "delete_regular", help: "Delete (⌘⌫)") { tab.trashSelection() }
+            IconButton(symbol: "delete_regular", help: L10n.text("Delete (⌘⌫)")) { tab.trashSelection() }
                 .disabled(!tab.hasSelection)
 
             if model.isDualPane {
                 VerticalSeparator()
-                IconButton(symbol: "arrow.right.doc.on.clipboard", help: "Copy to other pane (F5)") {
+                IconButton(symbol: "arrow.right.doc.on.clipboard", help: L10n.text("Copy to other pane (F5)")) {
                     model.transferToOtherPane(.copy)
                 }
                 .disabled(!tab.hasSelection)
-                IconButton(symbol: "arrow.right.square", help: "Move to other pane (F6)") {
+                IconButton(symbol: "arrow.right.square", help: L10n.text("Move to other pane (F6)")) {
                     model.transferToOtherPane(.move)
                 }
                 .disabled(!tab.hasSelection)
@@ -48,20 +49,20 @@ struct CommandBar: View {
 
             VerticalSeparator()
 
-            MenuButton(help: "Sort items") {
+            MenuButton(help: L10n.text("Sort items")) {
                 sortMenu()
             } label: {
-                labeled("Sort", symbol: "arrow_sort_regular", dropdown: true)
+                labeled(L10n.text("Sort"), symbol: "arrow_sort_regular", dropdown: true)
             }
-            MenuButton(help: "Layout and view options") {
+            MenuButton(help: L10n.text("Layout and view options")) {
                 viewMenu()
             } label: {
-                labeled("View", symbol: tab.viewMode.symbol, dropdown: true)
+                labeled(L10n.text("View"), symbol: tab.viewMode.symbol, dropdown: true)
             }
 
             VerticalSeparator()
 
-            MenuButton(help: "See more") {
+            MenuButton(help: L10n.text("See more")) {
                 moreMenu()
             } label: {
                 AppIcon(name: "more_horizontal_regular")
@@ -74,11 +75,11 @@ struct CommandBar: View {
             Button {
                 settings.toggle(.details)
             } label: {
-                labeled("Details", symbol: "panel_right_regular")
+                labeled(L10n.text("Details"), symbol: "panel_right_regular")
             }
             .buttonStyle(SubtleButtonStyle())
             .background(RoundedRectangle(cornerRadius: 4).fill(settings.sidePane == .details ? Theme.selection.swiftUI : .clear))
-            .help("Details pane with preview (⌥⌘P)")
+            .help(L10n.text("Details pane with preview (⌥⌘P)"))
         }
         .padding(.horizontal, 8)
         .frame(height: 44)
@@ -105,8 +106,8 @@ struct CommandBar: View {
             }
         }
         menu.addSeparator()
-        menu.add("Ascending", checked: tab.sort.ascending) { tab.sort.ascending = true }
-        menu.add("Descending", checked: !tab.sort.ascending) { tab.sort.ascending = false }
+        menu.add(L10n.text("Ascending"), checked: tab.sort.ascending) { tab.sort.ascending = true }
+        menu.add(L10n.text("Descending"), checked: !tab.sort.ascending) { tab.sort.ascending = false }
         return menu
     }
 
@@ -118,18 +119,18 @@ struct CommandBar: View {
             item.keyEquivalentModifierMask = [.command, .option]
         }
         menu.addSeparator()
-        menu.add("Compact view", symbol: "arrow.down.right.and.arrow.up.left", checked: settings.compactView) {
+        menu.add(L10n.text("Compact view"), symbol: "arrow.down.right.and.arrow.up.left", checked: settings.compactView) {
             settings.compactView.toggle()
         }
-        let show = NSMenuItem(title: "Show", action: nil, keyEquivalent: "")
+        let show = NSMenuItem(title: L10n.text("Show"), action: nil, keyEquivalent: "")
         show.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
         let showMenu = NSMenu()
-        showMenu.add("Navigation pane", checked: settings.showNavigationPane) { settings.showNavigationPane.toggle() }
-        showMenu.add("Details pane", checked: settings.sidePane == .details) { settings.toggle(.details) }
-        showMenu.add("Dual pane", checked: model.isDualPane) { model.toggleDualPane() }
+        showMenu.add(L10n.text("Navigation pane"), checked: settings.showNavigationPane) { settings.showNavigationPane.toggle() }
+        showMenu.add(L10n.text("Details pane"), checked: settings.sidePane == .details) { settings.toggle(.details) }
+        showMenu.add(L10n.text("Dual pane"), checked: model.isDualPane) { model.toggleDualPane() }
         showMenu.addSeparator()
-        showMenu.add("File name extensions", checked: settings.showExtensions) { settings.showExtensions.toggle() }
-        showMenu.add("Hidden items", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
+        showMenu.add(L10n.text("File name extensions"), checked: settings.showExtensions) { settings.showExtensions.toggle() }
+        showMenu.add(L10n.text("Hidden items"), checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         show.submenu = showMenu
         menu.addItem(show)
         return menu
@@ -137,15 +138,15 @@ struct CommandBar: View {
 
     private func moreMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.add("Select all", symbol: "checkmark.rectangle.stack") { tab.selectAll() }
-        menu.add("Select none", symbol: "rectangle.stack") { tab.selectNone() }
-        menu.add("Invert selection", symbol: "arrow.left.arrow.right") { tab.invertSelection() }
+        menu.add(L10n.text("Select all"), symbol: "checkmark.rectangle.stack") { tab.selectAll() }
+        menu.add(L10n.text("Select none"), symbol: "rectangle.stack") { tab.selectNone() }
+        menu.add(L10n.text("Invert selection"), symbol: "arrow.left.arrow.right") { tab.invertSelection() }
         menu.addSeparator()
-        menu.add("Copy path", symbol: "link") { tab.copyPathOfSelection() }
-        menu.add("Show in Finder", symbol: "macwindow") { tab.showInFinder() }
-        menu.add("Open in Terminal", symbol: "terminal") { tab.openInTerminal() }
+        menu.add(L10n.text("Copy path"), symbol: "link") { tab.copyPathOfSelection() }
+        menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
+        menu.add(L10n.text("Open in Terminal"), symbol: "terminal") { tab.openInTerminal() }
         menu.addSeparator()
-        menu.add("Properties", symbol: "info.circle") { tab.showProperties() }
+        menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
         return menu
     }
 }
@@ -155,7 +156,7 @@ private struct ShareButton: View {
     @State private var frame: CGRect = .zero
 
     var body: some View {
-        IconButton(symbol: "share_regular", help: "Share") {
+        IconButton(symbol: "share_regular", help: L10n.text("Share")) {
             guard let view = NSApp.keyWindow?.contentView else { return }
             let rect = view.isFlipped ? frame : NSRect(
                 x: frame.minX, y: view.bounds.height - frame.maxY, width: frame.width, height: frame.height

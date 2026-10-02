@@ -186,28 +186,15 @@ final class ExplorerHeaderView: NSTableHeaderView {
 // MARK: - Formatting
 
 enum FileFormat {
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
-    private static let numberFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter
-    }()
-
     static func date(_ date: Date?) -> String {
-        date.map(dateFormatter.string(from:)) ?? ""
+        date?.formatted(Date.FormatStyle(date: .numeric, time: .shortened).locale(L10n.locale)) ?? ""
     }
 
     /// Explorer shows sizes in whole kilobytes, rounded up: "1 KB", "2,048 KB".
     static func size(_ bytes: Int64?) -> String {
         guard let bytes else { return "" }
         let kilobytes = bytes == 0 ? 0 : (bytes + 1023) / 1024
-        return "\(numberFormatter.string(from: NSNumber(value: kilobytes)) ?? String(kilobytes)) KB"
+        return "\(kilobytes.formatted(.number.locale(L10n.locale))) KB"
     }
 
     /// Parent folder path for search results, with the home folder shortened to "~".
@@ -217,6 +204,6 @@ enum FileFormat {
 
     /// Status bar total: "1.24 MB" style, like Explorer's selection summary.
     static func totalSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
+        bytes.formatted(.byteCount(style: .binary).locale(L10n.locale))
     }
 }

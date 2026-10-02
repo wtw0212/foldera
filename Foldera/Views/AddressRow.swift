@@ -7,17 +7,17 @@ struct AddressRow: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            IconButton(symbol: "arrow_left_regular", help: "Back (⌘[)") { tab.goBack() }
+            IconButton(symbol: "arrow_left_regular", help: L10n.text("Back (⌘[)")) { tab.goBack() }
                 .disabled(!tab.canGoBack)
                 .contextMenu { historyMenu(tab.backHistory, back: true) }
-            IconButton(symbol: "arrow_right_regular", help: "Forward (⌘])") { tab.goForward() }
+            IconButton(symbol: "arrow_right_regular", help: L10n.text("Forward (⌘])")) { tab.goForward() }
                 .disabled(!tab.canGoForward)
                 .contextMenu { historyMenu(tab.forwardHistory, back: false) }
-            IconButton(symbol: "arrow_up_regular", help: "Up to “\(BrowserTab.displayName(of: tab.url.deletingLastPathComponent()))” (⌘↑)") {
+            IconButton(symbol: "arrow_up_regular", help: L10n.format("Up to “%@” (⌘↑)", BrowserTab.pathName(of: tab.parentURL ?? tab.url))) {
                 tab.goUp()
             }
             .disabled(!tab.canGoUp)
-            IconButton(symbol: "arrow_clockwise_regular", help: "Refresh (⌘R)") { tab.reload() }
+            IconButton(symbol: "arrow_clockwise_regular", help: L10n.text("Refresh (⌘R)")) { tab.reload() }
                 .padding(.trailing, 4)
 
             AddressBar(model: model, tab: tab)
@@ -31,7 +31,7 @@ struct AddressRow: View {
     @ViewBuilder
     private func historyMenu(_ urls: [URL], back: Bool) -> some View {
         ForEach(Array(urls.prefix(15).enumerated()), id: \.offset) { _, url in
-            Button(BrowserTab.displayName(of: url)) { tab.jump(toHistory: url, back: back) }
+            Button(BrowserTab.pathName(of: url)) { tab.jump(toHistory: url, back: back) }
         }
     }
 }
@@ -59,11 +59,11 @@ private struct AddressBar: View {
                         if !focused { cancel() }
                     }
                     .onAppear {
-                        text = tab.url.path
+                        text = tab.isThisMac ? "This Mac" : tab.url.path
                         isFocused = true
                     }
             } else {
-                Breadcrumbs(tab: tab)
+                Breadcrumbs(model: model, tab: tab)
                     .padding(.leading, 6)
             }
         }
@@ -85,18 +85,35 @@ private struct AddressBar: View {
         .onTapGesture { model.isEditingAddress = true }
     }
 
+    /// Like Explorer's address bar: a path (absolute, ~, or relative to this folder), a web address,
+    /// or a command (see `AddressCommand`).
     private func commit() {
-        let path = (text.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
-        var isDirectory: ObjCBool = false
+        let input = text.trimmingCharacters(in: .whitespaces)
         model.isEditingAddress = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            let alert = NSAlert()
-            alert.messageText = "Foldera can’t find “\(text)”."
-            alert.informativeText = "Check the spelling and try again."
-            alert.alertStyle = .warning
-            alert.runModal()
+        guard !input.isEmpty else { return }
+        if input.lowercased() == "this mac" || input == L10n.text("This Mac") {
+            tab.navigate(to: BrowserTab.thisMacURL)
             return
         }
+        if input.contains("://") || input.lowercased().hasPrefix("mailto:"), let url = URL(string: input) {
+            NSWorkspace.shared.open(url) // https://…, smb://server/share, mailto:…
+            return
+        }
+        let expanded = (input as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            if !openPath(expanded) { notFound(input) }
+            return
+        }
+        if AddressCommand.runBuiltIn(input, in: tab.url) { return }
+        if openPath(tab.url.appendingPathComponent(expanded).standardizedFileURL.path) { return }
+        if AddressCommand.runFallback(input, in: tab.url) { return }
+        notFound(input)
+    }
+
+    /// Opens a folder here, or a file in its app. False when nothing is at `path`.
+    private func openPath(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return false }
         let url = URL(fileURLWithPath: path)
         if isDirectory.boolValue {
             tab.navigate(to: url)
@@ -104,6 +121,15 @@ private struct AddressBar: View {
             NSWorkspace.shared.open(url)
         }
         tab.requestListFocus()
+        return true
+    }
+
+    private func notFound(_ input: String) {
+        let alert = NSAlert()
+        alert.messageText = L10n.format("Foldera can’t find “%@”.", input)
+        alert.informativeText = L10n.text("Check the spelling and try again.")
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     private func cancel() {
@@ -112,6 +138,7 @@ private struct AddressBar: View {
 }
 
 private struct Breadcrumbs: View {
+    let model: ExplorerWindowModel
     let tab: BrowserTab
 
     var body: some View {
@@ -128,7 +155,7 @@ private struct Breadcrumbs: View {
                             OverflowButton(hidden: Array(segments.prefix(dropped)), tab: tab)
                         }
                         ForEach(segments.dropFirst(dropped), id: \.self) { url in
-                            Segment(url: url, tab: tab)
+                            Segment(model: model, url: url, tab: tab)
                         }
                     }
                     .fixedSize()
@@ -138,8 +165,9 @@ private struct Breadcrumbs: View {
         }
     }
 
-    /// The location's folders from the volume root down, e.g. Macintosh HD › Users › me › Documents.
+    /// The location's folders from This Mac down, e.g. This Mac › Macintosh HD › Users › me › Documents.
     static func segments(for url: URL) -> [URL] {
+        guard url != BrowserTab.thisMacURL else { return [url] }
         let volume = (try? url.resourceValues(forKeys: [.volumeURLKey]).volume) ?? URL(fileURLWithPath: "/")
         var result: [URL] = []
         var current = url.standardizedFileURL
@@ -148,21 +176,23 @@ private struct Breadcrumbs: View {
             if current.path == volume.standardizedFileURL.path || current.path == "/" { break }
             current = current.deletingLastPathComponent()
         }
-        return result.reversed()
+        return [BrowserTab.thisMacURL] + result.reversed()
     }
 }
 
 private struct Segment: View {
+    let model: ExplorerWindowModel
     let url: URL
     let tab: BrowserTab
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(BrowserTab.displayName(of: url)) {
+            Button(BrowserTab.pathName(of: url)) {
                 tab.navigate(to: url)
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)))
             .folderDropTarget(url)
+            .onMiddleClick { model.newTab(url: url, activate: false) }
 
             Button {
                 popUpMenu(SubfolderMenu.make(for: url, tab: tab))
@@ -183,7 +213,7 @@ private struct OverflowButton: View {
         Button {
             let menu = NSMenu()
             for url in hidden.reversed() {
-                let item = ClosureMenuItem(BrowserTab.displayName(of: url), image: FileIcons.folder) { tab.navigate(to: url) }
+                let item = ClosureMenuItem(BrowserTab.pathName(of: url), image: FileIcons.folder) { tab.navigate(to: url) }
                 menu.addItem(item)
             }
             popUpMenu(menu)
@@ -200,6 +230,14 @@ private struct OverflowButton: View {
 enum SubfolderMenu {
     static func make(for url: URL, tab: BrowserTab) -> NSMenu {
         let menu = NSMenu()
+        if url == BrowserTab.thisMacURL {
+            for volume in VolumeMonitor.shared.volumes {
+                let icon = FileIcons.icon(forPath: volume.url).copy() as? NSImage
+                icon?.size = NSSize(width: 16, height: 16)
+                menu.addItem(ClosureMenuItem(BrowserTab.pathName(of: volume.url), image: icon) { tab.navigate(to: volume.url) })
+            }
+            return menu
+        }
         let showHidden = AppSettings.shared.showHiddenFiles
         let children = (try? FileManager.default.contentsOfDirectory(
             at: url,
@@ -213,13 +251,13 @@ enum SubfolderMenu {
             }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         if folders.isEmpty {
-            let empty = NSMenuItem(title: "No subfolders", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L10n.text("No subfolders"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         }
         let image = FileIcons.folder
         for folder in folders {
-            let item = ClosureMenuItem(FileManager.default.displayName(atPath: folder.path), image: image) {
+            let item = ClosureMenuItem(BrowserTab.pathName(of: folder), image: image) {
                 tab.navigate(to: folder)
             }
             if tab.url.path.hasPrefix(folder.path + "/") || tab.url == folder.normalizedFileURL {
@@ -241,7 +279,7 @@ private struct SearchBox: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField("Search \(tab.title)", text: $tab.searchText)
+            TextField(L10n.format("Search %@", tab.title), text: $tab.searchText)
                 .textFieldStyle(.plain)
                 .font(Theme.font)
                 .focused($isFocused)

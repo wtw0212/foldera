@@ -22,6 +22,10 @@ struct TabStrip: View {
                         if !model.closeTab(tab.id) { NSApp.keyWindow?.performClose(nil) }
                     }
                 )
+                // Middle-click closes, like a browser or Explorer.
+                .onMiddleClick {
+                    if !model.closeTab(tab.id) { NSApp.keyWindow?.performClose(nil) }
+                }
                 .draggable(tab.id.uuidString)
                 .dropDestination(for: String.self) { ids, _ in
                     guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
@@ -39,7 +43,7 @@ struct TabStrip: View {
             .buttonStyle(SubtleButtonStyle())
             .padding(.leading, 4)
             .padding(.bottom, 2)
-            .help("Open new tab (⌘T)")
+            .help(L10n.text("Open new tab (⌘T)"))
 
             WindowDragArea()
         }
@@ -74,7 +78,7 @@ private struct TabItem: View {
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
             .opacity(isActive || isHovered ? 1 : 0)
-            .help("Close tab (⌘W)")
+            .help(L10n.text("Close tab (⌘W)"))
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)

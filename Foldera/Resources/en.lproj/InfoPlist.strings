@@ -1,0 +1,6 @@
+"NSDesktopFolderUsageDescription" = "Foldera shows and manages the files in your Desktop folder.";
+"NSDocumentsFolderUsageDescription" = "Foldera shows and manages the files in your Documents folder.";
+"NSDownloadsFolderUsageDescription" = "Foldera shows and manages the files in your Downloads folder.";
+"NSRemovableVolumesUsageDescription" = "Foldera shows and manages files on removable drives.";
+"NSNetworkVolumesUsageDescription" = "Foldera shows and manages files on network drives.";
+"NSAppleEventsUsageDescription" = "Foldera asks Finder to show the Get Info window for items you select.";

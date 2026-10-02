@@ -36,13 +36,24 @@ final class QuickAccess {
         save()
     }
 
-    /// Reorders by drag and drop: puts `url` just before `target`.
-    func move(_ url: URL, before target: URL) {
-        let url = url.normalizedFileURL, target = target.normalizedFileURL
-        guard url != target, let from = urls.firstIndex(of: url) else { return }
-        urls.remove(at: from)
-        urls.insert(url, at: urls.firstIndex(of: target) ?? urls.endIndex)
+    /// Pins folders dropped onto Quick access, just before `target` (nil: at the end, or the start when
+    /// `atStart`). Folders that are already pinned move to the drop position.
+    func insert(_ folders: [URL], before target: URL?, atStart: Bool = false) {
+        let folders = folders.map(\.normalizedFileURL)
+        guard !folders.isEmpty, target.map({ !folders.contains($0.normalizedFileURL) }) ?? true else { return }
+        urls.removeAll { folders.contains($0) }
+        let index = target.flatMap { urls.firstIndex(of: $0.normalizedFileURL) } ?? (atStart ? 0 : urls.endIndex)
+        var seen = Set<URL>()
+        urls.insert(contentsOf: folders.filter { seen.insert($0).inserted }, at: index)
         save()
+    }
+
+    /// Dropped items that can be pinned: folders, not files or packages.
+    static func pinnableFolders(_ urls: [URL]) -> [URL] {
+        urls.filter { url in
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            return values?.isDirectory == true && values?.isPackage != true
+        }
     }
 
     private func save() {

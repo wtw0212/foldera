@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Details view of the current folder, backed by `NSTableView` for speed with large folders.
 struct FileListView: NSViewRepresentable {
+    @Environment(\.locale) private var locale
     let tab: BrowserTab
     let items: [FileItem]
     let selection: Set<URL>
@@ -15,6 +16,7 @@ struct FileListView: NSViewRepresentable {
     /// Showing recursive search results: adds the "Folder" column.
     let isSearchResults: Bool
     let openInNewTab: (URL) -> Void
+    let openInBackgroundTab: (URL) -> Void
     var onFocus: () -> Void = {}
 
     private enum Column: String, CaseIterable {
@@ -22,7 +24,7 @@ struct FileListView: NSViewRepresentable {
 
         var field: SortField? { SortField(rawValue: rawValue) }
 
-        var title: String { field?.title ?? "Folder" }
+        var title: String { field?.title ?? L10n.text("Folder") }
 
         var width: CGFloat {
             switch self {
@@ -113,8 +115,14 @@ struct FileListView: NSViewRepresentable {
         } else if !isSearchResults, let locationColumn {
             table.removeTableColumn(locationColumn)
         }
+        for column in table.tableColumns {
+            if let field = Column(rawValue: column.identifier.rawValue) {
+                column.title = field.title
+            }
+        }
+        table.headerView?.needsDisplay = true
 
-        let presentation = Coordinator.Presentation(showExtensions: showExtensions, cutURLs: cutURLs)
+        let presentation = Coordinator.Presentation(showExtensions: showExtensions, cutURLs: cutURLs, localeIdentifier: locale.identifier)
         if tabChanged || coordinator.items != items || coordinator.presentation != presentation {
             coordinator.items = items
             coordinator.presentation = presentation
@@ -154,6 +162,7 @@ struct FileListView: NSViewRepresentable {
         struct Presentation: Equatable {
             var showExtensions = true
             var cutURLs: Set<URL> = []
+            var localeIdentifier = ""
         }
 
         var parent: FileListView?
@@ -264,7 +273,7 @@ struct FileListView: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: TextCellView.identifier, owner: nil) as? TextCellView ?? TextCellView()
             switch column {
             case .dateModified: cell.label.stringValue = FileFormat.date(item.dateModified)
-            case .kind: cell.label.stringValue = item.kind
+            case .kind: cell.label.stringValue = item.localizedKind
             case .size: cell.label.stringValue = FileFormat.size(item.size)
             case .location: cell.label.stringValue = FileFormat.location(of: item.url)
             case .name: break
@@ -315,6 +324,10 @@ struct FileListView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func openInBackgroundTab(index: Int) {
+            guard index < items.count, items[index].isNavigable else { return }
+            parent?.openInBackgroundTab(items[index].url)
+        }
         func toggleQuickLook() {
             QuickLook.shared.toggle { [weak self] in self?.tab?.selectedItems.map(\.url) ?? [] }
         }

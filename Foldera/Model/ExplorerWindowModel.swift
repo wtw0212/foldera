@@ -6,7 +6,11 @@ import SwiftUI
 @Observable
 final class ExplorerWindowModel {
     private(set) var tabs: [BrowserTab]
-    var activeTabID: BrowserTab.ID
+    var activeTabID: BrowserTab.ID {
+        didSet { if activeTabID != oldValue { lastBackgroundTabID = nil } }
+    }
+    /// The newest tab opened in the background from the active tab, so further ones line up after it (like a browser).
+    @ObservationIgnored private var lastBackgroundTabID: BrowserTab.ID?
     var isEditingAddress = false
     /// Bumped to move keyboard focus to the search box.
     private(set) var focusSearchToken = 0
@@ -74,11 +78,13 @@ final class ExplorerWindowModel {
         }
     }
 
-    func newTab(url: URL? = nil) {
+    /// Opens a tab after the active one. `activate: false` (middle-click) opens it in the background.
+    func newTab(url: URL? = nil, activate: Bool = true) {
         let tab = BrowserTab(url: url ?? AppSettings.shared.startLocation.url)
-        let index = tabs.firstIndex { $0.id == activeTabID }.map { $0 + 1 } ?? tabs.endIndex
+        let anchor = activate ? nil : lastBackgroundTabID.flatMap { id in tabs.firstIndex { $0.id == id } }
+        let index = (anchor ?? tabs.firstIndex { $0.id == activeTabID }).map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)
-        activeTabID = tab.id
+        if activate { activeTabID = tab.id } else { lastBackgroundTabID = tab.id }
     }
 
     func duplicateActiveTab() {

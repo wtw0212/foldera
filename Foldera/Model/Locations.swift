@@ -17,7 +17,7 @@ enum StandardLocations {
 
     static var home: Location {
         let url = fileManager.homeDirectoryForCurrentUser
-        return Location(url: url, title: "Home", symbol: "home_filled", tint: Color(nsColor: .init(hex: 0x4F8BD6)))
+        return Location(url: url, title: L10n.text("Home"), symbol: "home_filled", tint: Color(nsColor: .init(hex: 0x4F8BD6)))
     }
 
     static var iCloudDrive: Location? {
@@ -39,7 +39,7 @@ enum StandardLocations {
         return entries.compactMap { directory, title, symbol, tint in
             let domain: FileManager.SearchPathDomainMask = directory == .applicationDirectory ? .localDomainMask : .userDomainMask
             guard let url = fileManager.urls(for: directory, in: domain).first else { return nil }
-            return Location(url: url, title: title, symbol: symbol, tint: Color(nsColor: .init(hex: tint)))
+            return Location(url: url, title: L10n.text(title), symbol: symbol, tint: Color(nsColor: .init(hex: tint)))
         }
     }
 }

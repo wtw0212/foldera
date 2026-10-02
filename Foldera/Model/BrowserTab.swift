@@ -8,10 +8,10 @@ enum SortField: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .name: "Name"
-        case .dateModified: "Date modified"
-        case .kind: "Type"
-        case .size: "Size"
+        case .name: L10n.text("Name")
+        case .dateModified: L10n.text("Date modified")
+        case .kind: L10n.text("Type")
+        case .size: L10n.text("Size")
         }
     }
 }
@@ -29,11 +29,15 @@ final class BrowserTab: Identifiable {
         let id = UUID()
     }
 
+    /// The "This Mac" page (drives and their free space), like Explorer's This PC.
+    static let thisMacURL = URL(string: "foldera:this-mac")!
+
     let id = UUID()
     private(set) var url: URL
     private(set) var items: [FileItem] = []
     private(set) var isLoading = false
-    private(set) var loadError: String?
+    private var lastLoadError: NSError?
+    var loadError: String? { lastLoadError.map(Self.describe) }
     var selection: Set<URL> = []
     var sort = SortOrder()
     /// Layout for this folder; remembered per folder.
@@ -72,7 +76,15 @@ final class BrowserTab: Identifiable {
     var title: String { Self.displayName(of: url) }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
-    var canGoUp: Bool { url.path != "/" }
+    var isThisMac: Bool { url == Self.thisMacURL }
+    var canGoUp: Bool { parentURL != nil }
+
+    /// The enclosing folder; a drive's root goes up to This Mac.
+    var parentURL: URL? {
+        if isThisMac { return nil }
+        if url.path == "/" || (try? url.resourceValues(forKeys: [.isVolumeKey]).isVolume) == true { return Self.thisMacURL }
+        return url.deletingLastPathComponent()
+    }
     var backHistory: [URL] { backStack.reversed() }
     var forwardHistory: [URL] { forwardStack.reversed() }
 
@@ -155,8 +167,8 @@ final class BrowserTab: Identifiable {
     }
 
     func goUp() {
-        guard canGoUp else { return }
-        navigate(to: url.deletingLastPathComponent(), selecting: [url])
+        guard let parentURL else { return }
+        navigate(to: parentURL, selecting: [url])
     }
 
     func reload() {
@@ -168,7 +180,7 @@ final class BrowserTab: Identifiable {
     private func scheduleSearch() {
         searchTask?.cancel()
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else {
+        guard !query.isEmpty, !isThisMac else {
             searchTask = nil
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
@@ -217,6 +229,15 @@ final class BrowserTab: Identifiable {
     private func load(selecting: Set<URL>) {
         selectAfterLoad = selecting
         let target = url
+        if isThisMac {
+            // Not a folder: ThisMacView shows the drives itself.
+            loadTask?.cancel()
+            watcher = nil
+            watcherURL = nil
+            lastLoadError = nil
+            isLoading = false
+            return
+        }
         if watcher == nil || watcherURL != target {
             watcher = DirectoryWatcher(directory: target) { [weak self] in self?.reload() }
             watcherURL = target
@@ -232,7 +253,7 @@ final class BrowserTab: Identifiable {
                 guard let self, !Task.isCancelled, self.url == target else { return }
                 self.items = []
                 self.itemsVersion += 1
-                self.loadError = Self.describe(error)
+                self.lastLoadError = error as NSError
                 self.isLoading = false
             }
         }
@@ -241,7 +262,7 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var watcherURL: URL?
 
     private func apply(_ loaded: [FileItem]) {
-        loadError = nil
+        lastLoadError = nil
         isLoading = false
         if loaded != items {
             items = loaded
@@ -255,9 +276,22 @@ final class BrowserTab: Identifiable {
 
     // MARK: Helpers
 
+    /// Address-bar labels keep the filesystem's names, independent of the interface language.
+    static func pathName(of url: URL) -> String {
+        if url == thisMacURL { return "This Mac" }
+        if url.path == "/" {
+            return (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "/"
+        }
+        return url.lastPathComponent
+    }
+
     static func displayName(of url: URL) -> String {
+        if url == thisMacURL { return L10n.text("This Mac") }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? "Macintosh HD"
+        }
+        if let standard = (StandardLocations.pinned + [StandardLocations.home]).first(where: { $0.url.normalizedFileURL == url.normalizedFileURL }) {
+            return standard.title
         }
         return FileManager.default.displayName(atPath: url.path)
     }
@@ -269,7 +303,7 @@ final class BrowserTab: Identifiable {
     private static func describe(_ error: Error) -> String {
         let nsError = error as NSError
         if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoPermissionError {
-            return "Access is denied. Grant Foldera Full Disk Access in System Settings › Privacy & Security to open this folder."
+            return L10n.text("Access is denied. Grant Foldera Full Disk Access in System Settings › Privacy & Security to open this folder.")
         }
         return nsError.localizedDescription
     }

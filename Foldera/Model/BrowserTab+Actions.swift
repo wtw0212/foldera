@@ -5,7 +5,7 @@ extension BrowserTab {
     private var clipboard: FileClipboard { .shared }
 
     var hasSelection: Bool { !selection.isEmpty }
-    var canPaste: Bool { clipboard.canPaste }
+    var canPaste: Bool { !isThisMac && clipboard.canPaste }
 
     /// Opens an item: folders navigate in place, everything else opens with its default app.
     func open(_ item: FileItem) {
@@ -148,6 +148,7 @@ extension BrowserTab {
     // MARK: Helpers
 
     private func perform(_ body: (URL) throws -> Void) {
+        guard !isThisMac else { return }
         do {
             try body(url)
             reload()

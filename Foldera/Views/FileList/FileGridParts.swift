@@ -96,12 +96,12 @@ final class FileGridCell: NSView {
         nameLabel.stringValue = item.title(showExtensions: showExtensions)
         let details: [String] = switch mode {
         case .tiles:
-            [item.kind, item.isNavigable ? "" : FileFormat.size(item.size)]
+            [item.localizedKind, item.isNavigable ? "" : FileFormat.size(item.size)]
         case .content:
             [
-                item.kind,
-                item.dateModified.map { "Date modified: \(FileFormat.date($0))" } ?? "",
-                item.isNavigable ? "" : "Size: \(FileFormat.size(item.size))",
+                item.localizedKind,
+                item.dateModified.map { L10n.format("Date modified: %@", FileFormat.date($0)) } ?? "",
+                item.isNavigable ? "" : L10n.format("Size: %@", FileFormat.size(item.size)),
             ]
         default: []
         }
@@ -231,6 +231,13 @@ final class FileCollectionView: NSCollectionView {
         super.mouseDown(with: event)
         if event.clickCount == 2, let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
             onDoubleClick?(indexPath)
+        }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
+        if let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+            commands?.openInBackgroundTab(index: indexPath.item)
         }
     }
 

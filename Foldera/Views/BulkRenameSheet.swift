@@ -20,11 +20,11 @@ struct BulkRenameSheet: View {
         let changed = zip(items, newNames).filter { $0.0.name != $0.1 }.count
 
         VStack(alignment: .leading, spacing: 14) {
-            Text("Rename \(items.count) items")
+            Text(L10n.format("rename.items", items.count))
                 .font(.system(size: 15, weight: .semibold))
 
             Picker("", selection: $rule.mode) {
-                ForEach(BulkRenameRule.Mode.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(BulkRenameRule.Mode.allCases) { Text(L10n.text($0.rawValue)).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -36,16 +36,16 @@ struct BulkRenameSheet: View {
 
             HStack {
                 if !problems.isEmpty {
-                    Label("\(problems.count) name\(problems.count == 1 ? "" : "s") can’t be used", systemImage: "exclamationmark.triangle.fill")
+                    Label(L10n.format("rename.invalid", problems.count), systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 } else {
-                    Text(changed == 1 ? "1 item will be renamed" : "\(changed) items will be renamed")
+                    Text(L10n.format("rename.changed", changed))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(L10n.text("Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Rename") { rename(newNames) }
+                Button(L10n.text("Rename")) { rename(newNames) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!problems.isEmpty || changed == 0)
             }
@@ -60,40 +60,40 @@ struct BulkRenameSheet: View {
         Form {
             switch rule.mode {
             case .replace:
-                TextField("Find:", text: $rule.find)
-                TextField("Replace with:", text: $rule.replaceWith)
+                TextField(L10n.text("Find:"), text: $rule.find)
+                TextField(L10n.text("Replace with:"), text: $rule.replaceWith)
                 HStack {
-                    Toggle("Match case", isOn: $rule.matchCase)
-                    Toggle("Include extension", isOn: $rule.includeExtension)
+                    Toggle(L10n.text("Match case"), isOn: $rule.matchCase)
+                    Toggle(L10n.text("Include extension"), isOn: $rule.includeExtension)
                 }
             case .add:
                 HStack {
-                    TextField("Add:", text: $rule.addText)
+                    TextField(L10n.text("Add:"), text: $rule.addText)
                     Picker("", selection: $rule.addPosition) {
-                        ForEach(BulkRenameRule.Position.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(BulkRenameRule.Position.allCases) { Text(L10n.text($0.rawValue)).tag($0) }
                     }
                     .labelsHidden()
                     .fixedSize()
                 }
             case .format:
                 HStack {
-                    Picker("Name format:", selection: $rule.formatStyle) {
-                        ForEach(BulkRenameRule.FormatStyle.allCases) { Text($0.rawValue).tag($0) }
+                    Picker(L10n.text("Name format:"), selection: $rule.formatStyle) {
+                        ForEach(BulkRenameRule.FormatStyle.allCases) { Text(L10n.text($0.rawValue)).tag($0) }
                     }
-                    Picker("Where:", selection: $rule.formatPosition) {
-                        ForEach(BulkRenameRule.Position.allCases) { Text($0.rawValue).tag($0) }
+                    Picker(L10n.text("Where:"), selection: $rule.formatPosition) {
+                        ForEach(BulkRenameRule.Position.allCases) { Text(L10n.text($0.rawValue)).tag($0) }
                     }
                     .fixedSize()
                 }
                 HStack {
-                    TextField("Custom format:", text: $rule.customFormat)
+                    TextField(L10n.text("Custom format:"), text: $rule.customFormat)
                     if rule.formatStyle != .date {
-                        TextField("Start numbers at:", value: $rule.startNumber, format: .number)
+                        TextField(L10n.text("Start numbers at:"), value: $rule.startNumber, format: .number)
                             .frame(width: 180)
                     }
                 }
                 if rule.formatStyle == .date {
-                    Text("Uses each item’s date modified.")
+                    Text(L10n.text("Uses each item’s date modified."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -124,7 +124,7 @@ struct BulkRenameSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(problems[index] ?? newName)
+                        .help(problems[index].map(L10n.text) ?? newName)
                 }
                 .font(Theme.font)
             }

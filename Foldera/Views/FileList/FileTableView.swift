@@ -14,6 +14,8 @@ protocol FileViewCommands: AnyObject {
     func copySelection()
     func paste()
     func toggleQuickLook()
+    /// Middle-click: opens the folder at `index` in a background tab.
+    func openInBackgroundTab(index: Int)
     var hasSelection: Bool { get }
     var canPaste: Bool { get }
     func contextMenu(forRow row: Int) -> NSMenu?
@@ -81,11 +83,18 @@ final class FileTableView: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         // Empty space (right of the columns or below the last row) starts a selection box, like Explorer.
-        if point.x > columnsMaxX || row(at: point) < 0, event.clickCount == 1 {
-            trackSelectionBox(from: event)
+        // It never reaches the table, so a double-click there doesn't open the row at the same height.
+        if point.x > columnsMaxX || row(at: point) < 0 {
+            if event.clickCount == 1 { trackSelectionBox(from: event) }
             return
         }
         super.mouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
+        let row = rowInColumns(at: convert(event.locationInWindow, from: nil))
+        if row >= 0 { commands?.openInBackgroundTab(index: row) }
     }
 
     /// Drags a selection box; rows it touches (within the columns) become selected. ⌘ or ⇧ adds to the selection.

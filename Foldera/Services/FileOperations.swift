@@ -8,8 +8,8 @@ nonisolated enum FileOperations {
 
         var errorDescription: String? {
             switch self {
-            case .invalidName(let name): "“\(name)” is not a valid file name."
-            case .alreadyExists(let name): "An item named “\(name)” already exists in this location."
+            case .invalidName(let name): L10n.format("“%@” is not a valid file name.", language: .saved, arguments: [name])
+            case .alreadyExists(let name): L10n.format("An item named “%@” already exists in this location.", language: .saved, arguments: [name])
             }
         }
     }

@@ -8,7 +8,7 @@ final class SwipeFeedback {
     enum Direction { case back, forward }
 
     /// Gesture amount needed for the swipe to navigate.
-    static let threshold: CGFloat = 0.35
+    static let threshold: CGFloat = 0.175
 
     private(set) var direction: Direction = .back
     /// 0…1 how far the swipe has travelled.
@@ -61,6 +61,20 @@ struct NavigationGestures: NSViewRepresentable {
         view.removeMonitor()
     }
 
+    /// Returns true when tracking should stop. Only physical release can commit navigation.
+    func updateSwipe(_ direction: SwipeFeedback.Direction, amount: CGFloat, phase: NSEvent.Phase, isComplete: Bool) -> Bool {
+        if phase.contains(.ended) || phase.contains(.cancelled) || isComplete {
+            if phase.contains(.ended), !phase.contains(.cancelled), abs(amount) >= SwipeFeedback.threshold {
+                direction == .back ? back() : forward()
+            }
+            withAnimation(.easeOut(duration: 0.18)) { feedback.end() }
+            return true
+        }
+        // AppKit's post-release animation uses .none and can reach ±1 even after a short swipe.
+        if !phase.isEmpty { feedback.update(direction, progress: abs(amount)) }
+        return false
+    }
+
     final class GestureView: NSView {
         var handlers: NavigationGestures?
         private var monitor: Any?
@@ -108,24 +122,15 @@ struct NavigationGestures: NSViewRepresentable {
             guard goingBack ? handlers.canGoBack() : handlers.canGoForward() else { return false }
             if canScrollHorizontally(under: event, towardLeft: goingBack) { return false }
 
-            let feedback = handlers.feedback
             let direction: SwipeFeedback.Direction = goingBack ? .back : .forward
-            var navigated = false
             event.trackSwipeEvent(
                 options: [.lockDirection, .clampGestureAmount],
                 dampenAmountThresholdMin: goingBack ? 0 : -1,
                 max: goingBack ? 1 : 0
-            ) { amount, phase, isComplete, _ in
-                // Called on the main thread while the fingers move, then while the swipe settles.
+            ) { amount, phase, isComplete, stop in
                 MainActor.assumeIsolated {
-                    if phase == .ended, !navigated, abs(amount) >= SwipeFeedback.threshold {
-                        navigated = true
-                        goingBack ? handlers.back() : handlers.forward()
-                    }
-                    if isComplete || phase == .cancelled {
-                        withAnimation(.easeOut(duration: 0.18)) { feedback.end() }
-                    } else if !navigated {
-                        feedback.update(direction, progress: abs(amount))
+                    if handlers.updateSwipe(direction, amount: amount, phase: phase, isComplete: isComplete) {
+                        stop.pointee = true
                     }
                 }
             }

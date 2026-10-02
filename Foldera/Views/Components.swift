@@ -51,7 +51,7 @@ struct IconButton: View {
         }
         .buttonStyle(SubtleButtonStyle())
         .help(help)
-        .accessibilityLabel(Text(help.replacingOccurrences(of: #" \(.*\)$"#, with: "", options: .regularExpression)))
+        .accessibilityLabel(Text(help.replacingOccurrences(of: #"\s*[（(][^）)]*[）)]$"#, with: "", options: .regularExpression)))
     }
 }
 
@@ -158,5 +158,48 @@ struct FolderDropTarget: ViewModifier {
 extension View {
     func folderDropTarget(_ folder: URL) -> some View {
         modifier(FolderDropTarget(folder: folder))
+    }
+}
+
+/// Runs `action` on a middle-click (mouse button 3) inside the view. Watches events instead of
+/// hit-testing, so SwiftUI's own clicks, hover and drags pass through untouched.
+private struct MiddleClickCatcher: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> CatcherView { CatcherView() }
+
+    func updateNSView(_ view: CatcherView, context: Context) { view.action = action }
+
+    final class CatcherView: NSView {
+        var action: (() -> Void)?
+        private var monitor: Any?
+
+        /// SwiftUI hosts don't clip `visibleRect`, so check our bounds and, for rows in a
+        /// scroll view (the navigation pane), that the point is in its visible part.
+        private func contains(_ windowPoint: NSPoint) -> Bool {
+            guard !isHiddenOrHasHiddenAncestor, bounds.contains(convert(windowPoint, from: nil)) else { return false }
+            guard let scroll = enclosingScrollView else { return true }
+            return scroll.convert(scroll.bounds, to: nil).contains(windowPoint)
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
+                guard let self, event.buttonNumber == 2, event.window === self.window, self.contains(event.locationInWindow) else { return event }
+                self.action?()
+                return nil
+            }
+        }
+    }
+}
+
+extension View {
+    func onMiddleClick(perform action: @escaping () -> Void) -> some View {
+        overlay(MiddleClickCatcher(action: action))
     }
 }

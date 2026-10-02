@@ -4,6 +4,8 @@ options:
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
+  developmentLanguage: en
+  knownRegions: [en, zh-Hant]
 settings:
   base:
     SWIFT_VERSION: "6.0"
