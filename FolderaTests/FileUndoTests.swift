@@ -45,4 +45,90 @@ struct FileUndoTests {
         _ = try FileUndo.revert(redo)
         #expect(exists("dest/a.txt"))
     }
+
+    @Test func partialUndoKeepsPendingAndCompletedEntriesRecoverable() throws {
+        defer { try? fm.removeItem(at: root) }
+        let a = root.appendingPathComponent("a.txt"), b = root.appendingPathComponent("b.txt")
+        let x = root.appendingPathComponent("dest/x"), y = root.appendingPathComponent("dest/y")
+        try Data("A".utf8).write(to: x)
+        try Data("B".utf8).write(to: y)
+        let undo = FileUndo()
+        undo.record(.moved([(a, x), (b, y)]), name: "Move")
+        #expect(undo.undo() != nil)
+        #expect(undo.canUndo && undo.canRedo)
+        #expect(exists("b.txt") && !exists("dest/y") && exists("dest/x"))
+        try fm.removeItem(at: a)
+        #expect(undo.undo() == nil)
+        #expect(!undo.canUndo && undo.canRedo)
+        #expect(undo.redo() == nil)
+        #expect(undo.redo() == nil)
+        #expect(try String(contentsOf: x, encoding: .utf8) == "A")
+        #expect(try String(contentsOf: y, encoding: .utf8) == "B")
+        #expect(!exists("a.txt") && !exists("b.txt"))
+    }
+
+    @Test func partialRedoKeepsBothDirectionsRecoverable() throws {
+        defer { try? fm.removeItem(at: root) }
+        let a = root.appendingPathComponent("a.txt"), b = root.appendingPathComponent("b.txt")
+        let x = root.appendingPathComponent("dest/x"), y = root.appendingPathComponent("dest/y")
+        try fm.removeItem(at: a)
+        try Data("A".utf8).write(to: x)
+        try Data("B".utf8).write(to: y)
+        let undo = FileUndo()
+        undo.record(.moved([(a, x), (b, y)]), name: "Move")
+        #expect(undo.undo() == nil)
+        try Data("blocker".utf8).write(to: y)
+        #expect(undo.redo() != nil)
+        #expect(undo.canUndo && undo.canRedo)
+        #expect(exists("dest/x") && exists("b.txt") && !exists("a.txt"))
+        try fm.removeItem(at: y)
+        #expect(undo.redo() == nil)
+        #expect(undo.undo() == nil)
+        #expect(undo.undo() == nil)
+        #expect(try String(contentsOf: a, encoding: .utf8) == "A")
+        #expect(try String(contentsOf: b, encoding: .utf8) == "B")
+    }
+
+    @Test func failedBatchUndoRollsBackAndRetainsEntry() throws {
+        defer { try? fm.removeItem(at: root) }
+        let a = root.appendingPathComponent("a.txt"), b = root.appendingPathComponent("b.txt")
+        let x = root.appendingPathComponent("dest/x"), y = root.appendingPathComponent("dest/y")
+        try fm.removeItem(at: a)
+        try Data("blocker".utf8).write(to: b)
+        try Data("A".utf8).write(to: x)
+        try Data("B".utf8).write(to: y)
+        let undo = FileUndo()
+        undo.record(.batchRenamed([(a, x), (b, y)]), name: "Rename")
+        #expect(undo.undo() != nil)
+        #expect(undo.canUndo && !undo.canRedo)
+        #expect(try String(contentsOf: x, encoding: .utf8) == "A")
+        #expect(try String(contentsOf: y, encoding: .utf8) == "B")
+        #expect(!exists("a.txt"))
+        try fm.removeItem(at: b)
+        #expect(undo.undo() == nil)
+        #expect(undo.redo() == nil)
+    }
+
+    @Test func partialDeleteReturnsUndoForSuccessfulTrashItems() throws {
+        let locked = root.appendingPathComponent("locked")
+        try fm.createDirectory(at: locked, withIntermediateDirectories: false)
+        let a = root.appendingPathComponent("a.txt"), b = locked.appendingPathComponent("b")
+        try Data("B".utf8).write(to: b)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? fm.removeItem(at: root)
+        }
+        do {
+            try FileOperations.trash([a, b])
+            Issue.record("Expected second Trash operation to fail")
+        } catch let failure as FileChange.Failure {
+            #expect(!FileOperations.exists(a) && FileOperations.exists(b))
+            let undo = FileUndo()
+            undo.record(failure.remaining, name: "Delete")
+            #expect(undo.canUndo)
+            #expect(undo.undo() == nil)
+            #expect(FileOperations.exists(a) && FileOperations.exists(b))
+        }
+    }
 }

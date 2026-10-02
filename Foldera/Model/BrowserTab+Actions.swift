@@ -93,7 +93,13 @@ extension BrowserTab {
         let urls = selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
         perform { _ in
-            FileUndo.shared.record(.trashed(try FileOperations.trash(urls)), name: "Delete")
+            do {
+                FileUndo.shared.record(.trashed(try FileOperations.trash(urls)), name: "Delete")
+            } catch let failure as FileChange.Failure {
+                FileUndo.shared.record(failure.remaining, name: "Delete")
+                self.reload()
+                throw failure
+            }
             self.selection = []
         }
     }

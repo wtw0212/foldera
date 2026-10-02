@@ -36,14 +36,23 @@ nonisolated enum CopyEngine {
     }
 
     /// Copies `source` to `destination` (which must not exist). `baseBytes` is the progress already
-    /// completed by earlier items. Removes the partial copy on failure or cancellation.
+    /// completed by earlier items. Only the owned staging directory is cleaned up on failure.
     static func copy(_ source: URL, to destination: URL, progress: TransferProgress, baseBytes: Int64) throws {
-        // Never touch an existing item: COPYFILE_EXCL would fail and the cleanup below must not remove it.
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
+        guard source.isFileURL, destination.isFileURL, !source.path.isEmpty, !destination.path.isEmpty,
+              !source.path(percentEncoded: false).contains("\0"), !destination.path(percentEncoded: false).contains("\0") else {
+            throw FileOperations.OperationError.invalidName(destination.lastPathComponent)
+        }
+        let fm = FileManager.default
+        guard !FileOperations.exists(destination) else {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: destination.path])
         }
+        if progress.isCancelled { throw Cancelled() }
+        let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true)
+        defer { try? fm.removeItem(at: staging) }
+        let payload = staging.appendingPathComponent("payload")
         let context = CallbackContext(progress: progress, baseBytes: baseBytes)
         let state = copyfile_state_alloc()
+        guard state != nil else { throw POSIXError(.ENOMEM) }
         defer { copyfile_state_free(state) }
         let callback: copyfile_callback_t = { what, stage, state, source, _, ctx in
             guard let ctx else { return COPYFILE_CONTINUE }
@@ -53,24 +62,26 @@ nonisolated enum CopyEngine {
         copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB), unsafeBitCast(callback, to: UnsafeRawPointer.self))
         copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), Unmanaged.passUnretained(context).toOpaque())
 
-        let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_CLONE | COPYFILE_EXCL | COPYFILE_NOFOLLOW_SRC)
+        let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_CLONE | COPYFILE_EXCL | COPYFILE_NOFOLLOW)
         let result = withExtendedLifetime(context) {
-            copyfile(source.path, destination.path, state, flags)
+            copyfile(source.path, payload.path, state, flags)
         }
         if result != 0 {
-            let code = errno
-            try? FileManager.default.removeItem(at: destination)
+            let code = context.errorCode ?? errno
             if progress.isCancelled { throw Cancelled() }
             throw CocoaError(.fileWriteUnknown, userInfo: [
                 NSFilePathErrorKey: destination.path,
                 NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO),
             ])
         }
+        if progress.isCancelled { throw Cancelled() }
+        try FileOperations.moveItem(payload, to: destination)
     }
 
     private final class CallbackContext {
         let progress: TransferProgress
         var finishedBytes: Int64
+        var errorCode: Int32?
 
         init(progress: TransferProgress, baseBytes: Int64) {
             self.progress = progress
@@ -78,6 +89,10 @@ nonisolated enum CopyEngine {
         }
 
         func handle(what: Int32, stage: Int32, state: copyfile_state_t?, source: UnsafePointer<CChar>?) -> Int32 {
+            if stage == COPYFILE_ERR {
+                errorCode = errno
+                return COPYFILE_QUIT
+            }
             if progress.isCancelled { return COPYFILE_QUIT }
             switch (what, stage) {
             case (COPYFILE_RECURSE_FILE, COPYFILE_START):

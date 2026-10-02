@@ -1,7 +1,25 @@
 import AppKit
+import Darwin
 
 /// File system mutations. Long-running work runs off the main actor.
 nonisolated enum FileOperations {
+    /// Includes dangling symlinks, which fileExists(atPath:) follows and misses.
+    static func exists(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0
+    }
+
+    /// Atomic same-volume move that never replaces a racing destination.
+    static func moveItem(_ source: URL, to destination: URL) throws {
+        guard source.isFileURL, destination.isFileURL, !source.path.isEmpty, !destination.path.isEmpty,
+              !source.path(percentEncoded: false).contains("\0"), !destination.path(percentEncoded: false).contains("\0") else {
+            throw OperationError.invalidName(destination.lastPathComponent)
+        }
+        guard renameatx_np(AT_FDCWD, source.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
     enum OperationError: LocalizedError {
         case invalidName(String)
         case alreadyExists(String)
@@ -30,7 +48,7 @@ nonisolated enum FileOperations {
 
     static func rename(_ url: URL, to newName: String) throws -> URL {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != ".", trimmed != "..", !trimmed.contains("/"), !trimmed.contains(":") else {
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != "..", !trimmed.contains("/"), !trimmed.contains(":"), !trimmed.contains("\0") else {
             throw OperationError.invalidName(newName)
         }
         let destination = url.deletingLastPathComponent().appendingPathComponent(trimmed)
@@ -47,10 +65,16 @@ nonisolated enum FileOperations {
     /// Moves items to the Trash and returns where each one went, for undo.
     @discardableResult
     static func trash(_ urls: [URL]) throws -> [(original: URL, trashed: URL)] {
-        try urls.compactMap { url in
-            var trashed: NSURL?
-            try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
-            return trashed.map { (url, $0 as URL) }
+        var pairs: [(original: URL, trashed: URL)] = []
+        do {
+            for url in urls {
+                var trashed: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+                if let trashed { pairs.append((url, trashed as URL)) }
+            }
+            return pairs
+        } catch {
+            throw FileChange.Failure(cause: error, remaining: .trashed(pairs))
         }
     }
 

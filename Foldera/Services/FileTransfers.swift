@@ -4,7 +4,7 @@ import Observation
 /// One running copy or move, observed by the progress window.
 @Observable
 final class FileTransfer: Identifiable {
-    enum Kind { case copy, move }
+    nonisolated enum Kind: Sendable { case copy, move }
 
     let id = UUID()
     let kind: Kind
@@ -50,13 +50,15 @@ final class FileTransfer: Identifiable {
 }
 
 /// What a transfer changed, so it can be undone.
-struct TransferResult {
+nonisolated struct TransferResult: Sendable {
     /// New items in the destination (copies, or moved items at their new location).
     var results: [URL] = []
     var created: [URL] = []
     var moved: [(from: URL, to: URL)] = []
     /// Items replaced in the destination, now in the Trash.
     var replaced: [(original: URL, trashed: URL)] = []
+    /// Failure/cancellation can coexist with committed items above.
+    var error: Error?
 }
 
 /// Runs copies and moves with progress and Explorer-style conflict handling.
@@ -68,17 +70,18 @@ final class FileTransfers {
 
     private init() {}
 
-    private struct PlanItem: Sendable {
+    struct PlanItem: Sendable {
         let source: URL
         let destination: URL
         /// A move on the same volume is an instant rename; everything else copies data.
         let isRename: Bool
         let deleteSourceAfterCopy: Bool
+        var replaceExisting = false
     }
 
-    /// Copies or moves `sources` into `directory`. Returns what changed (empty when cancelled or nothing to do).
+    /// Copies or moves `sources` into `directory`, returning committed changes alongside any failure.
     func run(_ kind: FileTransfer.Kind, _ sources: [URL], into directory: URL) async -> TransferResult {
-        var result = TransferResult()
+        let empty = TransferResult()
         let directory = directory.normalizedFileURL
         let sources = sources.map(\.normalizedFileURL)
 
@@ -87,42 +90,31 @@ final class FileTransfers {
                 "The destination folder is a subfolder of the source folder.",
                 detail: "“\(source.lastPathComponent)” can’t be \(kind == .copy ? "copied" : "moved") into itself."
             )
-            return result
+            return empty
         }
 
         // Plan: pick destination names and ask about conflicts.
         var plan: [PlanItem] = []
-        var toTrash: [URL] = []
         let conflicts = ConflictResolver(kind: kind, destination: directory)
         for source in sources {
             let sameFolder = source.deletingLastPathComponent().normalizedFileURL == directory
             if sameFolder && kind == .move { continue }
             var destination = directory.appendingPathComponent(source.lastPathComponent)
+            var replaceExisting = false
             if sameFolder {
                 destination = FileOperations.uniqueURL(named: source.lastPathComponent, in: directory, copySuffix: true)
-            } else if FileManager.default.fileExists(atPath: destination.path) {
+            } else if FileOperations.exists(destination) {
                 switch conflicts.resolve(name: source.lastPathComponent, remaining: sources.count) {
-                case .replace: toTrash.append(destination)
+                case .replace: replaceExisting = true
                 case .keepBoth: destination = FileOperations.uniqueURL(named: source.lastPathComponent, in: directory)
                 case .skip: continue
-                case .cancel: return result
+                case .cancel: return TransferResult(error: CopyEngine.Cancelled())
                 }
             }
             let rename = kind == .move && Self.sameVolume(source, directory)
-            plan.append(PlanItem(source: source, destination: destination, isRename: rename, deleteSourceAfterCopy: kind == .move && !rename))
+            plan.append(PlanItem(source: source, destination: destination, isRename: rename, deleteSourceAfterCopy: kind == .move && !rename, replaceExisting: replaceExisting))
         }
-        guard !plan.isEmpty else { return result }
-
-        for url in toTrash {
-            do {
-                var trashed: NSURL?
-                try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
-                if let trashed { result.replaced.append((url, trashed as URL)) }
-            } catch {
-                BrowserTab.present(error)
-                return result
-            }
-        }
+        guard !plan.isEmpty else { return empty }
 
         let transfer = FileTransfer(kind: kind, itemCount: plan.count, source: sources[0].deletingLastPathComponent(), destination: directory)
         active.append(transfer)
@@ -144,44 +136,72 @@ final class FileTransfers {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
-        let (done, error) = await worker.value
+        let result = await worker.value
         ticker.cancel()
         transfer.refresh()
 
-        for item in done {
-            result.results.append(item.destination)
-            if kind == .copy { result.created.append(item.destination) } else { result.moved.append((item.source, item.destination)) }
-        }
-        if let error, !(error is CopyEngine.Cancelled) {
+        if let error = result.error, !(error is CopyEngine.Cancelled) {
             BrowserTab.present(error)
         }
         return result
     }
 
-    private nonisolated static func execute(_ plan: [PlanItem], progress: TransferProgress) -> ([PlanItem], Error?) {
-        var done: [PlanItem] = []
+    nonisolated static func execute(_ plan: [PlanItem], progress: TransferProgress) -> TransferResult {
+        var result = TransferResult()
         var base: Int64 = 0
         for item in plan {
-            if progress.isCancelled { return (done, CopyEngine.Cancelled()) }
+            if progress.isCancelled {
+                result.error = CopyEngine.Cancelled()
+                return result
+            }
             progress.setCurrentName(item.source.lastPathComponent)
+            var replacement: (original: URL, trashed: URL)?
+            var destinationCreated = false
             do {
+                if item.replaceExisting {
+                    var trashed: NSURL?
+                    try FileManager.default.trashItem(at: item.destination, resultingItemURL: &trashed)
+                    if let trashed {
+                        let pair = (original: item.destination, trashed: trashed as URL)
+                        replacement = pair
+                        result.replaced.append(pair)
+                    }
+                }
+                if progress.isCancelled { throw CopyEngine.Cancelled() }
                 if item.isRename {
-                    try FileManager.default.moveItem(at: item.source, to: item.destination)
+                    try FileOperations.moveItem(item.source, to: item.destination)
+                    result.moved.append((item.source, item.destination))
+                    result.results.append(item.destination)
                 } else {
                     let size = CopyEngine.size(of: item.source)
                     try CopyEngine.copy(item.source, to: item.destination, progress: progress, baseBytes: base)
+                    destinationCreated = true
+                    result.created.append(item.destination)
+                    result.results.append(item.destination)
                     base += size
                     progress.setCompleted(base)
                     if item.deleteSourceAfterCopy {
+                        if progress.isCancelled { throw CopyEngine.Cancelled() }
+                        // Keep the complete destination on failure: removing a source tree can partially succeed.
                         try FileManager.default.removeItem(at: item.source)
+                        result.created.removeLast()
+                        result.moved.append((item.source, item.destination))
                     }
                 }
-                done.append(item)
             } catch {
-                return (done, error)
+                result.error = error
+                if let replacement, !destinationCreated {
+                    do {
+                        try FileOperations.moveItem(replacement.trashed, to: replacement.original)
+                        result.replaced.removeLast()
+                    } catch {
+                        result.error = FileChange.Failure(cause: error, remaining: .trashed([replacement]))
+                    }
+                }
+                return result
             }
         }
-        return (done, nil)
+        return result
     }
 
     private static func sameVolume(_ a: URL, _ b: URL) -> Bool {

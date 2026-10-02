@@ -111,6 +111,10 @@ nonisolated enum BulkRename {
                 problems[index] = "Names can’t contain “/” or “:”"
                 continue
             }
+            if name.contains("\0") {
+                problems[index] = "Names can’t contain a null character"
+                continue
+            }
             let target = items[index].url.deletingLastPathComponent().appendingPathComponent(name)
             let key = target.path.lowercased()
             if let first = seen[key] {
@@ -132,31 +136,35 @@ nonisolated enum BulkRename {
     @discardableResult
     static func apply(_ renames: [(from: URL, to: URL)]) throws -> [(from: URL, to: URL)] {
         let changes = renames.filter { $0.from.path != $0.to.path }
-        let fm = FileManager.default
-        var staged: [(temp: URL, from: URL, to: URL)] = []
+        var staged: [(temp: URL, from: URL, to: URL, current: URL)] = []
         do {
             for change in changes {
                 let temp = change.from.deletingLastPathComponent()
                     .appendingPathComponent(".foldera-rename-\(UUID().uuidString)")
-                try fm.moveItem(at: change.from, to: temp)
-                staged.append((temp, change.from, change.to))
+                try FileOperations.moveItem(change.from, to: temp)
+                staged.append((temp, change.from, change.to, temp))
             }
-            var done: [(from: URL, to: URL)] = []
-            for (index, item) in staged.enumerated() {
-                do {
-                    try fm.moveItem(at: item.temp, to: item.to)
-                    done.append((item.from, item.to))
-                } catch {
-                    // Put the rest back under their original names before reporting the failure.
-                    for rest in staged[index...] { try? fm.moveItem(at: rest.temp, to: rest.from) }
-                    throw error
-                }
+            for index in staged.indices {
+                try FileOperations.moveItem(staged[index].temp, to: staged[index].to)
+                staged[index].current = staged[index].to
             }
-            return done
+            return changes
         } catch {
-            for item in staged where fm.fileExists(atPath: item.temp.path) {
-                try? fm.moveItem(at: item.temp, to: item.from)
+            // Free original names before restoring a batch that may contain cycles.
+            for index in staged.indices where staged[index].current == staged[index].to {
+                do {
+                    try FileOperations.moveItem(staged[index].current, to: staged[index].temp)
+                    staged[index].current = staged[index].temp
+                } catch { /* Keep the actual path in the recovery journal below. */ }
             }
+            for index in staged.indices {
+                do {
+                    try FileOperations.moveItem(staged[index].current, to: staged[index].from)
+                    staged[index].current = staged[index].from
+                } catch { /* Other items must still get a chance to be restored. */ }
+            }
+            let remaining = staged.filter { $0.current.path != $0.from.path }.map { (from: $0.from, to: $0.current) }
+            if !remaining.isEmpty { throw FileChange.Failure(cause: error, remaining: .batchRenamed(remaining)) }
             throw error
         }
     }

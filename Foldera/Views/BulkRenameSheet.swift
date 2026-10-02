@@ -141,6 +141,11 @@ struct BulkRenameSheet: View {
             FileUndo.shared.record(.batchRenamed(done), name: "Rename")
             onDone(done.map(\.to))
             dismiss()
+        } catch let failure as FileChange.Failure {
+            FileUndo.shared.record(failure.remaining, name: "Rename")
+            if case .batchRenamed(let remaining) = failure.remaining { onDone(remaining.map(\.to)) }
+            dismiss()
+            BrowserTab.present(failure)
         } catch {
             BrowserTab.present(error)
         }

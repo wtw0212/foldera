@@ -9,9 +9,9 @@ final class FileClipboard {
 
     private(set) var cutURLs: Set<URL> = []
     @ObservationIgnored private var cutChangeCount: Int?
-    private let pasteboard = NSPasteboard.general
+    private let pasteboard: NSPasteboard
 
-    private init() {}
+    init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
 
     func copy(_ urls: [URL]) {
         write(urls)
@@ -21,13 +21,13 @@ final class FileClipboard {
 
     func cut(_ urls: [URL]) {
         write(urls)
-        cutURLs = Set(urls)
+        cutURLs = Set(urls.map(\.normalizedFileURL))
         cutChangeCount = pasteboard.changeCount
     }
 
     /// True while `url` is waiting to be moved by a paste (shown dimmed, like Explorer).
     func isCut(_ url: URL) -> Bool {
-        cutURLs.contains(url) && cutChangeCount == pasteboard.changeCount
+        cutURLs.contains(url.normalizedFileURL) && cutChangeCount == pasteboard.changeCount
     }
 
     var canPaste: Bool {
@@ -39,16 +39,29 @@ final class FileClipboard {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         guard !urls.isEmpty else { return TransferResult() }
         if cutChangeCount == pasteboard.changeCount {
+            let changeCount = pasteboard.changeCount
             let result = await FileTransfers.shared.run(.move, urls, into: directory)
             FileUndo.shared.record(FileChange(result, kind: .move), name: "Move")
-            cutURLs = []
-            cutChangeCount = nil
-            pasteboard.clearContents()
+            finishMove(result, urls: urls, changeCount: changeCount)
             return result
         }
         let result = await FileTransfers.shared.run(.copy, urls, into: directory)
         FileUndo.shared.record(FileChange(result, kind: .copy), name: "Copy")
         return result
+    }
+
+    /// Do not clear a newer clipboard while a transfer was awaiting its worker.
+    func finishMove(_ result: TransferResult, urls: [URL], changeCount: Int) {
+        guard cutChangeCount == changeCount, pasteboard.changeCount == changeCount else { return }
+        let moved = Set(result.moved.map { $0.from.normalizedFileURL })
+        let remaining = urls.filter { !moved.contains($0.normalizedFileURL) }
+        if remaining.isEmpty {
+            cutURLs = []
+            cutChangeCount = nil
+            pasteboard.clearContents()
+        } else {
+            cut(remaining)
+        }
     }
 
     private func write(_ urls: [URL]) {
