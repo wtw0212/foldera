@@ -45,12 +45,14 @@ struct FolderaCommands: Commands {
         // File undo works whenever the window is active; a focused text field keeps its own text undo.
         CommandGroup(replacing: .undoRedo) {
             Button(undo.undoTitle) {
-                if let text = Self.textUndoManager, text.canUndo { text.undo() } else { undo.undo() }
+                if let text = Self.textUndoManager, text.canUndo { text.undo() }
+                else if let error = undo.undo() { BrowserTab.present(error) }
             }
             .keyboardShortcut("z")
             .disabled(!undo.canUndo && Self.textUndoManager?.canUndo != true)
             Button(undo.redoTitle) {
-                if let text = Self.textUndoManager, text.canRedo { text.redo() } else { undo.redo() }
+                if let text = Self.textUndoManager, text.canRedo { text.redo() }
+                else if let error = undo.redo() { BrowserTab.present(error) }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!undo.canRedo && Self.textUndoManager?.canRedo != true)

@@ -111,6 +111,10 @@ nonisolated enum BulkRename {
                 problems[index] = "Names can’t contain “/” or “:”"
                 continue
             }
+            if name.contains("\0") {
+                problems[index] = "Names can’t contain a null character"
+                continue
+            }
             let target = items[index].url.deletingLastPathComponent().appendingPathComponent(name)
             let key = target.path.lowercased()
             if let first = seen[key] {
@@ -130,33 +134,49 @@ nonisolated enum BulkRename {
     /// Renames in two steps (to temporary names, then to the final names) so swaps like a↔b work.
     /// Returns the (from, to) pairs that changed.
     @discardableResult
-    static func apply(_ renames: [(from: URL, to: URL)]) throws -> [(from: URL, to: URL)] {
+    static func apply(_ renames: [(from: URL, to: URL)], fileManager: FileManager = .default) throws -> [(from: URL, to: URL)] {
         let changes = renames.filter { $0.from.path != $0.to.path }
-        let fm = FileManager.default
-        var staged: [(temp: URL, from: URL, to: URL)] = []
+        var staged: [(temp: URL, from: URL, to: URL, current: URL)] = []
         do {
             for change in changes {
                 let temp = change.from.deletingLastPathComponent()
                     .appendingPathComponent(".foldera-rename-\(UUID().uuidString)")
-                try fm.moveItem(at: change.from, to: temp)
-                staged.append((temp, change.from, change.to))
+                try FileOperations.moveItem(change.from, to: temp, fileManager: fileManager)
+                staged.append((temp, change.from, change.to, temp))
             }
-            var done: [(from: URL, to: URL)] = []
-            for (index, item) in staged.enumerated() {
+            for index in staged.indices {
+                try FileOperations.moveItem(staged[index].temp, to: staged[index].to, fileManager: fileManager)
+                staged[index].current = staged[index].to
+            }
+            return changes
+        } catch {
+            var created = (error as? FileChange.Failure)?.remaining.createdURLs ?? []
+            var moveCleanups = (error as? FileChange.Failure)?.remaining.moveCleanups ?? []
+            // Free original names before restoring a batch that may contain cycles.
+            for index in staged.indices where staged[index].current == staged[index].to && !moveCleanups.contains(where: { $0.source.path == staged[index].current.path }) {
                 do {
-                    try fm.moveItem(at: item.temp, to: item.to)
-                    done.append((item.from, item.to))
+                    try FileOperations.moveItem(staged[index].current, to: staged[index].temp, fileManager: fileManager)
+                    staged[index].current = staged[index].temp
                 } catch {
-                    // Put the rest back under their original names before reporting the failure.
-                    for rest in staged[index...] { try? fm.moveItem(at: rest.temp, to: rest.from) }
-                    throw error
+                    created += (error as? FileChange.Failure)?.remaining.createdURLs ?? []
+                    moveCleanups += (error as? FileChange.Failure)?.remaining.moveCleanups ?? []
                 }
             }
-            return done
-        } catch {
-            for item in staged where fm.fileExists(atPath: item.temp.path) {
-                try? fm.moveItem(at: item.temp, to: item.from)
+            for index in staged.indices where !moveCleanups.contains(where: { $0.source.path == staged[index].current.path }) {
+                do {
+                    try FileOperations.moveItem(staged[index].current, to: staged[index].from, fileManager: fileManager)
+                    staged[index].current = staged[index].from
+                } catch {
+                    created += (error as? FileChange.Failure)?.remaining.createdURLs ?? []
+                    moveCleanups += (error as? FileChange.Failure)?.remaining.moveCleanups ?? []
+                }
             }
+            let remaining = staged.filter { $0.current.path != $0.from.path }.map { (from: $0.from, to: $0.current) }
+            if !created.isEmpty || !moveCleanups.isEmpty {
+                throw FileChange.Failure(cause: error, remaining: .composite([.batchRenamed(remaining), .created(Array(Set(created)))]
+                    + moveCleanups.map { .moveCleanupPending(source: $0.source, completeCopy: $0.completeCopy) }))
+            }
+            if !remaining.isEmpty { throw FileChange.Failure(cause: error, remaining: .batchRenamed(remaining)) }
             throw error
         }
     }

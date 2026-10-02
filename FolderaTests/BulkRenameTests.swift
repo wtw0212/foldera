@@ -72,4 +72,35 @@ struct BulkRenameTests {
         #expect(try String(contentsOf: a, encoding: .utf8) == "B")
         #expect(try String(contentsOf: b, encoding: .utf8) == "A")
     }
+
+    @Test func finalFailureRollsBackFinalizedNamesAndDependencies() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("FolderaRollback-\(UUID())")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let a = root.appendingPathComponent("a"), b = root.appendingPathComponent("b"), c = root.appendingPathComponent("c")
+        let invalid = root.appendingPathComponent(String(repeating: "z", count: 4000))
+        try Data("A".utf8).write(to: a)
+        try Data("B".utf8).write(to: b)
+        try Data("C".utf8).write(to: c)
+        #expect(throws: (any Error).self) { try BulkRename.apply([(a, b), (b, c), (c, invalid)]) }
+        #expect(try String(contentsOf: a, encoding: .utf8) == "A")
+        #expect(try String(contentsOf: b, encoding: .utf8) == "B")
+        #expect(try String(contentsOf: c, encoding: .utf8) == "C")
+        #expect(Set(try fm.contentsOfDirectory(atPath: root.path)) == ["a", "b", "c"])
+    }
+
+    @Test func stagingFailureRestoresEarlierItems() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("FolderaStage-\(UUID())")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let a = root.appendingPathComponent("a")
+        try Data("A".utf8).write(to: a)
+        #expect(throws: (any Error).self) {
+            try BulkRename.apply([(a, root.appendingPathComponent("x")), (root.appendingPathComponent("missing"), root.appendingPathComponent("y"))])
+        }
+        #expect(try String(contentsOf: a, encoding: .utf8) == "A")
+        #expect(try fm.contentsOfDirectory(atPath: root.path) == ["a"])
+    }
 }
