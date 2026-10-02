@@ -213,3 +213,5 @@
 "“%@” can’t be moved into itself." = "「%@」無法移動至其本身。";
 "“%@” is not a valid file name." = "「%@」不是有效的檔案名稱。";
 "“%@” isn’t installed." = "尚未安裝「%@」。";
+"Names can’t contain a null character" = "名稱不可包含空字元";
+"Some items may have changed. Their remaining changes are available in Undo or Redo." = "部分項目可能已變更。其餘變更可透過「還原」或「重做」處理。";

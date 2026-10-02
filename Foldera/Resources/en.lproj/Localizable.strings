@@ -213,3 +213,5 @@
 "“%@” can’t be moved into itself." = "“%@” can’t be moved into itself.";
 "“%@” is not a valid file name." = "“%@” is not a valid file name.";
 "“%@” isn’t installed." = "“%@” isn’t installed.";
+"Names can’t contain a null character" = "Names can’t contain a null character";
+"Some items may have changed. Their remaining changes are available in Undo or Redo." = "Some items may have changed. Their remaining changes are available in Undo or Redo.";

@@ -21,7 +21,7 @@ nonisolated enum FileChange: Sendable {
 
         var errorDescription: String? { cause.localizedDescription }
         var recoverySuggestion: String? {
-            remaining.isEmpty && inverse.isEmpty ? nil : "Some items may have changed. Their remaining changes are available in Undo or Redo."
+            remaining.isEmpty && inverse.isEmpty ? nil : L10n.text("Some items may have changed. Their remaining changes are available in Undo or Redo.", language: .saved)
         }
     }
 
