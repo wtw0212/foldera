@@ -62,6 +62,33 @@ final class FileTableView: NSTableView {
         return accepted
     }
 
+    /// Right edge of the last visible column; the empty area beyond it isn't part of any row.
+    var columnsMaxX: CGFloat {
+        numberOfColumns > 0 ? rect(ofColumn: numberOfColumns - 1).maxX : bounds.width
+    }
+
+    /// The row under `point`, or -1 in the empty space right of the columns (Explorer behavior).
+    func rowInColumns(at point: NSPoint) -> Int {
+        point.x > columnsMaxX ? -1 : row(at: point)
+    }
+
+    /// Row highlights follow the column edge, so redraw them when columns change size or order.
+    override func tile() {
+        super.tile()
+        enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if point.x > columnsMaxX {
+            // Clicking empty space clears the selection instead of selecting the row.
+            window?.makeFirstResponder(self)
+            deselectAll(nil)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
     // MARK: Hover
     // One tracking area for the whole list, so at most one row is ever highlighted. Per-row tracking
     // missed "mouse exited" events when rows were scrolled or reloaded under the pointer, leaving
@@ -93,7 +120,7 @@ final class FileTableView: NSTableView {
                 view.isHovered = false
             }
         }
-        let row = inside ? self.row(at: point) : -1
+        let row = inside ? rowInColumns(at: point) : -1
         if row == hoveredRow { setHover(row, true) } else { hoveredRow = row }
     }
 
@@ -107,7 +134,7 @@ final class FileTableView: NSTableView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        hoveredRow = row(at: convert(event.locationInWindow, from: nil))
+        hoveredRow = rowInColumns(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -136,7 +163,7 @@ final class FileTableView: NSTableView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        let row = rowInColumns(at: convert(event.locationInWindow, from: nil))
         if row >= 0 {
             if !selectedRowIndexes.contains(row) {
                 selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)

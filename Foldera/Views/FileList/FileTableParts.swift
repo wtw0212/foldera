@@ -15,7 +15,14 @@ final class FileRowView: NSTableRowView {
         isHovered = false
     }
 
-    private var fillRect: NSRect { bounds.insetBy(dx: 4, dy: 1) }
+    /// Like Explorer, the highlight ends at the last column instead of spanning the whole width.
+    private var fillRect: NSRect {
+        var rect = bounds
+        if let table = superview as? FileTableView {
+            rect.size.width = min(rect.width, table.columnsMaxX)
+        }
+        return rect.insetBy(dx: 4, dy: 1)
+    }
 
     override func drawBackground(in dirtyRect: NSRect) {
         guard isHovered, !isSelected else { return }
