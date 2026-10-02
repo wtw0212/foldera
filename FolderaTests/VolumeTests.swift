@@ -128,7 +128,10 @@ struct VolumeTests {
             }
         }
         try hdiutil(["create", "-size", "32m", "-fs", filesystem, "-volname", "FOLDERATEST", image.path])
-        try hdiutil(["attach", image.path, "-nobrowse", "-owners", "on", "-mountpoint", mount.path])
+        // FAT has no owners: with ownership on, files belong to the console user, and CI runners
+        // have none, so the volume isn't writable there. Ownership doesn't matter for these tests.
+        let owners = filesystem == "MS-DOS" ? "off" : "on"
+        try hdiutil(["attach", image.path, "-nobrowse", "-owners", owners, "-mountpoint", mount.path])
         defer { try? hdiutil(["detach", mount.path]) }
         try perform(root, mount)
     }
