@@ -98,6 +98,38 @@ struct RemoteTransferTests {
         #expect(counter.total == 15 && progress.completedBytes == 15)
     }
 
+    @Test func failedTransfersLeaveNoPartialItemsAndKeepWhatTheyWouldReplace() async throws {
+        let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        let file = try local.file("data.bin", contents: String(repeating: "x", count: 1_000))
+        try remote.file("data.bin", contents: "original")
+        let folder = endpoint.url(path: remote.url.path)
+
+        server.failPartway("upload", with: RemoteError.failed("connection lost"))
+        let upload = await transfers(choice: .alertFirstButtonReturn).run(.copy, [file], into: folder)
+        #expect(upload.error != nil && errors.errors.count == 1)
+        #expect(try String(contentsOf: remote.path("data.bin"), encoding: .utf8) == "original", "Replace keeps the original until the copy is complete")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: remote.url.path) == ["data.bin"], "no staging file is left")
+
+        server.failPartway("download", with: RemoteError.failed("connection lost"))
+        let downloads = try TestDirectory()
+        let download = await transfers().run(.copy, [endpoint.url(path: remote.path("data.bin").path)], into: downloads.url)
+        #expect(download.error != nil && download.results.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: downloads.url.path).isEmpty)
+
+        try remote.file("tree/a.txt"); try remote.file("tree/b.txt")
+        server.failPartway("download", with: RemoteError.failed("connection lost"))
+        _ = await transfers().run(.move, [endpoint.url(path: remote.path("tree").path)], into: downloads.url)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: downloads.url.path).isEmpty, "a half-copied folder is removed")
+        #expect(FileManager.default.fileExists(atPath: remote.path("tree/b.txt").path), "a failed move keeps its source")
+
+        let replaced = await transfers(choice: .alertFirstButtonReturn).run(.copy, [file], into: folder)
+        #expect(replaced.error == nil)
+        #expect(try Data(contentsOf: remote.path("data.bin")).count == 1_000)
+        #expect(RemoteTransfers.stagingURL(for: remote.path("x.txt")).lastPathComponent.hasPrefix(".x.txt.foldera-"))
+    }
+
     @Test func fileTransfersHandOffRemoteWork() async throws {
         let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
         installFakeServer(endpoint)
@@ -181,6 +213,22 @@ struct NetworkAddressTests {
         site.startPath = directory.path("inside").path
         model.openSite(site, in: tab)
         try await eventually { tab.url == endpoint.url(path: directory.path("inside").path) }
+    }
+
+    @Test func passwordsInAddressesAreNeverStored() throws {
+        let preferences = try TestPreferences()
+        RecentServers.add("smb://sam:secret@nas/share", defaults: preferences.defaults)
+        #expect(RecentServers.all(defaults: preferences.defaults) == ["smb://sam@nas/share"])
+        preferences.defaults.set(["afp://sam:hunter2@mac/share", "smb://nas"], forKey: "recentServers")
+        #expect(RecentServers.all(defaults: preferences.defaults) == ["afp://sam@mac/share", "smb://nas"])
+        #expect(preferences.defaults.stringArray(forKey: "recentServers")?.joined().contains("hunter2") == false, "old history is cleaned")
+        #expect(RecentServers.withoutPassword("not a url") == "not a url")
+
+        let sites = SFTPSites(defaults: preferences.defaults, secrets: MemorySecrets())
+        let model = ExplorerWindowModel(url: BrowserTab.networkURL, settings: AppSettings(defaults: preferences.defaults))
+        #expect(model.openServerAddress("sftp://sam:secret@unknown.example.com/srv", sites: sites))
+        guard case .site(let draft, _) = model.networkSheet else { Issue.record("expected the site sheet"); return }
+        #expect(draft.username == "sam" && sites.secrets.secret(for: "password:\(draft.id)") == nil)
     }
 
     @Test func recentServersAndMountHelpers() throws {

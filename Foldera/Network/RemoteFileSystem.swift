@@ -65,6 +65,20 @@ nonisolated extension RemoteFileSystem {
         return total
     }
 
+    /// Replaces the file at `path` only once `local` has been uploaded in full, so a failed upload leaves
+    /// the server's copy as it was.
+    func uploadAtomically(_ local: URL, to path: String, written: @Sendable (Int) throws -> Void) async throws {
+        let staging = RemotePath.join(RemotePath.parent(of: path), ".\(RemotePath.name(of: path)).foldera-\(UUID().uuidString.prefix(8)).part")
+        do {
+            try await upload(local, to: staging, written: written)
+        } catch {
+            try? await removeFile(staging)
+            throw error
+        }
+        if let existing = try await unfollowedEntry(at: path) { try await removeRecursively(existing) }
+        try await rename(staging, to: path)
+    }
+
     /// "name", "name (2)", … like `FileOperations.uniqueURL`, but on the server.
     func uniquePath(named name: String, in directory: String, copySuffix: Bool = false) async throws -> String {
         let candidate = RemotePath.join(directory, name)

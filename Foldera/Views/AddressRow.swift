@@ -282,7 +282,7 @@ enum SubfolderMenu {
             }
         } else if let endpoint = url.remoteEndpoint {
             let showHidden = AppSettings.shared.showHiddenFiles
-            let entries = (try? await connections.perform(endpoint) { try await $0.list(url.remotePath) }) ?? []
+            let entries = (try? await connections.read(endpoint) { try await $0.list(url.remotePath) }) ?? []
             let folders = entries
                 .filter { $0.isDirectory && (showHidden || !$0.name.hasPrefix(".")) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

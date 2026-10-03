@@ -322,7 +322,6 @@
 "Type: %@" = "類型：%@";
 "User name:" = "使用者名稱：";
 "You don’t have permission to access “%@” on the server." = "你沒有權限存取伺服器上的「%@」。";
-"“%@” couldn’t be uploaded to the server: %@" = "無法將「%@」上傳到伺服器：%@";
 "“%@” isn’t a server address Foldera can connect to." = "「%@」不是 Foldera 可以連線的伺服器位址。";
 "“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format." = "「%@」不是支援的私密金鑰。請使用 OpenSSH 格式的 Ed25519 或 RSA 金鑰。";
 "“%@” no longer exists on the server." = "伺服器上已不存在「%@」。";
@@ -339,3 +338,4 @@
 "Open file location" = "開啟檔案位置";
 "Folders and files you open appear here." = "你開啟的資料夾和檔案會顯示在這裡。";
 "Open file location" = "開啟檔案位置";
+"“%@” couldn’t be uploaded to the server yet: %@ Foldera keeps trying while it’s open." = "「%@」尚未能上傳到伺服器：%@ Foldera 開啟期間會持續重試。";

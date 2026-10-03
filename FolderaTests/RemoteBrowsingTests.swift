@@ -121,7 +121,7 @@ struct RemoteBrowsingTests {
         let server = installFakeServer(endpoint)
         let remote = try directory.file("page.html", contents: "v1")
         var opened: [URL] = []
-        let editing = RemoteEditing(folder: cache.url) { opened.append($0) }
+        let editing = RemoteEditing(folder: cache.url, openFile: { opened.append($0) }, retryDelay: 0)
         let local = try await editing.open(endpoint.url(path: remote.path))
         #expect(opened == [local] && editing.sessions.count == 1)
         #expect(try String(contentsOf: local, encoding: .utf8) == "v1")
@@ -133,12 +133,28 @@ struct RemoteBrowsingTests {
         await editing.uploadChanges()
         #expect(try String(contentsOf: remote, encoding: .utf8) == "v2")
 
-        server.fail("upload", with: RemoteError.failed("disk full"))
+        // A save that fails part-way stays pending, leaves the server's copy intact, and is retried.
+        try "v3".write(to: local, atomically: true, encoding: .utf8)
+        server.failPartway("upload", with: RemoteError.failed("connection lost"))
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)], ofItemAtPath: local.path)
         await editing.uploadChanges()
-        #expect(errors.errors.count == 1)
+        #expect(errors.errors.count == 1 && editing.sessions.first?.isPending == true)
+        #expect(try String(contentsOf: remote, encoding: .utf8) == "v2")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["page.html"], "no partial upload is left")
         await editing.uploadChanges()
-        #expect(errors.errors.count == 1, "a failed save isn't retried until the next save")
+        #expect(try String(contentsOf: remote, encoding: .utf8) == "v3")
+        #expect(editing.sessions.first?.isPending == false && errors.errors.count == 1, "the retry succeeded without another alert")
+
+        // Retries wait, and one failed version is only reported once.
+        let waiting = RemoteEditing(folder: cache.url, openFile: { _ in }, retryDelay: 60)
+        let pending = try await waiting.open(endpoint.url(path: remote.path))
+        server.fail("upload", with: RemoteError.failed("down"))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(20)], ofItemAtPath: pending.path)
+        await waiting.uploadChanges()
+        await waiting.uploadChanges()
+        #expect(errors.errors.count == 2 && waiting.sessions.first?.failures == 1, "not retried before its backoff")
+        try FileManager.default.removeItem(at: pending)
+        await waiting.uploadChanges()
 
         try FileManager.default.removeItem(at: local)
         await editing.uploadChanges()

@@ -36,6 +36,12 @@ struct SFTPFileSystemTests {
         #expect(try Data(contentsOf: downloaded) == Data(contentsOf: source) && received.value == 320_000)
         #expect((try downloaded.resourceValues(forKeys: [.contentModificationDateKey])).contentModificationDate == modified)
 
+        let replacement = try local.file("replacement.txt", contents: "new contents")
+        try await sftp.uploadAtomically(replacement, to: remoteFile) { _ in }
+        #expect(try String(contentsOfFile: remoteFile, encoding: .utf8) == "new contents")
+        #expect(try await sftp.list(folder).map(\.name) == ["upload.txt"], "the staging file was renamed into place")
+        try await sftp.upload(source, to: remoteFile) { _ in }
+
         let renamed = RemotePath.join(folder, "renamed.txt")
         try await sftp.rename(remoteFile, to: renamed)
         #expect(try await sftp.entry(at: remoteFile) == nil)

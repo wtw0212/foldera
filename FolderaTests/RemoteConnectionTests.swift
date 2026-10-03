@@ -25,9 +25,9 @@ struct RemoteConnectionsTests {
         let reconnected = try await connections.fileSystem(for: endpoint)
         #expect(reconnected !== a && made.count == 2)
 
-        // An operation that fails because the connection dropped runs again on a new one.
+        // A read that fails because the connection dropped runs again on a new one.
         let dropped = made[1]
-        let result = try await connections.perform(endpoint) { system -> String in
+        let result = try await connections.read(endpoint) { system -> String in
             if system === dropped {
                 dropped.disconnect()
                 throw RemoteError.failed("dropped")
@@ -36,12 +36,25 @@ struct RemoteConnectionsTests {
         }
         #expect(result == "ok" && made.count == 3)
         await #expect(throws: RemoteError.failed("real")) {
-            try await connections.perform(endpoint) { _ in throw RemoteError.failed("real") }
+            try await connections.read(endpoint) { _ in throw RemoteError.failed("real") }
         }
         #expect(made.count == 3, "errors on a live connection don't reconnect")
 
+        // A change is never replayed: it may have happened before the connection dropped.
+        var runs = 0
+        let change = made[2]
+        await #expect(throws: RemoteError.failed("dropped")) {
+            try await connections.perform(endpoint) { _ in
+                runs += 1
+                change.disconnect()
+                throw RemoteError.failed("dropped")
+            }
+        }
+        #expect(runs == 1 && connections.connected.isEmpty, "the dead connection is dropped, not retried")
+        #expect(try await connections.perform(endpoint) { _ in "next" } == "next" && made.count == 4)
+
         await connections.disconnect(endpoint)
-        #expect(connections.connected.isEmpty && made[2].operations.last == "close")
+        #expect(connections.connected.isEmpty && made[3].operations.last == "close")
         connections.install(FakeRemoteFileSystem(), for: endpoint)
         #expect(connections.connected == [endpoint])
     }

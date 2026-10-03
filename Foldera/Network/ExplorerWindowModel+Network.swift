@@ -23,7 +23,7 @@ extension ExplorerWindowModel {
         Task {
             do {
                 let path = site.startPath.trimmingCharacters(in: .whitespaces)
-                let start = path.isEmpty ? try await connections.perform(endpoint) { try await $0.home() } : path
+                let start = path.isEmpty ? try await connections.read(endpoint) { try await $0.home() } : path
                 tab.navigate(to: endpoint.url(path: start))
                 tab.requestListFocus()
             } catch is CancellationError {
@@ -50,7 +50,7 @@ extension ExplorerWindowModel {
             return true
         }
         guard NetworkMounts.canMount(url), mountWebAddresses || !["http", "https"].contains(scheme) else { return false }
-        RecentServers.add(input)
+        RecentServers.add(input) // without any password in it
         Task {
             do {
                 let mounted = try await mount(url)
@@ -68,6 +68,8 @@ extension ExplorerWindowModel {
     private func openSFTPAddress(_ url: URL, in tab: BrowserTab, sites: SFTPSites) {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "sftp"
+        // A password in an sftp:// address is ignored: Foldera asks for it and keeps it only in the Keychain.
+        components?.password = nil
         let path = url.path(percentEncoded: false)
         if let normalized = components?.url, let endpoint = normalized.remoteEndpoint, let site = sites.site(for: endpoint) {
             RecentServers.add(normalized.absoluteString)
@@ -93,14 +95,26 @@ enum RecentServers {
     private static let key = "recentServers"
     static let limit = 8
 
+    /// Older builds could have saved addresses with passwords; they're cleaned when read.
     static func all(defaults: UserDefaults = .standard) -> [String] {
-        defaults.stringArray(forKey: key) ?? []
+        let stored = defaults.stringArray(forKey: key) ?? []
+        let clean = stored.map(withoutPassword)
+        if clean != stored { defaults.set(clean, forKey: key) }
+        return clean
     }
 
     static func add(_ address: String, defaults: UserDefaults = .standard) {
+        let address = withoutPassword(address)
         var list = all(defaults: defaults).filter { $0.caseInsensitiveCompare(address) != .orderedSame }
         list.insert(address, at: 0)
         defaults.set(Array(list.prefix(limit)), forKey: key)
+    }
+
+    /// "smb://sam:secret@nas/share" → "smb://sam@nas/share". Passwords never go into preferences.
+    static func withoutPassword(_ address: String) -> String {
+        guard var components = URLComponents(string: address), components.password != nil else { return address }
+        components.password = nil
+        return components.string ?? address
     }
 
     static func clear(defaults: UserDefaults = .standard) {

@@ -40,8 +40,22 @@ final class RemoteConnections {
         return system
     }
 
-    /// Runs `body` on the connection, reconnecting once if it had silently dropped.
+    /// Runs a change on the server. It is never run twice: if the connection drops, the change may or may
+    /// not have happened (a folder created but not acknowledged), so the error is reported instead, and
+    /// the next operation reconnects.
     func perform<T>(_ endpoint: RemoteEndpoint, _ body: (any RemoteFileSystem) async throws -> T) async throws -> T {
+        let system = try await fileSystem(for: endpoint)
+        do {
+            return try await body(system)
+        } catch {
+            if !(await system.isConnected) { drop(endpoint) }
+            throw error
+        }
+    }
+
+    /// Runs a read (listing, details, download), reconnecting and trying once more if the connection had
+    /// silently dropped. Only for work that changes nothing on the server.
+    func read<T>(_ endpoint: RemoteEndpoint, _ body: (any RemoteFileSystem) async throws -> T) async throws -> T {
         let system = try await fileSystem(for: endpoint)
         do {
             return try await body(system)

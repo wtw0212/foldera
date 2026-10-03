@@ -189,6 +189,7 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
             }
         } catch {
             try? await file.close()
+            try? FileManager.default.removeItem(at: local) // never leave a partial download behind
             throw error
         }
     }

@@ -84,11 +84,22 @@ struct RemoteTransfers {
             for job in jobs {
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
                 progress.setCurrentName(Self.name(of: job.source))
-                if job.replace { try await remove(job.destination) }
                 if isServerMove(kind, job) {
+                    // SFTP renames can't overwrite, so a replaced item goes first; the rename itself is atomic.
+                    if job.replace { try await remove(job.destination) }
                     try await connections.perform(try Self.endpoint(job.source)) { try await $0.rename(job.source.remotePath, to: job.destination.remotePath) }
                 } else {
-                    try await copy(job.source, to: job.destination, counter: counter)
+                    // Copy under a hidden temporary name, and only then replace and rename into place. A failed
+                    // or cancelled transfer leaves no partial item, and a replaced item survives until the copy is complete.
+                    let staging = Self.stagingURL(for: job.destination)
+                    do {
+                        try await copy(job.source, to: staging, counter: counter)
+                    } catch {
+                        await discard(staging)
+                        throw error
+                    }
+                    if job.replace { try await remove(job.destination) }
+                    try await move(staging, to: job.destination)
                     if kind == .move { try await remove(job.source) }
                 }
                 result.results.append(job.destination)
@@ -144,12 +155,12 @@ struct RemoteTransfers {
 
     private func download(_ source: URL, to destination: URL, counter: ByteCounter) async throws {
         let endpoint = try Self.endpoint(source)
-        guard let entry = try await connections.perform(endpoint, { try await $0.entry(at: source.remotePath) }) else {
+        guard let entry = try await connections.read(endpoint, { try await $0.entry(at: source.remotePath) }) else {
             throw RemoteError.notFound(Self.name(of: source))
         }
         if entry.isDirectory {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            let children = try await connections.perform(endpoint) { try await $0.list(source.remotePath) }
+            let children = try await connections.read(endpoint) { try await $0.list(source.remotePath) }
             for child in children where !(child.isSymlink && child.isDirectory) {
                 try await download(endpoint.url(path: child.path), to: destination.appendingPathComponent(child.name), counter: counter)
             }
@@ -162,14 +173,38 @@ struct RemoteTransfers {
 
     private func exists(_ url: URL) async throws -> Bool {
         guard url.isRemote else { return FileOperations.exists(url) }
-        return try await connections.perform(try Self.endpoint(url)) { try await $0.entry(at: url.remotePath) } != nil
+        return try await connections.read(try Self.endpoint(url)) { try await $0.entry(at: url.remotePath) } != nil
     }
 
     private func size(of url: URL) async throws -> Int64 {
         guard url.isRemote else { return CopyEngine.size(of: url) }
-        return try await connections.perform(try Self.endpoint(url)) { system in
+        return try await connections.read(try Self.endpoint(url)) { system in
             guard let entry = try await system.entry(at: url.remotePath) else { return 0 }
             return try await system.totalSize(entry)
+        }
+    }
+
+    /// ".name.foldera-1A2B3C4D.part" beside `destination`.
+    static func stagingURL(for destination: URL) -> URL {
+        child(parent(of: destination), ".\(name(of: destination)).foldera-\(UUID().uuidString.prefix(8)).part")
+    }
+
+    /// Deletes a staging copy (never to the Trash). Best effort: the transfer's own error is what matters.
+    private func discard(_ url: URL) async {
+        if url.isRemote {
+            _ = try? await connections.perform(try Self.endpoint(url)) { system in
+                if let entry = try await system.unfollowedEntry(at: url.remotePath) { try await system.removeRecursively(entry) }
+            }
+        } else {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func move(_ source: URL, to destination: URL) async throws {
+        if source.isRemote {
+            try await connections.perform(try Self.endpoint(source)) { try await $0.rename(source.remotePath, to: destination.remotePath) }
+        } else {
+            try FileManager.default.moveItem(at: source, to: destination)
         }
     }
 
@@ -188,7 +223,7 @@ struct RemoteTransfers {
         guard let endpoint = directory.remoteEndpoint else {
             return FileOperations.uniqueURL(named: name, in: directory, copySuffix: copySuffix)
         }
-        let path = try await connections.perform(endpoint) { try await $0.uniquePath(named: name, in: directory.remotePath, copySuffix: copySuffix) }
+        let path = try await connections.read(endpoint) { try await $0.uniquePath(named: name, in: directory.remotePath, copySuffix: copySuffix) }
         return endpoint.url(path: path)
     }
 

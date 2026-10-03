@@ -7,6 +7,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var connected = true
     private var calls: [String] = []
     private var failures: [String: Error] = [:]
+    private var partway: [String: Error] = [:]
     let homePath: String
 
     init(home: String = NSHomeDirectory()) { homePath = home }
@@ -17,6 +18,9 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func disconnect() { lock.withLock { connected = false } }
     /// The next call to `operation` throws `error`.
     func fail(_ operation: String, with error: Error) { lock.withLock { failures[operation] = error } }
+    /// The next upload or download writes half the file, then throws (a dropped connection).
+    func failPartway(_ operation: String, with error: Error) { lock.withLock { partway[operation] = error } }
+    private func partwayFailure(_ operation: String) -> Error? { lock.withLock { partway.removeValue(forKey: operation) } }
 
     private func record(_ operation: String) throws {
         let failure: Error? = lock.withLock {
@@ -74,6 +78,10 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func download(_ path: String, to local: URL, written: @Sendable (Int) throws -> Void) async throws {
         try record("download")
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        if let failure = partwayFailure("download") {
+            try data.prefix(data.count / 2).write(to: local)
+            throw failure
+        }
         try data.write(to: local)
         try written(data.count)
     }
@@ -81,6 +89,10 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func upload(_ local: URL, to path: String, written: @Sendable (Int) throws -> Void) async throws {
         try record("upload")
         let data = try Data(contentsOf: local)
+        if let failure = partwayFailure("upload") {
+            try data.prefix(data.count / 2).write(to: URL(fileURLWithPath: path))
+            throw failure
+        }
         try data.write(to: URL(fileURLWithPath: path))
         try written(data.count)
     }

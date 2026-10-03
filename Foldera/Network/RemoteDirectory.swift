@@ -6,7 +6,7 @@ enum RemoteDirectory {
     static func load(_ url: URL, connections: RemoteConnections = .shared) async throws -> [FileItem] {
         guard let endpoint = url.remoteEndpoint else { throw RemoteError.failed(L10n.text("This address is missing a user name.")) }
         do {
-            let entries = try await connections.perform(endpoint) { try await $0.list(url.remotePath) }
+            let entries = try await connections.read(endpoint) { try await $0.list(url.remotePath) }
             return entries.map { FileItem(remote: $0, endpoint: endpoint) }
         } catch is CancellationError {
             // The sign-in prompt was cancelled.
