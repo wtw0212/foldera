@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// Commands shared by the command bar, context menu, keyboard shortcuts and the menu bar.
 extension BrowserTab {
@@ -235,18 +236,17 @@ extension BrowserTab {
     func showProperties() {
         if isRemote { return remoteShowProperties() }
         guard !isPage, hasSelection || !isRecent else { return }
-        let targets = hasSelection ? selectedItems.map(\.url) : [url]
-        let list = targets.map { "POSIX file \"\(Self.appleScriptEscaped($0.path))\"" }.joined(separator: ", ")
-        let source = """
-        tell application "Finder"
-            activate
-            repeat with f in {\(list)}
-                open information window of (f as alias)
-            end repeat
-        end tell
-        """
-        var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
+        let targets = (hasSelection ? selectedItems.map(\.url) : [url]).filter(\.isFileURL)
+        guard !targets.isEmpty else { return }
+        do {
+            let reply = try Self.propertiesEvent(for: targets).sendEvent(options: .defaultOptions, timeout: TimeInterval(kAEDefaultTimeout))
+            if let code = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value, code != 0 {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
+            }
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        } catch {
+            Self.present(error)
+        }
     }
 
     // MARK: Recent
@@ -312,7 +312,37 @@ extension BrowserTab {
         }
     }
 
-    private static func appleScriptEscaped(_ string: String) -> String {
-        string.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    /// Finder's native Open event, with file references as data. No filename is interpreted as code.
+    static func propertiesEvent(for urls: [URL]) throws -> NSAppleEventDescriptor {
+        guard urls.allSatisfy(\.isFileURL) else { throw CocoaError(.fileReadUnsupportedScheme) }
+        let windows = NSAppleEventDescriptor.list()
+        for (index, url) in urls.enumerated() {
+            // Finder items can be addressed by a file URL as their absolute position.
+            let file = NSAppleEventDescriptor.record()
+            file.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(cObject)), forKeyword: AEKeyword(keyAEDesiredClass))
+            file.setDescriptor(NSAppleEventDescriptor(enumCode: OSType(formAbsolutePosition)), forKeyword: AEKeyword(keyAEKeyForm))
+            file.setDescriptor(NSAppleEventDescriptor(fileURL: url), forKeyword: AEKeyword(keyAEKeyData))
+            file.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: AEKeyword(keyAEContainer))
+            guard let fileSpecifier = file.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
+                throw CocoaError(.coderInvalidValue)
+            }
+            let window = NSAppleEventDescriptor.record()
+            window.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(cProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
+            window.setDescriptor(NSAppleEventDescriptor(enumCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
+            // The information-window property ('iwnd') in Finder's scripting dictionary.
+            window.setDescriptor(NSAppleEventDescriptor(typeCode: 0x69776E64), forKeyword: AEKeyword(keyAEKeyData))
+            window.setDescriptor(fileSpecifier, forKeyword: AEKeyword(keyAEContainer))
+            guard let specifier = window.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
+                throw CocoaError(.coderInvalidValue)
+            }
+            windows.insert(specifier, at: index + 1)
+        }
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
+            targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder"),
+            returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(windows, forKeyword: AEKeyword(keyDirectObject))
+        return event
     }
 }

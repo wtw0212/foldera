@@ -1,4 +1,5 @@
 import Foundation
+import Carbon
 import Testing
 @testable import Foldera
 
@@ -78,5 +79,44 @@ struct BrowserActionTests {
         tab.newFolder()
         tab.newTextDocument()
         #expect(tab.renameRequest == nil && !tab.canPaste && tab.items.isEmpty)
+    }
+
+    @Test(arguments: [
+        "\"quoted\".txt", "back\\slash.txt", "line\nbreak\rname.txt",
+        "separator\u{2028}paragraph\u{2029}.txt", "資料 📁.txt",
+        "\" & (do shell script \"printf injected\") & \".txt"
+    ])
+    func propertiesPassesSpecialFilenamesAsFileURLData(_ name: String) throws {
+        let directory = try TestDirectory()
+        let urls = [try directory.file(name), try directory.file("plain.txt")]
+        let event = try BrowserTab.propertiesEvent(for: urls)
+        #expect(event.attributeDescriptor(forKeyword: AEKeyword(keyEventClassAttr))?.typeCodeValue == OSType(kCoreEventClass))
+        #expect(event.attributeDescriptor(forKeyword: AEKeyword(keyEventIDAttr))?.typeCodeValue == OSType(kAEOpenDocuments))
+        let target = try #require(event.attributeDescriptor(forKeyword: AEKeyword(keyAddressAttr)))
+        #expect(target.descriptorType == DescType(typeApplicationBundleID))
+        #expect(String(decoding: target.data, as: UTF8.self) == "com.apple.finder")
+        let windows = try #require(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)))
+        #expect(windows.numberOfItems == urls.count)
+        for (index, url) in urls.enumerated() {
+            let window = try #require(windows.atIndex(index + 1))
+            #expect(window.descriptorType == DescType(typeObjectSpecifier))
+            #expect(window.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(cProperty))
+            #expect(window.forKeyword(AEKeyword(keyAEKeyForm))?.enumCodeValue == OSType(formPropertyID))
+            #expect(window.forKeyword(AEKeyword(keyAEKeyData))?.typeCodeValue == 0x69776E64)
+            let file = try #require(window.forKeyword(AEKeyword(keyAEContainer)))
+            #expect(file.descriptorType == DescType(typeObjectSpecifier))
+            #expect(file.forKeyword(AEKeyword(keyAEDesiredClass))?.typeCodeValue == OSType(cObject))
+            #expect(file.forKeyword(AEKeyword(keyAEKeyForm))?.enumCodeValue == OSType(formAbsolutePosition))
+            let location = try #require(file.forKeyword(AEKeyword(keyAEKeyData)))
+            #expect(location.descriptorType == DescType(typeFileURL))
+            #expect(String(decoding: location.data, as: UTF8.self) == url.absoluteString)
+        }
+    }
+
+    @Test func propertiesRejectsNonFileURLs() throws {
+        let remote = try #require(URL(string: "sftp://server/path"))
+        #expect(throws: CocoaError.self) {
+            try BrowserTab.propertiesEvent(for: [remote])
+        }
     }
 }
