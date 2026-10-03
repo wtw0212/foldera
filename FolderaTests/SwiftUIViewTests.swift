@@ -1,3 +1,4 @@
+import Quartz
 import AppKit
 import SwiftUI
 import Testing
@@ -34,9 +35,11 @@ struct SwiftUIViewTests {
         let settings = AppSettings(defaults: preferences.defaults)
         let view = ViewSettings(settings: settings)
         let toggles = try view.inspect().findAll(ViewType.Toggle.self)
-        #expect(toggles.count == 4)
+        #expect(toggles.count == 5)
+        #expect(!settings.autoplayPreviews, "videos don't play on their own by default")
         for toggle in toggles { try toggle.tap() }
         #expect(settings.showHiddenFiles && !settings.showExtensions && settings.compactView && !settings.showNavigationPane)
+        #expect(settings.autoplayPreviews && AppSettings(defaults: preferences.defaults).autoplayPreviews)
         #expect(settings.rowHeight == 22)
         #expect(try texts(view).contains(L10n.text("Reset All Folders")))
     }
@@ -165,5 +168,25 @@ struct SwiftUIViewTests {
         #expect(transfer.isCancelled)
         #expect(try texts(row).contains(L10n.text("Cancelling…")))
         #expect(try row.inspect().find(ViewType.Button.self).isDisabled())
+    }
+}
+
+@MainActor
+struct PreviewPlaybackTests {
+    @Test func previewsDoNotAutostartUnlessAskedTo() throws {
+        let file = try TestDirectory().file("clip.txt")
+        let off = QuickLookPreview(url: file)
+        #expect(!off.autostarts)
+        let host = NSHostingView(rootView: off.frame(width: 200, height: 200))
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(host.subviews.first { $0 is QLPreviewView } as? QLPreviewView ?? Self.find(in: host))
+        #expect(!view.autostarts)
+        host.rootView = QuickLookPreview(url: file, autostarts: true).frame(width: 200, height: 200)
+        host.layoutSubtreeIfNeeded()
+        #expect(view.autostarts)
+    }
+
+    private static func find(in view: NSView) -> QLPreviewView? {
+        (view as? QLPreviewView) ?? view.subviews.lazy.compactMap(find).first
     }
 }

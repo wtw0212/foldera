@@ -339,3 +339,4 @@
 "Folders and files you open appear here." = "你開啟的資料夾和檔案會顯示在這裡。";
 "Open file location" = "開啟檔案位置";
 "“%@” couldn’t be uploaded to the server yet: %@ Foldera keeps trying while it’s open." = "「%@」尚未能上傳到伺服器：%@ Foldera 開啟期間會持續重試。";
+"Play videos automatically in the Details pane" = "在詳細資料窗格中自動播放影片";

@@ -2,18 +2,21 @@ import ImageIO
 import Quartz
 import SwiftUI
 
-private struct QuickLookPreview: NSViewRepresentable {
+struct QuickLookPreview: NSViewRepresentable {
     let url: URL
+    /// Off by default: a selected video shows its first frame and a play button instead of playing.
+    var autostarts = false
 
     func makeNSView(context: Context) -> QLPreviewView {
         let view = QLPreviewView(frame: .zero, style: .normal)!
         view.shouldCloseWithWindow = false
-        view.autostarts = true
+        view.autostarts = autostarts
         view.previewItem = url as NSURL
         return view
     }
 
     func updateNSView(_ view: QLPreviewView, context: Context) {
+        view.autostarts = autostarts
         if (view.previewItem as? NSURL) as URL? != url {
             view.previewItem = url as NSURL
         }
@@ -73,7 +76,7 @@ private struct ItemDetails: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: 120)
             } else {
-                QuickLookPreview(url: item.url)
+                QuickLookPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
                     .id(item.url)
                     .frame(maxWidth: .infinity)
                     .frame(height: 260)

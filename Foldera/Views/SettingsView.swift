@@ -134,6 +134,7 @@ struct ViewSettings: View {
             Toggle(L10n.text("Show file name extensions"), isOn: $settings.showExtensions)
             Toggle(L10n.text("Compact view"), isOn: $settings.compactView)
             Toggle(L10n.text("Show navigation pane"), isOn: $settings.showNavigationPane)
+            Toggle(L10n.text("Play videos automatically in the Details pane"), isOn: $settings.autoplayPreviews)
         }
     }
 }

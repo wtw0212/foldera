@@ -78,6 +78,8 @@ final class AppSettings {
     var startLocation: StartLocation { didSet { defaults.set(startLocation.rawValue, forKey: Key.startLocation) } }
     /// Bundle ID of the terminal that "cmd" in the address bar opens.
     var terminalApp: String { didSet { defaults.set(terminalApp, forKey: Key.terminalApp) } }
+    /// Videos and audio in the Details pane start playing on their own (off: they wait for the play button).
+    var autoplayPreviews: Bool { didSet { defaults.set(autoplayPreviews, forKey: Key.autoplayPreviews) } }
     /// How many recent items the navigation pane shows; 0 hides the Recent section.
     var recentItemsCount: Int { didSet { defaults.set(recentItemsCount, forKey: Key.recentItemsCount) } }
     static let recentItemsChoices = [0, 3, 5, 10, 15, 20]
@@ -104,6 +106,7 @@ final class AppSettings {
         static let startLocation = "startLocation"
         static let terminalApp = "terminalApp"
         static let recentItemsCount = "recentItemsCount"
+        static let autoplayPreviews = "autoplayPreviews"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -118,6 +121,7 @@ final class AppSettings {
             Key.recentItemsCount: 5,
         ])
         recents = RecentItems(defaults: defaults)
+        autoplayPreviews = defaults.bool(forKey: Key.autoplayPreviews)
         recentItemsCount = max(0, defaults.integer(forKey: Key.recentItemsCount))
         showHiddenFiles = defaults.bool(forKey: Key.showHiddenFiles)
         showExtensions = defaults.bool(forKey: Key.showExtensions)
