@@ -221,6 +221,193 @@ struct RemoteConnectionsTests {
         _ = try await connections.fileSystem(for: endpoint)
         #expect(attempts == 2 && connections.connected == [endpoint])
     }
+
+    @Test func disconnectInvalidatesAnUnfinishedLogin() async throws {
+        let endpoint = uniqueEndpoint(), started = ConnectionTestGate(), finish = ConnectionTestGate()
+        let system = FakeRemoteFileSystem()
+        var attempts = 0, requested = false, mutations = 0
+        let connections = RemoteConnections { _ in
+            attempts += 1
+            await started.open()
+            await finish.wait() // Deliberately ignores cancellation, like a delayed SSH login.
+            return system
+        }
+        let first = Task { try await connections.fileSystem(for: endpoint) }
+        await started.wait()
+        let second = Task {
+            requested = true
+            try await connections.perform(endpoint) { _ in mutations += 1 }
+        }
+        try await eventually { requested }
+        await connections.disconnect(endpoint)
+        await finish.open()
+
+        await #expect(throws: CancellationError.self) { _ = try await first.value }
+        await #expect(throws: CancellationError.self) { try await second.value }
+        #expect(attempts == 1 && mutations == 0 && connections.connected.isEmpty)
+        #expect(!system.isConnected && system.operations == ["close"], "late connections must be closed, not published")
+    }
+
+    @Test func disconnectDuringRecoveryKeepsTheJournalAndDoesNotReconnect() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = directory.path("data.txt"), backup = try directory.file(".data.old", contents: "original")
+        let journal = SwapJournal(defaults: nil)
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        let started = ConnectionTestGate(), finish = ConnectionTestGate()
+        let system = FakeRemoteFileSystem(beforeList: {
+            await started.open()
+            await finish.wait()
+        })
+        let replacement = FakeRemoteFileSystem()
+        var attempts = 0, mutations = 0
+        let connections = RemoteConnections(connector: { _ in
+            attempts += 1
+            return attempts == 1 ? system : replacement
+        }, journal: journal)
+        let operation = Task { try await connections.perform(endpoint) { _ in mutations += 1 } }
+        await started.wait()
+        await connections.disconnect(endpoint)
+        await finish.open()
+
+        await #expect(throws: CancellationError.self) { try await operation.value }
+        #expect(attempts == 1 && mutations == 0 && connections.connected.isEmpty)
+        #expect(journal.swaps.count == 1 && !FileManager.default.fileExists(atPath: path.path))
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "original")
+        try await connections.perform(endpoint) { _ in mutations += 1 }
+        #expect(attempts == 2 && mutations == 1 && journal.swaps.isEmpty)
+        #expect(try String(contentsOf: path, encoding: .utf8) == "original")
+    }
+
+    @Test(arguments: [false, true])
+    func staleReadinessDoesNotClearANewerAttempt(failing: Bool) async throws {
+        let endpoint = uniqueEndpoint()
+        let oldStarted = ConnectionTestGate(), finishOld = ConnectionTestGate()
+        let finishNew = ConnectionTestGate()
+        let old = FakeRemoteFileSystem(), current = FakeRemoteFileSystem()
+        var attempts = 0, replacementRequested = false, requested = false
+        let connections = RemoteConnections { _ in
+            attempts += 1
+            if attempts == 1 {
+                await oldStarted.open()
+                await finishOld.wait()
+                if failing { throw RemoteError.failed("stale login failed") }
+                return old
+            }
+            await finishNew.wait()
+            return current
+        }
+        let first = Task { try await connections.fileSystem(for: endpoint) }
+        await oldStarted.wait()
+        await connections.disconnect(endpoint)
+        let second = Task {
+            replacementRequested = true
+            return try await connections.fileSystem(for: endpoint)
+        }
+        try await eventually { replacementRequested }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(attempts == 2, "disconnect allows a fresh login without waiting for the cancelled connector")
+        await finishOld.open()
+        await #expect(throws: CancellationError.self) { _ = try await first.value }
+        let third = Task {
+            requested = true
+            return try await connections.fileSystem(for: endpoint)
+        }
+        try await eventually { requested }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(attempts == 2, "finishing an invalidated attempt must not erase the replacement's shared task")
+        await finishNew.open()
+        #expect((try? await second.value) === current)
+        #expect((try? await third.value) === current)
+        #expect(connections.connected == [endpoint] && current.isConnected)
+        if !failing { #expect(!old.isConnected && old.operations == ["close"]) }
+        #expect(try await connections.fileSystem(for: endpoint) === current && attempts == 2)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func disconnectedOperationsCannotRetryOrDropAReplacement(reading: Bool, replacing: Bool) async throws {
+        let endpoint = uniqueEndpoint(), started = ConnectionTestGate(), finish = ConnectionTestGate()
+        let old = FakeRemoteFileSystem(), current = FakeRemoteFileSystem()
+        var attempts = 0
+        let connections = RemoteConnections { _ in
+            attempts += 1
+            return current
+        }
+        connections.install(old, for: endpoint)
+        let body: (any RemoteFileSystem) async throws -> Void = { _ in
+            await started.open()
+            await finish.wait()
+            throw RemoteError.failed("old operation failed")
+        }
+        let operation = Task {
+            if reading { try await connections.read(endpoint, body) }
+            else { try await connections.perform(endpoint, body) }
+        }
+        await started.wait()
+        await connections.disconnect(endpoint)
+        if replacing { connections.install(current, for: endpoint) }
+        await finish.open()
+
+        await #expect(throws: CancellationError.self) { try await operation.value }
+        #expect(attempts == 0, "a read that was explicitly disconnected must not log in again")
+        #expect(connections.connected == (replacing ? [endpoint] : []))
+        if replacing { #expect(try await connections.fileSystem(for: endpoint) === current && attempts == 0) }
+    }
+
+    @Test func installingAConnectionInvalidatesAnUnfinishedLogin() async throws {
+        let endpoint = uniqueEndpoint(), started = ConnectionTestGate(), finish = ConnectionTestGate()
+        let old = FakeRemoteFileSystem(), installed = FakeRemoteFileSystem()
+        let connections = RemoteConnections { _ in
+            await started.open()
+            await finish.wait()
+            return old
+        }
+        let attempt = Task { try await connections.fileSystem(for: endpoint) }
+        await started.wait()
+        connections.install(installed, for: endpoint)
+        await finish.open()
+
+        await #expect(throws: CancellationError.self) { _ = try await attempt.value }
+        #expect(!old.isConnected && old.operations == ["close"])
+        #expect(try await connections.fileSystem(for: endpoint) === installed && installed.isConnected)
+        #expect(connections.connected == [endpoint])
+    }
+
+    @Test(arguments: [false, true])
+    func lateFailuresDoNotEvictAnAutomaticReconnect(reading: Bool) async throws {
+        let endpoint = uniqueEndpoint(), started = ConnectionTestGate(), finish = ConnectionTestGate()
+        let old = FakeRemoteFileSystem(), current = FakeRemoteFileSystem()
+        var attempts = 0, calls = 0
+        let connections = RemoteConnections { _ in
+            attempts += 1
+            return current
+        }
+        connections.install(old, for: endpoint)
+        let body: (any RemoteFileSystem) async throws -> String = { system in
+            calls += 1
+            if system === old {
+                await started.open()
+                await finish.wait()
+                throw RemoteError.failed("old connection lost")
+            }
+            return "current"
+        }
+        let operation = Task {
+            if reading { return try await connections.read(endpoint, body) }
+            return try await connections.perform(endpoint, body)
+        }
+        await started.wait()
+        old.disconnect()
+        #expect(try await connections.fileSystem(for: endpoint) === current)
+        await finish.open()
+
+        if reading { #expect(try await operation.value == "current" && calls == 2) }
+        else {
+            await #expect(throws: RemoteError.failed("old connection lost")) { _ = try await operation.value }
+            #expect(calls == 1, "mutations are still never replayed")
+        }
+        #expect(connections.connected == [endpoint])
+        #expect(try await connections.fileSystem(for: endpoint) === current && attempts == 1)
+    }
 }
 
 private actor ConnectionTestGate {

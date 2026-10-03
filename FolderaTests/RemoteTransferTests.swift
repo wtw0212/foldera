@@ -86,6 +86,71 @@ struct RemoteTransferTests {
     }
 
     @Test(arguments: [false, true])
+    func bulkRemoteCopiesListTheSourceParentOnce(betweenServers: Bool) async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        installFakeServer(other)
+        var selected: [URL] = []
+        for index in 0..<1_000 {
+            let file = try source.file("file-\(index).txt", contents: "data-\(index)")
+            if index < 100 { selected.append(endpoint.url(path: file.path)) }
+        }
+        let folder = betweenServers ? other.url(path: destination.url.path) : destination.url
+
+        let result = await transfers().run(.copy, selected, into: folder)
+        #expect(result.error == nil && errors.errors.isEmpty && result.results.count == 100)
+        #expect(server.operations.filter { $0 == "download" }.count == 100)
+        #expect(server.operations.filter { $0 == "list" }.count == 1,
+                "planning, sizing and downloading must reuse a single parent listing")
+        for index in 0..<100 {
+            #expect(try String(contentsOf: destination.path("file-\(index).txt"), encoding: .utf8) == "data-\(index)")
+        }
+    }
+
+    @Test func sourceMetadataIsGroupedByEndpointAndParent() async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint), otherServer = installFakeServer(other)
+        var selected: [URL] = []
+        for index in 0..<12 {
+            let parent = index < 8 ? "first" : "second"
+            let file = try source.file("\(parent)/file-\(index).txt", contents: "data-\(index)")
+            let host = index < 4 ? other : endpoint
+            selected.append(host.url(path: file.path))
+        }
+
+        let result = await transfers().run(.copy, selected, into: destination.url)
+        #expect(result.error == nil && errors.errors.isEmpty && result.results.count == 12)
+        #expect(server.operations.filter { $0 == "list" }.count == 2)
+        #expect(otherServer.operations.filter { $0 == "list" }.count == 1,
+                "identical parent paths on different servers have distinct metadata")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path).count == 12)
+    }
+
+    @Test func sourceMetadataIsNotReusedAcrossTransfers() async throws {
+        let endpoint = uniqueEndpoint(), source = try TestDirectory(), destination = try TestDirectory()
+        let linked = try TestDirectory(), errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        let file = try source.file("item", contents: "original")
+        let remote = endpoint.url(path: file.path)
+        let transfers = transfers(choice: .alertFirstButtonReturn)
+        let first = await transfers.run(.copy, [remote], into: destination.url)
+        #expect(first.error == nil && first.results == [destination.path("item")])
+        try FileManager.default.removeItem(at: file)
+        try linked.file("data.txt", contents: "linked data")
+        try FileManager.default.createSymbolicLink(at: file, withDestinationURL: linked.url)
+
+        let second = await transfers.run(.copy, [remote], into: destination.url)
+        #expect(second.error == nil && errors.errors.isEmpty && second.results.isEmpty)
+        #expect(server.operations.filter { $0 == "list" }.count == 2)
+        #expect(try String(contentsOf: destination.path("item"), encoding: .utf8) == "original")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: file.path) == linked.url.path)
+    }
+
+    @Test(arguments: [false, true])
     func directRemoteDirectoryLinksAreNotDereferencedOnARealServer(moving: Bool) async throws {
         let server = try LocalSSHServer(), source = try TestDirectory(), destination = try TestDirectory()
         let target = try source.folder("target")

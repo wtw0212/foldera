@@ -10,7 +10,12 @@ final class RemoteConnections {
     /// Servers with a live connection, for the navigation pane and Network page.
     private(set) var connected: Set<RemoteEndpoint> = []
     @ObservationIgnored private var systems: [RemoteEndpoint: any RemoteFileSystem] = [:]
-    @ObservationIgnored private var pending: [RemoteEndpoint: Task<any RemoteFileSystem, Error>] = [:]
+    private struct Readiness {
+        let id: UUID
+        let task: Task<any RemoteFileSystem, Error>
+    }
+    @ObservationIgnored private var pending: [RemoteEndpoint: Readiness] = [:]
+    @ObservationIgnored private var generations: [RemoteEndpoint: Int] = [:]
     @ObservationIgnored private let connector: (RemoteEndpoint) async throws -> any RemoteFileSystem
     /// Replacements whose old item still sits under a backup name (see `commit(_:to:on:replacing:isStaging:)`).
     @ObservationIgnored let journal: SwapJournal
@@ -30,36 +35,63 @@ final class RemoteConnections {
     /// The connection for `endpoint`, signing in and recovering leftover swaps before handing it out.
     /// Concurrent callers share the entire readiness attempt, including recovery on a live connection.
     func fileSystem(for endpoint: RemoteEndpoint) async throws -> any RemoteFileSystem {
-        if let attempt = pending[endpoint] { return try await attempt.value }
-        let attempt = Task {
-            defer { pending[endpoint] = nil }
-            return try await prepareFileSystem(for: endpoint)
+        let generation = generations[endpoint, default: 0]
+        let attempt: Task<any RemoteFileSystem, Error>
+        if let existing = pending[endpoint] {
+            attempt = existing.task
+        } else {
+            let id = UUID()
+            attempt = Task {
+                defer { if pending[endpoint]?.id == id { pending[endpoint] = nil } }
+                do {
+                    return try await prepareFileSystem(for: endpoint, generation: generation)
+                } catch {
+                    try checkGeneration(generation, for: endpoint)
+                    throw error
+                }
+            }
+            pending[endpoint] = Readiness(id: id, task: attempt)
         }
-        pending[endpoint] = attempt
-        return try await attempt.value
+        let system = try await attempt.value
+        try checkGeneration(generation, for: endpoint)
+        return system
     }
 
-    private func prepareFileSystem(for endpoint: RemoteEndpoint) async throws -> any RemoteFileSystem {
+    private func prepareFileSystem(for endpoint: RemoteEndpoint, generation: Int) async throws -> any RemoteFileSystem {
         for retry in 0..<2 {
+            try checkGeneration(generation, for: endpoint)
             let system: any RemoteFileSystem
             if let cached = systems[endpoint], await cached.isConnected {
+                try checkGeneration(generation, for: endpoint)
                 system = cached
             } else {
+                try checkGeneration(generation, for: endpoint)
                 drop(endpoint)
                 system = try await connector(endpoint)
+                do {
+                    try checkGeneration(generation, for: endpoint)
+                } catch {
+                    // An SSH login can complete even after its task was cancelled.
+                    await system.close()
+                    throw error
+                }
                 systems[endpoint] = system
             }
             do {
                 repeat {
                     // Recovery uses the raw system, never its own pending readiness task.
                     try await settleLeftoverSwaps(on: endpoint, using: system)
-                    guard await system.isConnected else { throw RemoteError.notConnected(endpoint.displayName) }
+                    let live = await system.isConnected
+                    try checkGeneration(generation, for: endpoint)
+                    guard live else { throw RemoteError.notConnected(endpoint.displayName) }
                 } while journal.swaps.contains(where: { $0.endpoint == endpoint && !swapsInFlight.contains($0) })
                 connected.insert(endpoint)
                 return system
             } catch {
-                guard !(await system.isConnected) else { throw error }
-                drop(endpoint)
+                let live = await system.isConnected
+                try checkGeneration(generation, for: endpoint)
+                guard !live else { throw error }
+                drop(endpoint, matching: system)
                 if retry == 1 { throw error }
             }
         }
@@ -70,11 +102,14 @@ final class RemoteConnections {
     /// not have happened (a folder created but not acknowledged), so the error is reported instead, and
     /// the next operation reconnects.
     func perform<T>(_ endpoint: RemoteEndpoint, _ body: (any RemoteFileSystem) async throws -> T) async throws -> T {
+        let generation = generations[endpoint, default: 0]
         let system = try await fileSystem(for: endpoint)
         do {
             return try await body(system)
         } catch {
-            if !(await system.isConnected) { drop(endpoint) }
+            let live = await system.isConnected
+            try checkGeneration(generation, for: endpoint)
+            if !live { drop(endpoint, matching: system) }
             throw error
         }
     }
@@ -82,29 +117,45 @@ final class RemoteConnections {
     /// Runs a read (listing, details, download), reconnecting and trying once more if the connection had
     /// silently dropped. Only for work that changes nothing on the server.
     func read<T>(_ endpoint: RemoteEndpoint, _ body: (any RemoteFileSystem) async throws -> T) async throws -> T {
+        let generation = generations[endpoint, default: 0]
         let system = try await fileSystem(for: endpoint)
         do {
             return try await body(system)
         } catch {
-            guard !(await system.isConnected) else { throw error }
-            drop(endpoint)
+            let live = await system.isConnected
+            try checkGeneration(generation, for: endpoint)
+            guard !live else { throw error }
+            drop(endpoint, matching: system)
             return try await body(try await fileSystem(for: endpoint))
         }
     }
 
     func disconnect(_ endpoint: RemoteEndpoint) async {
         let system = systems[endpoint]
+        invalidate(endpoint)
         drop(endpoint)
         await system?.close()
     }
 
     /// Uses an already-connected file system for `endpoint` (tests and stand-ins).
     func install(_ system: any RemoteFileSystem, for endpoint: RemoteEndpoint) {
+        invalidate(endpoint)
         systems[endpoint] = system
         connected.insert(endpoint)
     }
 
-    private func drop(_ endpoint: RemoteEndpoint) {
+    private func invalidate(_ endpoint: RemoteEndpoint) {
+        generations[endpoint, default: 0] += 1
+        pending.removeValue(forKey: endpoint)?.task.cancel()
+    }
+
+    private func checkGeneration(_ generation: Int, for endpoint: RemoteEndpoint) throws {
+        try Task.checkCancellation()
+        guard generations[endpoint, default: 0] == generation else { throw CancellationError() }
+    }
+
+    private func drop(_ endpoint: RemoteEndpoint, matching system: (any RemoteFileSystem)? = nil) {
+        if let system, systems[endpoint] !== system { return }
         systems[endpoint] = nil
         connected.remove(endpoint)
     }

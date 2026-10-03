@@ -10,6 +10,7 @@ struct RemoteTransfers {
 
     private struct Job {
         let source: URL
+        let sourceEntry: RemoteEntry?
         var destination: URL
         var replace = false
     }
@@ -42,18 +43,30 @@ struct RemoteTransfers {
     private func plan(_ kind: FileTransfer.Kind, _ sources: [URL], into directory: URL) async throws -> [Job] {
         let resolver = conflicts(kind, directory)
         var jobs: [Job] = []
+        var listings: [URL: [String: RemoteEntry]] = [:]
         for source in sources {
             let name = Self.name(of: source)
             let sameFolder = Self.parent(of: source) == directory
             if sameFolder && kind == .move { continue }
             let serverMove = kind == .move && source.isRemote && source.remoteEndpoint == directory.remoteEndpoint
-            if !serverMove, try await isDirectoryLink(source) {
-                if kind == .move {
-                    throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", name))
+            var entry: RemoteEntry?
+            if !serverMove {
+                let directoryLink: Bool
+                if source.isRemote {
+                    let metadata = try await sourceEntry(source, listings: &listings)
+                    entry = metadata
+                    directoryLink = metadata.isSymlink && metadata.isDirectory
+                } else {
+                    directoryLink = try isDirectoryLink(source)
                 }
-                continue
+                if directoryLink {
+                    if kind == .move {
+                        throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", name))
+                    }
+                    continue
+                }
             }
-            var job = Job(source: source, destination: Self.child(directory, name))
+            var job = Job(source: source, sourceEntry: entry, destination: Self.child(directory, name))
             if sameFolder {
                 job.destination = try await uniqueURL(named: name, in: directory, copySuffix: true)
             } else if try await exists(job.destination) {
@@ -85,7 +98,7 @@ struct RemoteTransfers {
         var result = TransferResult()
         do {
             var total: Int64 = 0
-            for job in jobs where !isServerMove(kind, job) { total += try await size(of: job.source) }
+            for job in jobs where !isServerMove(kind, job) { total += try await size(of: job) }
             transfer.totalBytes = total
             let counter = ByteCounter(progress: progress)
             for job in jobs {
@@ -99,7 +112,7 @@ struct RemoteTransfers {
                     // leaves no partial item, and a replaced item is only removed once the new one is in place.
                     let staging = Self.stagingURL(for: job.destination)
                     do {
-                        try await copy(job.source, to: staging, counter: counter, moving: kind == .move)
+                        try await copy(job, to: staging, counter: counter, moving: kind == .move)
                         try await commit(staging, to: job.destination, replacing: job.replace, isStaging: true)
                     } catch {
                         await discard(staging)
@@ -153,17 +166,18 @@ struct RemoteTransfers {
 
     // MARK: Copying
 
-    private func copy(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
+    private func copy(_ job: Job, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
+        let source = job.source
         switch (source.isRemote, destination.isRemote) {
         case (false, true): try await upload(source, to: destination, counter: counter, moving: moving)
-        case (true, false): try await download(source, to: destination, counter: counter, moving: moving)
+        case (true, false): try await download(job, to: destination, counter: counter, moving: moving)
         case (true, true):
             // Between servers, or a copy on one server: SFTP has no server-side copy, so go through a temporary folder.
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Foldera-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: staging) }
             let local = staging.appendingPathComponent(Self.name(of: source))
-            try await download(source, to: local, counter: ByteCounter(progress: TransferProgress()), moving: moving)
+            try await download(job, to: local, counter: ByteCounter(progress: TransferProgress()), moving: moving)
             try await upload(local, to: destination, counter: counter, moving: moving)
         case (false, false):
             try CopyEngine.copy(source, to: destination, progress: counter.progress, baseBytes: counter.total)
@@ -190,10 +204,10 @@ struct RemoteTransfers {
         }
     }
 
-    private func download(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
-        let endpoint = try Self.endpoint(source)
-        guard let entry = try await connections.read(endpoint, { try await $0.unfollowedEntry(at: source.remotePath) }) else {
-            throw RemoteError.notFound(Self.name(of: source))
+    private func download(_ job: Job, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
+        let endpoint = try Self.endpoint(job.source)
+        guard let entry = job.sourceEntry else {
+            throw RemoteError.notFound(Self.name(of: job.source))
         }
         try await download(entry, from: endpoint, to: destination, counter: counter, moving: moving)
     }
@@ -218,13 +232,25 @@ struct RemoteTransfers {
 
     // MARK: Local and remote helpers
 
-    private func isDirectoryLink(_ url: URL) async throws -> Bool {
-        if url.isRemote {
-            guard let entry = try await connections.read(try Self.endpoint(url), { try await $0.unfollowedEntry(at: url.remotePath) }) else {
-                throw RemoteError.notFound(Self.name(of: url))
+    /// One parent snapshot per server and folder, shared by planning, sizing and the initial download.
+    private func sourceEntry(_ url: URL, listings: inout [URL: [String: RemoteEntry]]) async throws -> RemoteEntry {
+        let endpoint = try Self.endpoint(url)
+        let entry: RemoteEntry?
+        if url.remotePath == "/" {
+            entry = try await connections.read(endpoint) { try await $0.entry(at: "/") }
+        } else {
+            let parent = Self.parent(of: url)
+            if listings[parent] == nil {
+                let children = try await connections.read(endpoint) { try await $0.list(parent.remotePath) }
+                listings[parent] = Dictionary(children.map { ($0.path, $0) }, uniquingKeysWith: { _, last in last })
             }
-            return entry.isSymlink && entry.isDirectory
+            entry = listings[parent]?[url.remotePath]
         }
+        guard let entry else { throw RemoteError.notFound(Self.name(of: url)) }
+        return entry
+    }
+
+    private func isDirectoryLink(_ url: URL) throws -> Bool {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         return values.isSymbolicLink == true && (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
     }
@@ -234,12 +260,10 @@ struct RemoteTransfers {
         return try await connections.read(try Self.endpoint(url)) { try await $0.entry(at: url.remotePath) } != nil
     }
 
-    private func size(of url: URL) async throws -> Int64 {
-        guard url.isRemote else { return CopyEngine.size(of: url) }
-        return try await connections.read(try Self.endpoint(url)) { system in
-            guard let entry = try await system.unfollowedEntry(at: url.remotePath) else { return 0 }
-            return try await system.totalSize(entry)
-        }
+    private func size(of job: Job) async throws -> Int64 {
+        guard job.source.isRemote else { return CopyEngine.size(of: job.source) }
+        guard let entry = job.sourceEntry else { throw RemoteError.notFound(Self.name(of: job.source)) }
+        return try await connections.read(try Self.endpoint(job.source)) { try await $0.totalSize(entry) }
     }
 
     /// ".name.foldera-1A2B3C4D.part" beside `destination`.
