@@ -8,9 +8,10 @@ struct ExplorerWindow: View {
     @State private var diskAccess = DiskAccess.shared
     @State private var swipe = SwipeFeedback()
 
-    init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared) {
+    init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared, swipe: SwipeFeedback = SwipeFeedback()) {
         _model = State(initialValue: model)
         _settings = State(initialValue: settings)
+        _swipe = State(initialValue: swipe)
     }
 
     var body: some View {
@@ -41,7 +42,6 @@ struct ExplorerWindow: View {
                 filePanes
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
-                    .overlay { SwipeArrowOverlay(feedback: swipe).clipped() }
                 if settings.sidePane == .details {
                     DetailsPane(tab: tab)
                         .frame(minWidth: 240, idealWidth: 320, maxWidth: 700)
@@ -169,6 +169,12 @@ struct ExplorerWindow: View {
                     .padding(.top, 48)
                     .padding(.horizontal, 24)
                     .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            // Back/forward navigate the active pane, so its arrow appears there rather than across both panes.
+            if tab === model.activeTab {
+                SwipeArrowOverlay(feedback: swipe).clipped()
             }
         }
     }

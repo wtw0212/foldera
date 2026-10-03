@@ -158,4 +158,34 @@ struct HostedViewTests {
         try await eventually { !feedback.isActive }
         #expect(feedback.progress == 0)
     }
+
+    @Test func dualPaneSwipeArrowAppearsOnlyInTheActivePane() async throws {
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let settings = AppSettings(defaults: preferences.defaults)
+        settings.showNavigationPane = false
+        let model = ExplorerWindowModel(url: directory.url, settings: settings), swipe = SwipeFeedback()
+        model.toggleDualPane()
+        model.focusedPane = .secondary
+        let host = TestHost(ExplorerWindow(model: model, settings: settings, swipe: swipe))
+        try await eventually { host.descendants(NSSplitView.self).count >= 2 }
+        try await Task.sleep(for: .milliseconds(200))
+        func halves() throws -> (left: Data, right: Data) {
+            host.view.layoutSubtreeIfNeeded()
+            let bounds = host.view.bounds
+            func capture(_ rect: NSRect) throws -> Data {
+                let image = try #require(host.view.bitmapImageRepForCachingDisplay(in: rect))
+                host.view.cacheDisplay(in: rect, to: image)
+                return try #require(image.tiffRepresentation)
+            }
+            return (try capture(NSRect(x: 0, y: 0, width: bounds.midX - 2, height: bounds.height)),
+                    try capture(NSRect(x: bounds.midX + 2, y: 0, width: bounds.midX - 2, height: bounds.height)))
+        }
+        let idle = try halves()
+        // Back draws at the pane's left edge; across the whole window it would land in the left pane.
+        swipe.update(.back, progress: 1)
+        try await Task.sleep(for: .milliseconds(200))
+        let swiping = try halves()
+        #expect(swiping.left == idle.left)
+        #expect(swiping.right != idle.right)
+    }
 }
