@@ -345,3 +345,6 @@
 "If you quit now, these changes stay only in Foldera’s temporary copies and won’t reach the server." = "如果現在結束，這些變更只會留在 Foldera 的暫存副本中，不會傳到伺服器。";
 "Don’t Quit" = "不要結束";
 "Quit Anyway" = "仍要結束";
+"Play video" = "播放影片";
+"Pause video" = "暫停影片";
+"Timeline" = "時間軸";

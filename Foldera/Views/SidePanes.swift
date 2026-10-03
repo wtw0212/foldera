@@ -75,6 +75,11 @@ private struct ItemDetails: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: 120)
+            } else if FileKind.of(item.url, type: item.contentType) == .video {
+                VideoPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
+                    .id(item.url)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 286)
             } else {
                 QuickLookPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
                     .id(item.url)
