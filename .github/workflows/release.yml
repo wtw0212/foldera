@@ -7,9 +7,6 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/make-dmg.sh
-      - scripts/test.sh
-      - scripts/ci-report.py
-      - scripts/tests/**
       - project.yml
   workflow_dispatch:
 
@@ -57,19 +54,17 @@ jobs:
             exit 1
           fi
 
-      - name: Generate project and run tests
-        env:
-          # CI gates coverage; a release only needs every test to pass.
-          MINIMUM_APP_COVERAGE: "0"
-        run: bash scripts/test.sh unit
-
-      - name: Save test results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Restore compiled packages
+        # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
+        # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          name: release-test-results
-          path: build.noindex/test-results/unit
-          retention-days: 7
+          path: |
+            build.noindex/release
+            !build.noindex/release/Logs
+            !build.noindex/release/Index.noindex
+          key: deriveddata-release-macos-26-xcode26.6-${{ hashFiles('project.yml') }}
+          restore-keys: deriveddata-release-macos-26-xcode26.6-
 
       - name: Build DMG
         env:
@@ -104,10 +99,33 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  # The tagged commit has already been tested by CI (on main), so the release doesn't test it again: it
+  # waits for that run while the DMG builds, and publishes only if it passed.
+  ci:
+    name: CI passed for this commit
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for CI on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --event push \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -z "$run" ]]; then
+            echo "CI hasn't run for $GITHUB_SHA. Tag a commit on main after its CI run has started." >&2
+            exit 1
+          fi
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status > /dev/null
+          echo "CI run $run passed."
+
   publish:
     name: Publish GitHub release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

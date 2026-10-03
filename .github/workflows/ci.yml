@@ -44,9 +44,9 @@ jobs:
       - name: Test CI tooling and packaging input validation
         run: python3 -m unittest discover -s scripts/tests -v
 
+  # The macOS jobs don't wait for validate: they take longest, and "CI passed" still requires all three.
   tests:
     name: Tests (${{ matrix.name }})
-    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +67,18 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Restore compiled packages
+        # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
+        # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build.noindex/tests/DerivedData
+            !build.noindex/tests/DerivedData/Logs
+            !build.noindex/tests/DerivedData/Index.noindex
+          key: deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ hashFiles('project.yml') }}
+          restore-keys: deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-
+
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
 
@@ -81,7 +93,6 @@ jobs:
 
   ui:
     name: UI smoke tests
-    needs: validate
     runs-on: macos-26
     timeout-minutes: 15
     env:
@@ -94,6 +105,18 @@ jobs:
 
       - name: Install XcodeGen
         run: brew install xcodegen
+
+      - name: Restore compiled packages
+        # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
+        # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build.noindex/tests/DerivedData
+            !build.noindex/tests/DerivedData/Logs
+            !build.noindex/tests/DerivedData/Index.noindex
+          key: deriveddata-ui-macos-26-xcode26.6-${{ hashFiles('project.yml') }}
+          restore-keys: deriveddata-ui-macos-26-xcode26.6-
 
       - name: Run native UI tests
         run: bash scripts/test.sh ui
