@@ -7,6 +7,9 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/make-dmg.sh
+      - scripts/test.sh
+      - scripts/ci-report.py
+      - scripts/tests/**
       - project.yml
   workflow_dispatch:
 
@@ -20,10 +23,10 @@ concurrency:
 jobs:
   build:
     name: Test and package
-    runs-on: macos-15-intel
+    runs-on: macos-26
     timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,33 +58,36 @@ jobs:
           fi
 
       - name: Generate project and run tests
-        run: |
-          xcodegen generate --quiet
-          mkdir -p build.noindex
-          # Not -quiet: Swift Testing failures only appear in the full output. Show the
-          # interesting lines here; the full log and result bundle are uploaded on failure.
-          xcodebuild -project Foldera.xcodeproj -scheme Foldera \
-            -destination 'platform=macOS' -derivedDataPath build.noindex/tests \
-            -resultBundlePath build.noindex/TestResults.xcresult \
-            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test > build.noindex/test.log 2>&1 || true
-          grep -E '✘|✔ Test run|recorded an issue|Expectation failed|error:|\*\* TEST' build.noindex/test.log || true
-          grep -q '\*\* TEST SUCCEEDED \*\*' build.noindex/test.log
+        env:
+          # CI gates coverage; a release only needs every test to pass.
+          MINIMUM_APP_COVERAGE: "0"
+        run: bash scripts/test.sh unit
 
       - name: Save test results
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: test-results
-          path: |
-            build.noindex/test.log
-            build.noindex/TestResults.xcresult
+          name: release-test-results
+          path: build.noindex/test-results/unit
           retention-days: 7
 
-      - name: Build universal DMG
+      - name: Build DMG
         env:
           SIGN_IDENTITY: "-"
           BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/make-dmg.sh
+
+      - name: Verify Apple Silicon app and DMG
+        run: |
+          app=build.noindex/release/Build/Products/Release/Foldera.app
+          test "$(lipo -archs "$app/Contents/MacOS/Foldera")" = arm64
+          [[ " $(lipo -archs "$app/Contents/MacOS/7zz") " == *" arm64 "* ]]
+          codesign --verify --deep --strict "$app"
+          test -f "$app/Contents/Resources/7-Zip-License.txt"
+          for language in en zh-Hant; do
+            test -f "$app/Contents/Resources/$language.lproj/Localizable.strings"
+          done
+          hdiutil verify dist/Foldera-*.dmg
 
       - name: Create checksum
         working-directory: dist
@@ -123,4 +129,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Foldera $GITHUB_REF_NAME" \
-            --notes "Universal DMG for Apple Silicon and Intel Macs running macOS 15 or later. This build is ad-hoc signed and is not notarized by Apple."
+            --notes "DMG for Apple Silicon Macs running macOS 26 or later. This build is ad-hoc signed and is not notarized by Apple."

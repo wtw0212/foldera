@@ -12,6 +12,11 @@ struct WelcomeView: View {
 
     private let pageCount = 3
 
+    init(page: Int = 0, onFinish: @escaping () -> Void) {
+        _page = State(initialValue: page)
+        self.onFinish = onFinish
+    }
+
     /// Set once the user has finished or skipped the introduction.
     static let seenKey = "hasSeenWelcome"
     static var hasBeenSeen: Bool { UserDefaults.standard.bool(forKey: seenKey) }

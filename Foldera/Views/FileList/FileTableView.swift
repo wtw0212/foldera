@@ -24,11 +24,11 @@ protocol FileViewCommands: AnyObject {
 /// Keyboard shortcuts and Edit-menu validation shared by the list and icon views.
 enum FileKeys {
     /// Handles Explorer-style keys; returns false to let the view handle the event.
-    static func handle(_ event: NSEvent, _ commands: FileViewCommands) -> Bool {
+    static func handle(_ event: NSEvent, _ commands: FileViewCommands, settings: AppSettings = .shared) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         switch (event.keyCode, flags) {
         case (36, []), (76, []): // Return / Enter opens like Explorer, or renames like Finder (Settings)
-            if AppSettings.shared.returnKeyRenames { commands.beginRename() } else { commands.openSelection() }
+            if settings.returnKeyRenames { commands.beginRename() } else { commands.openSelection() }
         case (125, .command): commands.openSelection() // ⌘↓
         case (126, .command): commands.goUp() // ⌘↑
         case (120, []): commands.beginRename() // F2

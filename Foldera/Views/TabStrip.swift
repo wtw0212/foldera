@@ -44,6 +44,7 @@ struct TabStrip: View {
             .padding(.leading, 4)
             .padding(.bottom, 2)
             .help(L10n.text("Open new tab (⌘T)"))
+            .accessibilityIdentifier("new-tab")
 
             WindowDragArea()
         }
@@ -66,6 +67,7 @@ private struct TabItem: View {
                 .resizable()
                 .frame(width: 16, height: 16)
             Text(tab.title)
+                .accessibilityIdentifier("tab-title")
                 .font(Theme.font)
                 .foregroundStyle(Theme.text.swiftUI)
                 .lineLimit(1)
@@ -79,6 +81,7 @@ private struct TabItem: View {
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
             .opacity(isActive || isHovered ? 1 : 0)
             .help(L10n.text("Close tab (⌘W)"))
+            .accessibilityIdentifier("close-tab")
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)

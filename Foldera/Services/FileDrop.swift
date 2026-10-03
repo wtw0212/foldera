@@ -7,14 +7,14 @@ enum FileDrop {
         pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
     }
 
-    static func operation(for urls: [URL], into directory: URL) -> FileTransfer.Kind? {
+    static func operation(for urls: [URL], into directory: URL, modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> FileTransfer.Kind? {
         let directory = directory.normalizedFileURL
         guard !urls.isEmpty else { return nil }
         // Can't drop a folder into itself or its own subfolder.
         if urls.contains(where: { directory.path == $0.normalizedFileURL.path || directory.path.hasPrefix($0.normalizedFileURL.path + "/") }) {
             return nil
         }
-        let flags = NSEvent.modifierFlags
+        let flags = modifiers
         if flags.contains(.option) { return .copy }
         let kind: FileTransfer.Kind = flags.contains(.command) || sameVolume(urls[0], directory) ? .move : .copy
         // Moving items onto the folder they're already in does nothing.

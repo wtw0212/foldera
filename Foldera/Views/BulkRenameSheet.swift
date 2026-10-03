@@ -8,6 +8,12 @@ struct BulkRenameSheet: View {
     @State private var rule = BulkRenameRule()
     @Environment(\.dismiss) private var dismiss
 
+    init(items: [FileItem], rule: BulkRenameRule = BulkRenameRule(), onDone: @escaping ([URL]) -> Void) {
+        self.items = items
+        self.onDone = onDone
+        _rule = State(initialValue: rule)
+    }
+
     private var renameItems: [BulkRename.Item] {
         items.map { BulkRename.Item(url: $0.url, date: $0.dateModified) }
     }

@@ -2,7 +2,7 @@ import AppKit
 
 /// Right-click menus for the file list.
 enum ContextMenus {
-    static func itemMenu(tab: BrowserTab, openInNewTab: @escaping (URL) -> Void) -> NSMenu {
+    static func itemMenu(tab: BrowserTab, quickAccess: QuickAccess = .shared, openInNewTab: @escaping (URL) -> Void) -> NSMenu {
         let menu = NSMenu()
         let items = tab.selectedItems
         let single = items.count == 1 ? items.first : nil
@@ -45,7 +45,6 @@ enum ContextMenus {
         menu.addSeparator()
         let folders = items.filter(\.isNavigable)
         if !folders.isEmpty {
-            let quickAccess = QuickAccess.shared
             if folders.allSatisfy({ quickAccess.isPinned($0.url) }) {
                 menu.add(L10n.text("Unpin from Quick access"), symbol: "pin.slash") { folders.forEach { quickAccess.unpin($0.url) } }
             } else {
@@ -59,9 +58,8 @@ enum ContextMenus {
         return menu
     }
 
-    static func backgroundMenu(tab: BrowserTab) -> NSMenu {
+    static func backgroundMenu(tab: BrowserTab, quickAccess: QuickAccess = .shared, settings: AppSettings = .shared) -> NSMenu {
         let menu = NSMenu()
-        let settings = AppSettings.shared
 
         let sortItem = NSMenuItem(title: L10n.text("Sort by"), action: nil, keyEquivalent: "")
         sortItem.image = NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: nil)
@@ -87,7 +85,6 @@ enum ContextMenus {
         newItem.submenu = newMenu
         menu.addItem(newItem)
         menu.addSeparator()
-        let quickAccess = QuickAccess.shared
         if quickAccess.isPinned(tab.url) {
             menu.add(L10n.text("Unpin from Quick access"), symbol: "pin.slash") { quickAccess.unpin(tab.url) }
         } else {

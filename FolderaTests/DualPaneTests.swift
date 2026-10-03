@@ -4,15 +4,10 @@ import Testing
 
 @MainActor
 struct DualPaneTests {
-    private func waitUntilLoaded(_ tab: BrowserTab) async {
-        for _ in 0..<100 where tab.isLoading || tab.items.isEmpty {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
     @Test func f5CopiesSelectionIntoOtherPane() async throws {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("FolderaDual-\(UUID().uuidString)")
+        let directory = try TestDirectory()
+        let root = directory.url
         try fm.createDirectory(at: root.appendingPathComponent("target"), withIntermediateDirectories: true)
         try Data("x".utf8).write(to: root.appendingPathComponent("note.txt"))
 
@@ -23,15 +18,14 @@ struct DualPaneTests {
         secondary.navigate(to: root.appendingPathComponent("target"))
 
         let primary = model.primaryTab
-        await waitUntilLoaded(primary)
+        try await eventually { !primary.isLoading }
+        try #require(primary.loadError == nil)
         primary.selection = [root.appendingPathComponent("note.txt").normalizedFileURL]
         #expect(model.activeTab === primary)
         #expect(model.otherTab === secondary)
 
         model.transferToOtherPane(.copy)
-        for _ in 0..<100 where !fm.fileExists(atPath: root.appendingPathComponent("target/note.txt").path) {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
+        try await eventually { fm.fileExists(atPath: root.appendingPathComponent("target/note.txt").path) }
         #expect(fm.fileExists(atPath: root.appendingPathComponent("target/note.txt").path))
         #expect(fm.fileExists(atPath: root.appendingPathComponent("note.txt").path))
     }

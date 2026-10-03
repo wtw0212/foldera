@@ -135,7 +135,12 @@ nonisolated enum Archives {
                 try run(sevenZip, ["a", "-t7z", "-mx=5", "-y", "-bso0", "-bsp0", "-xr!.DS_Store", "--", archive.path] + items.map(\.path))
             case .zip where items.count == 1:
                 // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does.
-                try run(URL(fileURLWithPath: "/usr/bin/ditto"), ["-c", "-k", "--sequesterRsrc", "--keepParent", first.path, archive.path])
+                // For a file, --keepParent includes its containing directory instead of just the file.
+                var arguments = ["-c", "-k", "--sequesterRsrc"]
+                if try first.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                    arguments.append("--keepParent")
+                }
+                try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [first.path, archive.path])
             case .zip where sameParent:
                 try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y", "-q", archive.path] + items.map(\.lastPathComponent) + ["-x", "*.DS_Store"], in: parent)
             case .zip:

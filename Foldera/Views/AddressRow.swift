@@ -8,15 +8,18 @@ struct AddressRow: View {
     var body: some View {
         HStack(spacing: 4) {
             IconButton(symbol: "arrow_left_regular", help: L10n.text("Back (⌘[)")) { tab.goBack() }
+                .accessibilityIdentifier("navigate-back")
                 .disabled(!tab.canGoBack)
                 .contextMenu { historyMenu(tab.backHistory, back: true) }
             IconButton(symbol: "arrow_right_regular", help: L10n.text("Forward (⌘])")) { tab.goForward() }
+                .accessibilityIdentifier("navigate-forward")
                 .disabled(!tab.canGoForward)
                 .contextMenu { historyMenu(tab.forwardHistory, back: false) }
             IconButton(symbol: "arrow_up_regular", help: L10n.format("Up to “%@” (⌘↑)", BrowserTab.pathName(of: tab.parentURL ?? tab.url))) {
                 tab.goUp()
             }
             .disabled(!tab.canGoUp)
+            .accessibilityIdentifier("navigate-up")
             IconButton(symbol: "arrow_clockwise_regular", help: L10n.text("Refresh (⌘R)")) { tab.reload() }
                 .padding(.trailing, 4)
 
@@ -49,6 +52,7 @@ private struct AddressBar: View {
         ZStack(alignment: .leading) {
             if model.isEditingAddress {
                 TextField("", text: $text)
+                    .accessibilityIdentifier("address-field")
                     .textFieldStyle(.plain)
                     .font(Theme.font)
                     .focused($isFocused)
@@ -285,6 +289,7 @@ private struct SearchBox: View {
     var body: some View {
         HStack(spacing: 6) {
             TextField(L10n.format("Search %@", tab.title), text: $tab.searchText)
+                .accessibilityIdentifier("search-field")
                 .textFieldStyle(.plain)
                 .font(Theme.font)
                 .focused($isFocused)

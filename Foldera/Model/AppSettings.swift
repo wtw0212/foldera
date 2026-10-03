@@ -86,7 +86,7 @@ final class AppSettings {
 
     var rowHeight: CGFloat { compactView ? 22 : 30 }
 
-    @ObservationIgnored private let defaults = UserDefaults.standard
+    @ObservationIgnored let defaults: UserDefaults
 
     private enum Key {
         static let showHiddenFiles = "showHiddenFiles"
@@ -100,8 +100,9 @@ final class AppSettings {
         static let terminalApp = "terminalApp"
     }
 
-    private init() {
-        language = .saved
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        language = AppLanguage.saved(in: defaults)
         theme = defaults.string(forKey: Key.theme).flatMap { AppTheme(rawValue: $0.lowercased()) } ?? .system
         defaults.register(defaults: [
             Key.showHiddenFiles: false,

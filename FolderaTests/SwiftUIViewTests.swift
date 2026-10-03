@@ -1,0 +1,167 @@
+import AppKit
+import SwiftUI
+import Testing
+import ViewInspector
+@testable import Foldera
+
+/// Verify the view output and control bindings, in addition to the native UI smoke tests.
+@MainActor
+struct SwiftUIViewTests {
+    private func texts<V: View>(_ view: V) throws -> [String] {
+        try view.inspect().findAll(ViewType.Text.self).map { try $0.string() }
+    }
+
+    @Test func generalSettingsExposeLanguagesLocationsAndPersistSelection() throws {
+        let preferences = try TestPreferences()
+        let settings = AppSettings(defaults: preferences.defaults)
+        let view = GeneralSettings(settings: settings)
+        let labels = try texts(view)
+        for language in AppLanguage.allCases { #expect(labels.contains(language.title)) }
+        for location in StartLocation.allCases { #expect(labels.contains(location.title)) }
+        let pickers = try view.inspect().findAll(ViewType.Picker.self)
+        #expect(pickers.count == 4)
+        try pickers[0].select(value: AppLanguage.traditionalChinese)
+        try pickers[1].select(value: StartLocation.downloads)
+        try pickers[2].select(value: true)
+        #expect(settings.language == .traditionalChinese && settings.startLocation == .downloads)
+        #expect(settings.returnKeyRenames && preferences.defaults.bool(forKey: "returnKeyRenames"))
+    }
+
+    @Test func viewSettingsPersistAllFourDisplayToggles() throws {
+        let preferences = try TestPreferences()
+        let settings = AppSettings(defaults: preferences.defaults)
+        let view = ViewSettings(settings: settings)
+        let toggles = try view.inspect().findAll(ViewType.Toggle.self)
+        #expect(toggles.count == 4)
+        for toggle in toggles { try toggle.tap() }
+        #expect(settings.showHiddenFiles && !settings.showExtensions && settings.compactView && !settings.showNavigationPane)
+        #expect(settings.rowHeight == 22)
+        #expect(try texts(view).contains(L10n.text("Reset All Folders")))
+    }
+
+    @Test func cloudSettingsShowAnEmptyStateAndRemoveOnlyTheChosenCustomFolder() throws {
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let storage = try directory.folder("providers"), folder = try directory.folder("custom")
+        let cloud = CloudDrives(defaults: preferences.defaults, storageFolder: storage)
+        #expect(try texts(CloudSettings(cloud: cloud)).contains(L10n.text("None found")))
+        cloud.add(folder)
+        let view = CloudSettings(cloud: cloud)
+        #expect(try texts(view).contains("custom"))
+        try view.inspect().find(button: L10n.text("Remove")).tap()
+        #expect(!cloud.isAdded(folder) && cloud.locations.isEmpty)
+        #expect(try view.inspect().findAll(ViewType.Button.self).count >= 4)
+    }
+
+    @Test func settingsContainsFourSectionsIncludingPermissionGuidance() throws {
+        let labels = try texts(SettingsView())
+        #expect(labels.contains(L10n.text("F2 always renames. ⌘↓ always opens.")))
+        #expect(labels.contains(L10n.text("Show hidden items")))
+        #expect(labels.contains(L10n.text("With Full Disk Access, macOS stops asking for permission folder by folder.")))
+    }
+
+    @Test func welcomePagesShowTheTourAndFinishCallback() throws {
+        #expect(try texts(WelcomeView {}).contains(L10n.text("Welcome to Foldera")))
+        let tour = try texts(WelcomeView(page: 1) {})
+        for title in ["A quick tour", "Tabs and dual pane", "Address bar", "Archives", "Bulk rename", "This Mac and cloud drives"] {
+            #expect(tour.contains(L10n.text(title)))
+        }
+        var finished = false
+        let last = WelcomeView(page: 2) { finished = true }
+        #expect(try texts(last).contains(L10n.text("Full Disk Access")))
+        try last.inspect().find(button: L10n.text("Get Started")).tap()
+        #expect(finished && WelcomeView.hasBeenSeen)
+        finished = false
+        try WelcomeView { finished = true }.inspect().find(button: L10n.text("Skip")).tap()
+        #expect(finished)
+    }
+
+    @Test func bulkRenamePreviewsEveryRuleAndRejectsInvalidNames() throws {
+        let directory = try TestDirectory()
+        let urls = [try directory.file("one.txt"), try directory.file("two.txt")]
+        for url in urls {
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: url.path)
+        }
+        let items = urls.map(FileItem.init(url:))
+        for mode in BulkRenameRule.Mode.allCases {
+            var rule = BulkRenameRule()
+            rule.mode = mode
+            rule.find = "one"
+            rule.replaceWith = "first"
+            rule.addText = "prefix-"
+            rule.customFormat = "Report"
+            for style in BulkRenameRule.FormatStyle.allCases {
+                rule.formatStyle = style
+                let view = BulkRenameSheet(items: items, rule: rule) { _ in }
+                let labels = try texts(view)
+                for name in BulkRename.newNames(for: items.map { .init(url: $0.url, date: $0.dateModified) }, rule: rule) {
+                    #expect(labels.contains(name))
+                }
+                // Equal modification dates produce a duplicate date-format name; the sheet must block it.
+                #expect(try view.inspect().find(button: L10n.text("Rename")).isDisabled() == (mode == .format && style == .date))
+            }
+        }
+        var invalid = BulkRenameRule()
+        invalid.mode = .format
+        invalid.customFormat = "bad/name"
+        #expect(try BulkRenameSheet(items: items, rule: invalid) { _ in }.inspect().find(button: L10n.text("Rename")).isDisabled())
+        #expect(try BulkRenameSheet(items: items) { _ in }.inspect().find(button: L10n.text("Rename")).isDisabled())
+    }
+
+    @Test func bulkRenameButtonChangesFilesAndReportsTheActualDestinations() throws {
+        let directory = try TestDirectory()
+        let original = try directory.file("before.txt", contents: "preserved")
+        var rule = BulkRenameRule()
+        rule.find = "before"
+        rule.replaceWith = "after"
+        var destinations: [URL] = []
+        let view = BulkRenameSheet(items: [FileItem(url: original)], rule: rule) { destinations = $0 }
+        try view.inspect().find(button: L10n.text("Rename")).tap()
+        #expect(destinations.map(\.lastPathComponent) == ["after.txt"])
+        #expect(try String(contentsOf: directory.path("after.txt"), encoding: .utf8) == "preserved")
+        #expect(!FileOperations.exists(original))
+    }
+
+    @Test func detailsPaneDescribesEmptySingleFolderAndMultipleFileSelections() async throws {
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let file = try directory.file("note.txt", contents: "hi"), folder = try directory.folder("nested")
+        let tab = BrowserTab(url: directory.url, settings: AppSettings(defaults: preferences.defaults))
+        try await eventually { !tab.isLoading }
+        #expect(try texts(DetailsPane(tab: tab)).contains(L10n.text("Items")))
+        tab.selection = [folder]
+        #expect(try texts(DetailsPane(tab: tab)).contains("nested"))
+        #expect(try texts(DetailsPane(tab: tab)).contains(L10n.text("Properties")))
+        tab.selection = [file, folder]
+        #expect(try texts(DetailsPane(tab: tab)).contains(L10n.format("items.selected", 2)))
+        #expect(try texts(DetailsPane(tab: tab)).contains(L10n.text("Size")))
+        tab.selection = [file]
+        #expect(try texts(DetailsPane(tab: tab)).contains("note.txt"))
+        tab.navigate(to: BrowserTab.thisMacURL)
+        #expect(try texts(DetailsPane(tab: tab)).contains(L10n.text("Drives")))
+    }
+
+    @Test func driveTileShowsCapacityAndAccessibleFreeSpace() throws {
+        let location = Location(url: URL(fileURLWithPath: "/"), title: "Test Drive", symbol: "externaldrive", tint: .blue)
+        let loading = DriveTile(drive: location, usage: nil, isSelected: false)
+        #expect(try texts(loading).contains("Test Drive"))
+        let usage = DriveUsage(total: 100_000_000_000, available: 25_000_000_000, isNetwork: false)
+        let view = DriveTile(drive: location, usage: usage, isSelected: true)
+        let expected = L10n.format("%@ free of %@", DriveTile.format(usage.available), DriveTile.format(usage.total))
+        #expect(try texts(view).contains(expected))
+        #expect(try view.inspect().find(ViewType.HStack.self).accessibilityValue().string() == expected)
+    }
+
+    @Test func transferRowShowsProgressSpeedAndCancellationState() throws {
+        let transfer = FileTransfer(kind: .copy, itemCount: 2, source: URL(fileURLWithPath: "/tmp/source"), destination: URL(fileURLWithPath: "/tmp/destination"))
+        transfer.totalBytes = 100
+        transfer.progress.setCompleted(25)
+        transfer.progress.setCurrentName("sample.txt")
+        transfer.refresh()
+        let row = TransferRow(transfer: transfer)
+        #expect(try texts(row).contains(L10n.format("%lld%% complete", 25)))
+        #expect(try texts(row).contains(L10n.format("Name: %@", "sample.txt")))
+        try row.inspect().find(ViewType.Button.self).tap()
+        #expect(transfer.isCancelled)
+        #expect(try texts(row).contains(L10n.text("Cancelling…")))
+        #expect(try row.inspect().find(ViewType.Button.self).isDisabled())
+    }
+}

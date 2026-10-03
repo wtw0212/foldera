@@ -107,7 +107,7 @@ nonisolated struct DriveUsage: Equatable, Sendable {
     }
 }
 
-private struct DriveTile: View {
+struct DriveTile: View {
     let drive: Location
     let usage: DriveUsage?
     let isSelected: Bool
@@ -154,7 +154,7 @@ private struct DriveTile: View {
 }
 
 /// Explorer's drive bar: blue, turning red when the drive is over 90% full.
-private struct UsageBar: View {
+struct UsageBar: View {
     let fraction: Double
 
     var body: some View {
