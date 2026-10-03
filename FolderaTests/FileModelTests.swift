@@ -63,7 +63,8 @@ struct DirectoryLoadingPerformanceTests {
     @Test func typeNamesComeFromContentTypesAndAreShared() {
         #expect(TypeNames.name(of: .png) == UTType.png.localizedDescription)
         #expect(TypeNames.name(of: nil) == "File")
-        #expect(TypeNames.name(of: .pdf) == TypeNames.name(of: .pdf))
+        let first = TypeNames.name(of: .pdf), cached = TypeNames.name(of: .pdf)
+        #expect(first == UTType.pdf.localizedDescription && cached == first, "a repeated lookup returns the cached name")
     }
 
     @Test func largeFoldersLoadInParallelInTheSameOrder() async throws {
