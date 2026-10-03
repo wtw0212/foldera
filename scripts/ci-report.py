@@ -45,6 +45,15 @@ def report(summary, coverage=None, minimum=80.0):
     return "\n".join(lines) + "\n", successful
 
 
+def read_results(path, root=None):
+    """Read a JSON results file, refusing anything outside the working tree (e.g. ../ or absolute paths)."""
+    root = (root or Path.cwd()).resolve()
+    resolved = path.resolve()
+    if resolved.suffix != ".json" or not resolved.is_relative_to(root):
+        raise ValueError(f"Results must be .json files inside {root}: {path}")
+    return json.loads(resolved.read_text())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary", type=Path, required=True)
@@ -53,8 +62,11 @@ def main():
     args = parser.parse_args()
     if not 0 <= args.minimum_app_coverage < 100:
         parser.error("coverage threshold must be between 0 and 100")
-    summary = json.loads(args.summary.read_text())
-    coverage = json.loads(args.coverage.read_text()) if args.coverage else None
+    try:
+        summary = read_results(args.summary)
+        coverage = read_results(args.coverage) if args.coverage else None
+    except ValueError as error:
+        parser.error(str(error))
     markdown, successful = report(summary, coverage, args.minimum_app_coverage)
     print(markdown, end="")
     return 0 if successful else 1

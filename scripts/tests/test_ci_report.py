@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 
 spec = importlib.util.spec_from_file_location("ci_report", Path(__file__).parents[1] / "ci-report.py")
@@ -66,6 +67,18 @@ class CIReportTests(unittest.TestCase):
         summary.update(result="Failed", failedTests=1, passedTests=4,
                        testFailures=[{"testName": "navigation", "failureText": "wrong path"}])
         self.assertIn("navigation: wrong path", ci_report.report(summary)[0])
+
+    def test_results_are_read_only_from_json_files_inside_the_working_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "repo"
+            (root / "results").mkdir(parents=True)
+            (root / "results/summary.json").write_text('{"ok": true}')
+            (root / "results/summary.txt").write_text('{}')
+            (Path(temp) / "outside.json").write_text('{}')
+            self.assertEqual(ci_report.read_results(root / "results/summary.json", root), {"ok": True})
+            for path in (root / "results/../../outside.json", Path(temp) / "outside.json", root / "results/summary.txt"):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    ci_report.read_results(path, root)
 
 
 if __name__ == "__main__":

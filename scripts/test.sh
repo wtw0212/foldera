@@ -12,7 +12,7 @@ case "$SUITE" in
 esac
 
 xcodegen generate --quiet
-OUTPUT="${TEST_OUTPUT_DIR:-build.noindex/test-results}/$SUITE"
+OUTPUT="build.noindex/test-results/$SUITE"
 mkdir -p "$OUTPUT"
 RUN=$(mktemp -d "$OUTPUT/run.XXXXXX")
 RESULT="$RUN/TestResults.xcresult"
