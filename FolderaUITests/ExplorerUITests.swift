@@ -98,8 +98,8 @@ final class ExplorerUITests: XCTestCase {
     }
 
     func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
-        try withApp { app, _ in
-            app.tables["file-list"].staticTexts["note.txt"].click()
+        try withApp { app, root in
+            navigate(app, to: root.path)
             app.typeKey("=", modifierFlags: .command)
             app.typeKey("=", modifierFlags: .command)
             let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
