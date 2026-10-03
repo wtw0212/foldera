@@ -179,6 +179,15 @@ struct RecentItemsTests {
         #expect(ContextMenus.backgroundMenu(tab: tab).items.map(\.title).contains(L10n.text("Clear Recent Items")))
         tab.beginRename()
         tab.newFolder()
+        defer {
+            let source = """
+            tell application "Finder"
+                set testFile to POSIX file "\(file.path)" as alias
+                if exists information window of testFile then close information window of testFile
+            end tell
+            """
+            NSAppleScript(source: source)?.executeAndReturnError(nil)
+        }
         tab.showProperties()
         tab.openInTerminal()
         #expect(tab.renameRequest == nil && errors.errors.isEmpty)

@@ -99,8 +99,7 @@ final class ExplorerUITests: XCTestCase {
 
     func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
         try withApp { app, _ in
-            // Focus the list; clicking its centre works however narrow the CI window is.
-            app.tables["file-list"].click()
+            app.tables["file-list"].staticTexts["note.txt"].click()
             app.typeKey("=", modifierFlags: .command)
             app.typeKey("=", modifierFlags: .command)
             let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
