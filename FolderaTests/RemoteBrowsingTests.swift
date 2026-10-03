@@ -36,6 +36,32 @@ struct RemoteBrowsingTests {
         #expect(Breadcrumbs.segments(for: BrowserTab.networkURL) == [BrowserTab.networkURL])
     }
 
+    @Test func refreshedRemoteSearchAddsAndRemovesMatches() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        try directory.file("report-old.txt")
+        let tab = try await remoteTab(endpoint, directory, preferences: preferences)
+        tab.searchText = "report"
+        #expect(tab.visibleItems.map(\.name) == ["report-old.txt"])
+
+        try directory.file("report-new.txt")
+        try FileManager.default.moveItem(at: directory.path("report-old.txt"), to: directory.path("unrelated.txt"))
+        tab.reload()
+        try await eventually { !tab.isLoading }
+        #expect(tab.items.count == 2)
+        #expect(tab.visibleItems.map(\.name) == ["report-new.txt"])
+    }
+
+    @Test func remoteSearchBeforeLoadingUsesTheNewListing() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        try directory.file("report.txt")
+        let tab = BrowserTab(url: endpoint.url(path: directory.url.path), settings: AppSettings(defaults: preferences.defaults))
+        tab.searchText = "report"
+        try await eventually { !tab.isLoading }
+        #expect(tab.visibleItems.map(\.name) == ["report.txt"])
+    }
+
     @Test func missingFoldersAndCancelledSignInsShowErrors() async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
         installFakeServer(endpoint)

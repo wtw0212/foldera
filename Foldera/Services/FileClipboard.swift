@@ -53,7 +53,7 @@ final class FileClipboard {
     /// Do not clear a newer clipboard while a transfer was awaiting its worker.
     func finishMove(_ result: TransferResult, urls: [URL], changeCount: Int) {
         guard cutChangeCount == changeCount, pasteboard.changeCount == changeCount else { return }
-        let moved = Set((result.moved.map(\.from) + result.completedSources).map(\.normalizedFileURL))
+        let moved = Set((result.moved.map(\.from) + result.completedSources + result.consumedCutSources).map(\.normalizedFileURL))
         let remaining = urls.filter { !moved.contains($0.normalizedFileURL) }
         if remaining.isEmpty {
             cutURLs = []

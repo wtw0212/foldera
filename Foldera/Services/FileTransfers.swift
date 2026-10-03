@@ -62,6 +62,9 @@ nonisolated struct TransferResult: Sendable {
     /// Sources a move has finished with (server transfers, which record no undo `moved` pairs), so Cut
     /// knows what is gone.
     var completedSources: [URL] = []
+    /// Sources with an authoritative committed destination; Cut must not replay them even if their
+    /// deletion fails and leaves the source incomplete.
+    var consumedCutSources: [URL] = []
     /// Failure/cancellation can coexist with committed items above.
     var error: Error?
 }

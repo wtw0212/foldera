@@ -271,6 +271,7 @@
 "Enter the password for %@" = "輸入 %@ 的密碼";
 "Foldera couldn’t connect to %@." = "Foldera 無法連線到 %@。";
 "Foldera couldn’t read the key file “%@”." = "Foldera 無法讀取金鑰檔案「%@」。";
+"Foldera can’t move the linked folder “%@” between file systems." = "Foldera 無法在不同檔案系統之間移動連結資料夾「%@」。";
 "Foldera hasn’t connected to this server before. Its key fingerprint is:\n\n%@\n\nOnly continue if this matches the server you expect." = "Foldera 之前未曾連線到此伺服器。其金鑰指紋為：\n\n%@\n\n只有在指紋與你預期的伺服器相符時才繼續。";
 "Forget Saved Password" = "忘記已儲存的密碼";
 "Host:" = "主機：";

@@ -25,7 +25,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     }
     /// Lets `skip` calls to `operation` succeed, then drops the connection during the next one. With
     /// `applied`, the server carries it out but the reply is lost. Every later call fails until `reconnect()`.
-    func drop(_ operation: String, afterCalls skip: Int = 0, applied: Bool) { lock.withLock { drops[operation] = (skip, applied) } }
+    func simulateConnectionDrop(_ operation: String, afterCalls skip: Int = 0, applied: Bool) { lock.withLock { drops[operation] = (skip, applied) } }
     /// The next call to `operation` throws `error`.
     func fail(_ operation: String, with error: Error) { lock.withLock { failures[operation] = error } }
     /// Lets `skip` calls to `operation` succeed, then fails the next one (e.g. the second rename of a swap).

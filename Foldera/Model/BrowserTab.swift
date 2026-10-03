@@ -326,6 +326,7 @@ final class BrowserTab: Identifiable {
             items = loaded
             itemsVersion += 1
         }
+        if isRemote && isSearchActive { scheduleSearch() }
         let present = Set(loaded.map(\.url))
         let wanted = selectAfterLoad.isEmpty ? selection : selectAfterLoad
         selection = wanted.intersection(present)

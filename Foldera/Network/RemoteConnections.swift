@@ -38,14 +38,23 @@ final class RemoteConnections {
         if let attempt = pending[endpoint] { return try await attempt.value }
         let attempt = Task { try await connector(endpoint) }
         pending[endpoint] = attempt
-        defer { pending[endpoint] = nil }
-        let system = try await attempt.value
+        let system: any RemoteFileSystem
+        do {
+            defer { pending[endpoint] = nil }
+            system = try await attempt.value
+        }
         systems[endpoint] = system
         connected.insert(endpoint)
         if !settling.contains(endpoint), journal.swaps.contains(where: { $0.endpoint == endpoint }) {
             settling.insert(endpoint)
+            defer { settling.remove(endpoint) }
             await settleLeftoverSwaps(on: endpoint)
-            settling.remove(endpoint)
+            // Reconnect once with settlement still guarded: cleanup can drop the new connection too.
+            if !(await system.isConnected) { return try await fileSystem(for: endpoint) }
+        }
+        guard await system.isConnected else {
+            drop(endpoint)
+            throw RemoteError.notConnected(endpoint.displayName)
         }
         return system
     }

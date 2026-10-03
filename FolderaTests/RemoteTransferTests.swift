@@ -6,6 +6,8 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteTransferTests {
+    nonisolated enum Direction: CaseIterable, Sendable { case upload, download, betweenServers }
+
     private func transfers(choice: NSApplication.ModalResponse = .alertSecondButtonReturn, alerts: ((String) -> Void)? = nil) -> RemoteTransfers {
         var transfers = RemoteTransfers(transfers: .shared)
         transfers.conflicts = { kind, destination in
@@ -35,6 +37,69 @@ struct RemoteTransferTests {
         #expect(down.error == nil && down.results == [downloads.path("Project")])
         #expect(try String(contentsOf: downloads.path("Project/src/main.swift"), encoding: .utf8) == "print()")
         #expect(server.operations.contains("download") && server.operations.contains("upload"))
+    }
+
+    @Test(arguments: Direction.allCases)
+    func movesNeverDiscardDirectoryLinks(_ direction: Direction) async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory(), linked = try TestDirectory()
+        let errors = ErrorCollector()
+        installFakeServer(endpoint)
+        installFakeServer(other)
+        let tree = try source.folder("tree")
+        try source.file("tree/report.txt")
+        let link = source.path("tree/link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: linked.url)
+        try destination.file("tree/original.txt", contents: "original")
+        let sourceURL = direction == .upload ? tree : endpoint.url(path: tree.path)
+        let destinationURL: URL = switch direction {
+        case .upload: endpoint.url(path: destination.url.path)
+        case .download: destination.url
+        case .betweenServers: other.url(path: destination.url.path)
+        }
+        let pasteboard = NSPasteboard(name: .init("FolderaTests.\(UUID())"))
+        let clipboard = FileClipboard(pasteboard: pasteboard)
+        clipboard.cut([sourceURL])
+        let changeCount = pasteboard.changeCount
+
+        let result = await transfers(choice: .alertFirstButtonReturn).run(.move, [sourceURL], into: destinationURL)
+        clipboard.finishMove(result, urls: [sourceURL], changeCount: changeCount)
+        #expect(result.error != nil && errors.errors.count == 1)
+        #expect(result.results.isEmpty && result.completedSources.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == linked.url.path)
+        #expect(FileManager.default.fileExists(atPath: source.path("tree/report.txt").path))
+        #expect(try String(contentsOf: destination.path("tree/original.txt"), encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path) == ["tree"], "staging is removed")
+        #expect(clipboard.cutURLs == [sourceURL] && clipboard.canPaste, "a move that never committed remains on Cut")
+    }
+
+    @Test(arguments: [false, true])
+    func committedMovesCannotReplayAfterPartialSourceDeletion(betweenServers: Bool) async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        installFakeServer(other)
+        try source.file("tree/a.txt", contents: "alpha")
+        try source.file("tree/b.txt", contents: "beta")
+        let sourceURL = endpoint.url(path: source.path("tree").path)
+        let destinationURL = betweenServers ? other.url(path: destination.url.path) : destination.url
+        let committed = RemoteTransfers.child(destinationURL, "tree")
+        let pasteboard = NSPasteboard(name: .init("FolderaTests.\(UUID())"))
+        let clipboard = FileClipboard(pasteboard: pasteboard)
+        clipboard.cut([sourceURL])
+        server.fail("removeFile", with: RemoteError.failed("permission"), afterCalls: 1)
+
+        let result = await clipboard.paste(into: destinationURL)
+        #expect(result.error as? RemoteError == .failed("permission") && errors.errors.count == 1)
+        #expect(result.results == [committed] && result.completedSources.isEmpty)
+        #expect(FileChange(result, kind: .move).isEmpty, "server transfers must not be passed to local Undo")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: source.path("tree").path).count == 1)
+        #expect(try String(contentsOf: destination.path("tree/a.txt"), encoding: .utf8) == "alpha")
+        #expect(try String(contentsOf: destination.path("tree/b.txt"), encoding: .utf8) == "beta")
+        try #require(!clipboard.canPaste && clipboard.cutURLs.isEmpty, "the damaged source must not be pasted again")
+        #expect(await clipboard.paste(into: destinationURL).results.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path("tree").path).count == 2)
     }
 
     @Test func conflictsMovesAndCopiesOnOneServer() async throws {
@@ -210,14 +275,14 @@ struct RemoteTransferTests {
 
         // The final rename never happens: the original is restored over a new connection.
         let file = try local.file("data.txt", contents: "new")
-        server.drop("rename", afterCalls: 1, applied: false)
+        server.simulateConnectionDrop("rename", afterCalls: 1, applied: false)
         let failed = await transfers.run(.copy, [file], into: folder)
         #expect(failed.error != nil && errors.errors.count == 1)
         #expect(try contents() == "original")
         #expect(try leftovers() == ["data.txt"])
 
         // The final rename happens but its reply is lost: the replace is finished, not reported as failed.
-        server.drop("rename", afterCalls: 1, applied: true)
+        server.simulateConnectionDrop("rename", afterCalls: 1, applied: true)
         let lost = await transfers.run(.copy, [file], into: folder)
         #expect(lost.error == nil && errors.errors.count == 1)
         #expect(try contents() == "new")
@@ -225,7 +290,7 @@ struct RemoteTransferTests {
 
         // A move whose reply is lost still counts as moved, so Cut → Paste forgets the source.
         let source = try remote.file("other/data.txt", contents: "moved")
-        server.drop("rename", afterCalls: 1, applied: true)
+        server.simulateConnectionDrop("rename", afterCalls: 1, applied: true)
         let moved = await transfers.run(.move, [endpoint.url(path: source.path)], into: folder)
         #expect(moved.error == nil && moved.completedSources == [endpoint.url(path: source.path)])
         #expect(try contents() == "moved")
@@ -233,7 +298,7 @@ struct RemoteTransferTests {
 
         // Edits: the backup's deletion is lost, so it's settled on the next connection.
         let edit = try local.file("edit.txt", contents: "edited")
-        server.drop("removeFile", applied: false)
+        server.simulateConnectionDrop("removeFile", applied: false)
         try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
         #expect(try contents() == "edited")
         #expect(connections.journal.swaps.count == 1)
@@ -246,7 +311,7 @@ struct RemoteTransferTests {
         // original comes back once it can.
         let unreachable = RemoteConnections { _ in throw RemoteError.notConnected(endpoint.displayName) }
         unreachable.install(server, for: endpoint)
-        server.drop("rename", afterCalls: 1, applied: false)
+        server.simulateConnectionDrop("rename", afterCalls: 1, applied: false)
         await #expect(throws: RemoteError.self) { try await unreachable.upload(edit, replacing: target.path, on: endpoint) { _ in } }
         #expect(!FileManager.default.fileExists(atPath: target.path) && unreachable.journal.swaps.count == 1)
         unreachable.install(server.reconnect(), for: endpoint)

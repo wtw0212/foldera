@@ -143,6 +143,7 @@ SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote
 
 - Browse, search the current folder, rename, delete (permanently, after confirming), and create folders and text files.
 - Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
+- Copies omit directory symlinks; a move that would omit one stops before removing its source. If copying succeeds but source deletion fails, the complete destination is kept and the source is removed from Cut to prevent a destructive retry.
 - Opening a server file downloads a temporary copy into its app; each save uploads it again.
 - **Open in Terminal (SSH)** opens an `ssh` session in the current server folder.
 

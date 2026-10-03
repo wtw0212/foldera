@@ -84,23 +84,27 @@ struct RemoteTransfers {
             for job in jobs {
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
                 progress.setCurrentName(Self.name(of: job.source))
-                if isServerMove(kind, job) {
+                let serverMove = isServerMove(kind, job)
+                if serverMove {
                     try await commit(job.source, to: job.destination, replacing: job.replace, isStaging: false)
                 } else {
                     // Copy under a hidden temporary name, then swap it into place. A failed or cancelled transfer
                     // leaves no partial item, and a replaced item is only removed once the new one is in place.
                     let staging = Self.stagingURL(for: job.destination)
                     do {
-                        try await copy(job.source, to: staging, counter: counter)
+                        try await copy(job.source, to: staging, counter: counter, moving: kind == .move)
                         try await commit(staging, to: job.destination, replacing: job.replace, isStaging: true)
                     } catch {
                         await discard(staging)
                         throw error
                     }
-                    if kind == .move { try await remove(job.source) }
                 }
                 result.results.append(job.destination)
-                if kind == .move { result.completedSources.append(job.source) }
+                if kind == .move {
+                    result.consumedCutSources.append(job.source)
+                    if !serverMove { try await remove(job.source) }
+                    result.completedSources.append(job.source)
+                }
             }
         } catch {
             result.error = error
@@ -142,41 +146,44 @@ struct RemoteTransfers {
 
     // MARK: Copying
 
-    private func copy(_ source: URL, to destination: URL, counter: ByteCounter) async throws {
+    private func copy(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
         switch (source.isRemote, destination.isRemote) {
-        case (false, true): try await upload(source, to: destination, counter: counter)
-        case (true, false): try await download(source, to: destination, counter: counter)
+        case (false, true): try await upload(source, to: destination, counter: counter, moving: moving)
+        case (true, false): try await download(source, to: destination, counter: counter, moving: moving)
         case (true, true):
             // Between servers, or a copy on one server: SFTP has no server-side copy, so go through a temporary folder.
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Foldera-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: staging) }
             let local = staging.appendingPathComponent(Self.name(of: source))
-            try await download(source, to: local, counter: ByteCounter(progress: TransferProgress()))
-            try await upload(local, to: destination, counter: counter)
+            try await download(source, to: local, counter: ByteCounter(progress: TransferProgress()), moving: moving)
+            try await upload(local, to: destination, counter: counter, moving: moving)
         case (false, false):
             try CopyEngine.copy(source, to: destination, progress: counter.progress, baseBytes: counter.total)
         }
     }
 
-    private func upload(_ source: URL, to destination: URL, counter: ByteCounter) async throws {
+    private func upload(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
         let endpoint = try Self.endpoint(destination)
         let values = try source.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         if values.isSymbolicLink == true, (try? source.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            if moving {
+                throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", Self.name(of: source)))
+            }
             return // Linked folders aren't followed, so a link loop can't upload forever.
         }
         if values.isDirectory == true {
             try await connections.perform(endpoint) { try await $0.makeDirectory(destination.remotePath) }
             let children = try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             for child in children {
-                try await upload(child, to: Self.child(destination, child.lastPathComponent), counter: counter)
+                try await upload(child, to: Self.child(destination, child.lastPathComponent), counter: counter, moving: moving)
             }
         } else {
             try await connections.perform(endpoint) { try await $0.upload(source, to: destination.remotePath, written: counter.add) }
         }
     }
 
-    private func download(_ source: URL, to destination: URL, counter: ByteCounter) async throws {
+    private func download(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
         let endpoint = try Self.endpoint(source)
         guard let entry = try await connections.read(endpoint, { try await $0.entry(at: source.remotePath) }) else {
             throw RemoteError.notFound(Self.name(of: source))
@@ -184,8 +191,14 @@ struct RemoteTransfers {
         if entry.isDirectory {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
             let children = try await connections.read(endpoint) { try await $0.list(source.remotePath) }
-            for child in children where !(child.isSymlink && child.isDirectory) {
-                try await download(endpoint.url(path: child.path), to: destination.appendingPathComponent(child.name), counter: counter)
+            for child in children {
+                if child.isSymlink && child.isDirectory {
+                    if moving {
+                        throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", child.name))
+                    }
+                    continue
+                }
+                try await download(endpoint.url(path: child.path), to: destination.appendingPathComponent(child.name), counter: counter, moving: moving)
             }
         } else {
             try await connections.perform(endpoint) { try await $0.download(source.remotePath, to: destination, written: counter.add) }

@@ -271,6 +271,7 @@
 "Enter the password for %@" = "Enter the password for %@";
 "Foldera couldn’t connect to %@." = "Foldera couldn’t connect to %@.";
 "Foldera couldn’t read the key file “%@”." = "Foldera couldn’t read the key file “%@”.";
+"Foldera can’t move the linked folder “%@” between file systems." = "Foldera can’t move the linked folder “%@” between file systems.";
 "Foldera hasn’t connected to this server before. Its key fingerprint is:\n\n%@\n\nOnly continue if this matches the server you expect." = "Foldera hasn’t connected to this server before. Its key fingerprint is:\n\n%@\n\nOnly continue if this matches the server you expect.";
 "Forget Saved Password" = "Forget Saved Password";
 "Host:" = "Host:";

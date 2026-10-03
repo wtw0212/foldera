@@ -59,6 +59,31 @@ struct RemoteConnectionsTests {
         #expect(connections.connected == [endpoint])
     }
 
+    @Test func aConnectionDroppedBySwapSettlementIsReconnectedBeforeAMutation() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = try directory.file("data.txt", contents: "new")
+        let backup = try directory.file(".data.old", contents: "old")
+        let journal = SwapJournal(defaults: nil)
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        let dropped = FakeRemoteFileSystem(), replacement = FakeRemoteFileSystem()
+        dropped.simulateConnectionDrop("removeFile", applied: false)
+        var attempts = 0
+        let connections = RemoteConnections(connector: { _ in
+            attempts += 1
+            return attempts == 1 ? dropped : replacement
+        }, journal: journal)
+        var mutations = 0
+
+        try await connections.perform(endpoint) { system in
+            mutations += 1
+            try await system.createFile(directory.path("created.txt").path)
+        }
+        #expect(attempts == 2 && mutations == 1)
+        #expect(!dropped.operations.contains("createFile") && replacement.operations.contains("createFile"))
+        #expect(try await connections.fileSystem(for: endpoint) === replacement)
+        #expect(connections.connected == [endpoint] && FileManager.default.fileExists(atPath: directory.path("created.txt").path))
+    }
+
     @Test func failedSignInsAreNotCached() async throws {
         let endpoint = uniqueEndpoint()
         var attempts = 0
