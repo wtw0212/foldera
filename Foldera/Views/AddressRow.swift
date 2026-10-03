@@ -63,7 +63,7 @@ private struct AddressBar: View {
                         if !focused { cancel() }
                     }
                     .onAppear {
-                        text = tab.isThisMac ? "This Mac" : tab.url.path
+                        text = BrowserTab.editableAddress(of: tab.url)
                         // Focus once the field is in the window; setting it during onAppear can lose to
                         // the search box. Then select the whole path, like Explorer.
                         DispatchQueue.main.async {
@@ -95,7 +95,7 @@ private struct AddressBar: View {
     }
 
     /// Like Explorer's address bar: a path (absolute, ~, or relative to this folder), a web address,
-    /// or a command (see `AddressCommand`).
+    /// a server address, or a command (see `AddressCommand`).
     private func commit() {
         let input = text.trimmingCharacters(in: .whitespaces)
         model.isEditingAddress = false
@@ -104,8 +104,21 @@ private struct AddressBar: View {
             tab.navigate(to: BrowserTab.thisMacURL)
             return
         }
+        if input.lowercased() == "network" || input == L10n.text("Network") {
+            tab.navigate(to: BrowserTab.networkURL)
+            return
+        }
         if input.contains("://") || input.lowercased().hasPrefix("mailto:"), let url = URL(string: input) {
-            NSWorkspace.shared.open(url) // https://…, smb://server/share, mailto:…
+            // sftp:// opens here, smb://, afp:// and nfs:// mount; https://… and mailto: open in their apps.
+            if model.openServerAddress(input, in: tab) { return }
+            NSWorkspace.shared.open(url)
+            return
+        }
+        if let endpoint = tab.url.remoteEndpoint {
+            // On a server, paths are the server's: absolute, or relative to this folder.
+            let path = input.hasPrefix("/") ? input : RemotePath.join(tab.url.remotePath, input)
+            tab.navigate(to: endpoint.url(path: path))
+            tab.requestListFocus()
             return
         }
         let expanded = (input as NSString).expandingTildeInPath
@@ -146,7 +159,7 @@ private struct AddressBar: View {
     }
 }
 
-private struct Breadcrumbs: View {
+struct Breadcrumbs: View {
     let model: ExplorerWindowModel
     let tab: BrowserTab
 
@@ -176,7 +189,16 @@ private struct Breadcrumbs: View {
 
     /// The location's folders from This Mac down, e.g. This Mac › Macintosh HD › Users › me › Documents.
     static func segments(for url: URL) -> [URL] {
-        guard url != BrowserTab.thisMacURL else { return [url] }
+        guard url != BrowserTab.thisMacURL, url != BrowserTab.networkURL else { return [url] }
+        if let endpoint = url.remoteEndpoint {
+            var result = [endpoint.root]
+            var path = ""
+            for component in url.remotePath.split(separator: "/") {
+                path += "/" + component
+                result.append(endpoint.url(path: path))
+            }
+            return [BrowserTab.networkURL] + result
+        }
         let volume = (try? url.resourceValues(forKeys: [.volumeURLKey]).volume) ?? URL(fileURLWithPath: "/")
         var result: [URL] = []
         var current = url.standardizedFileURL
@@ -204,7 +226,11 @@ private struct Segment: View {
             .onMiddleClick { model.newTab(url: url, activate: false) }
 
             Button {
-                popUpMenu(SubfolderMenu.make(for: url, tab: tab))
+                if url.isRemote || url == BrowserTab.networkURL {
+                    Task { popUpMenu(await SubfolderMenu.make(forServerLocation: url, model: model, tab: tab)) }
+                } else {
+                    popUpMenu(SubfolderMenu.make(for: url, tab: tab))
+                }
             } label: {
                 AppIcon(name: "chevron_right_regular", size: 12)
                     .foregroundStyle(Theme.secondaryText.swiftUI)
@@ -237,6 +263,43 @@ private struct OverflowButton: View {
 
 /// Lists the subfolders of a folder, built when the chevron is clicked.
 enum SubfolderMenu {
+    /// Network lists sites and network drives; a server folder lists its subfolders (fetched from the server).
+    static func make(forServerLocation url: URL, model: ExplorerWindowModel, tab: BrowserTab,
+                     sites: SFTPSites = .shared, connections: RemoteConnections = .shared) async -> NSMenu {
+        let menu = NSMenu()
+        let icon = FileIcons.network.copy() as? NSImage
+        icon?.size = NSSize(width: 16, height: 16)
+        if url == BrowserTab.networkURL {
+            for site in sites.sites {
+                menu.addItem(ClosureMenuItem(site.title, image: icon) { model.openSite(site, in: tab) })
+            }
+            for volume in VolumeMonitor.shared.networkVolumes {
+                menu.addItem(ClosureMenuItem(volume.title, image: icon) { tab.navigate(to: volume.url) })
+            }
+        } else if let endpoint = url.remoteEndpoint {
+            let showHidden = AppSettings.shared.showHiddenFiles
+            let entries = (try? await connections.perform(endpoint) { try await $0.list(url.remotePath) }) ?? []
+            let folders = entries
+                .filter { $0.isDirectory && (showHidden || !$0.name.hasPrefix(".")) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            for folder in folders {
+                let target = endpoint.url(path: folder.path)
+                let item = ClosureMenuItem(folder.name, image: FileIcons.folder) { tab.navigate(to: target) }
+                if RemotePath.isWithin(tab.url.remotePath, folder.path), tab.url.remoteEndpoint == endpoint {
+                    let bold = NSFontManager.shared.convert(.menuFont(ofSize: 0), toHaveTrait: .boldFontMask)
+                    item.attributedTitle = NSAttributedString(string: item.title, attributes: [.font: bold])
+                }
+                menu.addItem(item)
+            }
+        }
+        if menu.items.isEmpty {
+            let empty = NSMenuItem(title: L10n.text(url == BrowserTab.networkURL ? "No servers" : "No subfolders"), action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        return menu
+    }
+
     static func make(for url: URL, tab: BrowserTab) -> NSMenu {
         let menu = NSMenu()
         if url == BrowserTab.thisMacURL {
@@ -293,7 +356,7 @@ private struct SearchBox: View {
                 .textFieldStyle(.plain)
                 .font(Theme.font)
                 .focused($isFocused)
-                .disabled(tab.isThisMac) // nothing to search on the drives page
+                .disabled(tab.isPage) // nothing to search on the drives and network pages
                 .onExitCommand {
                     tab.searchText = ""
                     tab.requestListFocus()

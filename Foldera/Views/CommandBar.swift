@@ -24,7 +24,7 @@ struct CommandBar: View {
             } label: {
                 labeled(L10n.text("New"), symbol: "add_circle_filled", tint: Theme.accent.swiftUI, dropdown: true)
             }
-            .disabled(tab.isThisMac)
+            .disabled(tab.isPage)
 
             VerticalSeparator()
 
@@ -33,7 +33,7 @@ struct CommandBar: View {
             IconButton(symbol: "copy_regular", help: L10n.text("Copy (⌘C)")) { tab.copySelection() }
                 .disabled(!tab.hasSelection)
             IconButton(symbol: "clipboard_paste_regular", help: L10n.text("Paste (⌘V)")) { tab.paste() }
-                .disabled(tab.isThisMac)
+                .disabled(tab.isPage)
             IconButton(symbol: "rename_regular", help: tab.selection.count > 1 ? L10n.format("rename.items.help", tab.selection.count) : L10n.text("Rename (F2)")) {
                 tab.beginRename()
             }
@@ -62,7 +62,7 @@ struct CommandBar: View {
             } label: {
                 labeled(L10n.text("Sort"), symbol: "arrow_sort_regular", dropdown: true)
             }
-            .disabled(tab.isThisMac)
+            .disabled(tab.isPage)
             MenuButton(help: L10n.text("Layout and view options")) {
                 viewMenu()
             } label: {

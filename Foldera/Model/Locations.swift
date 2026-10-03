@@ -50,6 +50,10 @@ final class VolumeMonitor {
     static let shared = VolumeMonitor()
 
     private(set) var volumes: [Location] = []
+    /// Mounted file-server shares (SMB, AFP, NFS, WebDAV), shown under Network.
+    private(set) var networkVolumeURLs: Set<URL> = []
+    var localVolumes: [Location] { volumes.filter { !networkVolumeURLs.contains($0.url) } }
+    var networkVolumes: [Location] { volumes.filter { networkVolumeURLs.contains($0.url) } }
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -63,8 +67,9 @@ final class VolumeMonitor {
     }
 
     func refresh() {
-        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey]
+        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsLocalKey]
         let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
+        networkVolumeURLs = Set(urls.filter { (try? $0.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal == false })
         volumes = urls.map { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             let external = values?.volumeIsRemovable == true || values?.volumeIsEjectable == true || values?.volumeIsInternal == false

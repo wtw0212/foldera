@@ -10,7 +10,8 @@ final class QuickLook: NSObject, QLPreviewPanelDataSource {
     private var panel: QLPreviewPanel? { QLPreviewPanel.sharedPreviewPanelExists() ? QLPreviewPanel.shared() : nil }
 
     func toggle(urls: @escaping () -> [URL]) {
-        self.urls = urls
+        // Quick Look reads local files only; server files are previewed by opening them.
+        self.urls = { urls().filter(\.isFileURL) }
         if let panel, panel.isVisible {
             panel.orderOut(nil)
         } else if !urls().isEmpty {

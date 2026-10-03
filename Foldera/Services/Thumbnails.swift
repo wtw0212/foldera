@@ -20,7 +20,9 @@ final class Thumbnails {
     /// Like Explorer, only photos, videos and PDFs show their contents; other files keep their
     /// type icon (a text file's preview is mostly white at icon sizes).
     static func showsPreview(_ item: FileItem) -> Bool {
-        switch FileKind.of(item.url, type: item.contentType) {
+        // Server files would have to be downloaded first.
+        guard !item.url.isRemote else { return false }
+        return switch FileKind.of(item.url, type: item.contentType) {
         case .image, .video, .pdf: true
         default: false
         }

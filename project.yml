@@ -3,6 +3,10 @@ packages:
   ViewInspector:
     url: https://github.com/nalexn/ViewInspector
     exactVersion: 0.10.5
+  # SSH/SFTP client. Pinned to 0.12.0: 0.12.1 swapped swift-nio-ssh for an unvetted third-party fork.
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    exactVersion: 0.12.0
 configs:
   Debug: debug
   Release: release
@@ -41,6 +45,9 @@ targets:
         attributes: [CodeSignOnCopy]
       - path: ThirdParty/7-Zip/7-Zip-License.txt
         buildPhase: resources
+    dependencies:
+      - package: Citadel
+      - sdk: NetFS.framework
     settings:
       configs:
         # Tests have their own preferences domain and macOS permission identity.
@@ -50,6 +57,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera
         PRODUCT_NAME: Foldera
         GENERATE_INFOPLIST_FILE: YES
+        # Merged with the generated keys: Bonjour service types and Foldera's pasteboard type.
+        INFOPLIST_FILE: Config/Foldera-Info.plist
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Foldera looks for file servers and SFTP servers on your local network when you open Network.
         INFOPLIST_KEY_CFBundleDisplayName: Foldera
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_NSHumanReadableCopyright: ""

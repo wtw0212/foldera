@@ -77,6 +77,7 @@ struct FolderaCommands: Commands {
                 .disabled(tab?.canGoUp != true)
             Divider()
             go(L10n.text("This Mac"), BrowserTab.thisMacURL, key: "c")
+            go(L10n.text("Network"), BrowserTab.networkURL, key: "k")
             go(L10n.text("Home"), StandardLocations.home.url, key: "h")
             ForEach(StandardLocations.pinned) { location in
                 Button(location.title) { open(location.url) }
@@ -84,6 +85,8 @@ struct FolderaCommands: Commands {
             Divider()
             Button(L10n.text("Go to Folder…")) { explorer?.isEditingAddress = true }
                 .keyboardShortcut("l")
+            Button(L10n.text("Connect to Server…")) { explorer?.networkSheet = .connect("") }
+                .keyboardShortcut("k")
             Button(L10n.text("Search")) { explorer?.focusSearch() }
                 .keyboardShortcut("f")
         }

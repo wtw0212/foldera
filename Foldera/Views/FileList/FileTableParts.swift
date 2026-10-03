@@ -199,7 +199,8 @@ enum FileFormat {
 
     /// Parent folder path for search results, with the home folder shortened to "~".
     static func location(of url: URL) -> String {
-        (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+        if let endpoint = url.remoteEndpoint { return "\(endpoint.displayName):\(RemotePath.parent(of: url.remotePath))" }
+        return (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
     }
 
     /// Status bar total: "1.24 MB" style, like Explorer's selection summary.

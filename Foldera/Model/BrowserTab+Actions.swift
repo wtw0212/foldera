@@ -5,14 +5,23 @@ extension BrowserTab {
     private var clipboard: FileClipboard { .shared }
 
     var hasSelection: Bool { !selection.isEmpty }
-    var canPaste: Bool { !isThisMac && clipboard.canPaste }
+    var canPaste: Bool { !isPage && clipboard.canPaste }
 
     /// Opens an item: folders navigate in place, everything else opens with its default app.
     func open(_ item: FileItem) {
         if item.isNavigable {
             navigate(to: item.url)
         } else {
-            NSWorkspace.shared.open(item.url)
+            openFile(item.url)
+        }
+    }
+
+    /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
+    private func openFile(_ url: URL) {
+        if url.isRemote {
+            remoteOpen(url)
+        } else {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -24,7 +33,7 @@ extension BrowserTab {
         }
         // Several items: open files with their apps, and the first folder in this tab.
         for item in items where !item.isNavigable {
-            NSWorkspace.shared.open(item.url)
+            openFile(item.url)
         }
         if let folder = items.first(where: \.isNavigable) {
             navigate(to: folder.url)
@@ -32,6 +41,7 @@ extension BrowserTab {
     }
 
     func newFolder() {
+        if isRemote { return remoteNewItem(named: "New folder", folder: true) }
         perform { url in
             let created = try FileOperations.newFolder(in: url)
             FileUndo.shared.record(.created([created]), name: "New Folder")
@@ -40,6 +50,7 @@ extension BrowserTab {
     }
 
     func newTextDocument() {
+        if isRemote { return remoteNewItem(named: "New Text Document.txt", folder: false) }
         perform { url in
             let created = try FileOperations.newTextDocument(in: url)
             FileUndo.shared.record(.created([created]), name: "New Text Document")
@@ -61,6 +72,7 @@ extension BrowserTab {
     func commitRename(of url: URL, to newName: String) {
         renameRequest = nil
         guard newName != url.lastPathComponent else { return }
+        if url.isRemote { return remoteRename(url, to: newName) }
         perform { _ in
             let renamed = try FileOperations.rename(url, to: newName)
             FileUndo.shared.record(.renamed(from: url, to: renamed), name: "Rename")
@@ -90,6 +102,7 @@ extension BrowserTab {
     }
 
     func trashSelection() {
+        if isRemote { return remoteDeleteSelection() }
         let urls = selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
         perform { _ in
@@ -108,7 +121,7 @@ extension BrowserTab {
 
     enum ExtractDestination { case here, ownFolder }
 
-    var selectedArchives: [URL] { selectedItems.map(\.url).filter(Archives.isArchive) }
+    var selectedArchives: [URL] { isRemote ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
 
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
     /// Encrypted archives ask for their password (again if it was wrong).
@@ -144,7 +157,7 @@ extension BrowserTab {
     /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
     func compressSelection(_ format: Archives.Format = .zip) {
         let items = selectedItems.map(\.url)
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty, !isRemote else { return }
         let folder = url
         Task {
             do {
@@ -190,6 +203,7 @@ extension BrowserTab {
     }
 
     func showInFinder() {
+        guard !isRemote, !isPage else { return }
         if hasSelection {
             NSWorkspace.shared.activateFileViewerSelecting(selectedItems.map(\.url))
         } else {
@@ -198,12 +212,14 @@ extension BrowserTab {
     }
 
     func openInTerminal() {
-        guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
+        if isRemote { return remoteOpenInTerminal() }
+        guard !isPage, let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
         NSWorkspace.shared.open([url], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
     }
 
     /// Opens the Finder "Get Info" window, the closest macOS equivalent of Explorer's Properties.
     func showProperties() {
+        if isRemote { return remoteShowProperties() }
         let targets = hasSelection ? selectedItems.map(\.url) : [url]
         let list = targets.map { "POSIX file \"\(Self.appleScriptEscaped($0.path))\"" }.joined(separator: ", ")
         let source = """
@@ -233,7 +249,7 @@ extension BrowserTab {
     // MARK: Helpers
 
     private func perform(_ body: (URL) throws -> Void) {
-        guard !isThisMac else { return }
+        guard !isPage else { return }
         do {
             try body(url)
             reload()
@@ -242,7 +258,11 @@ extension BrowserTab {
         }
     }
 
+    /// Replaces the error alert (tests).
+    static var errorPresenter: ((Error) -> Void)?
+
     static func present(_ error: Error) {
+        if let errorPresenter { return errorPresenter(error) }
         let alert = NSAlert(error: error)
         alert.alertStyle = .warning
         if let window = NSApp.keyWindow {

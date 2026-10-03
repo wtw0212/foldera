@@ -22,6 +22,8 @@ enum FileIcons {
         return image
     }()
 
+    static var network: NSImage { NSImage(named: NSImage.networkName) ?? folder }
+
     static func icon(for item: FileItem) -> NSImage {
         if item.isDirectory && !item.isPackage && !item.isVolume {
             return folder
@@ -35,6 +37,8 @@ enum FileIcons {
 
     static func icon(forPath url: URL) -> NSImage {
         if url == BrowserTab.thisMacURL { return NSImage(named: NSImage.computerName) ?? folder }
+        if url == BrowserTab.networkURL || (url.isRemote && url.remotePath == "/") { return network }
+        if url.isRemote { return folder }
         return cached(key: "file:" + url.path) { NSWorkspace.shared.icon(forFile: url.path) }
     }
 

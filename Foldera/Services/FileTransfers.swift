@@ -92,6 +92,9 @@ final class FileTransfers {
 
     /// Copies or moves `sources` into `directory`, returning committed changes alongside any failure.
     func run(_ kind: FileTransfer.Kind, _ sources: [URL], into directory: URL) async -> TransferResult {
+        if directory.isRemote || sources.contains(where: \.isRemote) {
+            return await RemoteTransfers(transfers: self).run(kind, sources, into: directory)
+        }
         let empty = TransferResult()
         let directory = directory.normalizedFileURL
         let sources = sources.map(\.normalizedFileURL)
@@ -127,12 +130,8 @@ final class FileTransfers {
         guard !plan.isEmpty else { return empty }
 
         let transfer = FileTransfer(kind: kind, itemCount: plan.count, source: sources[0].deletingLastPathComponent(), destination: directory)
-        active.append(transfer)
-        TransferWindow.shared.scheduleShow()
-        defer {
-            active.removeAll { $0.id == transfer.id }
-            TransferWindow.shared.hideIfIdle()
-        }
+        begin(transfer)
+        defer { end(transfer) }
 
         transfer.totalBytes = await Task.detached { Self.totalBytes(plan) }.value
 
@@ -224,7 +223,18 @@ final class FileTransfers {
         return result
     }
 
-    private static func alert(_ message: String, detail: String) {
+    /// Shows a transfer in the progress window until `end`.
+    func begin(_ transfer: FileTransfer) {
+        active.append(transfer)
+        TransferWindow.shared.scheduleShow()
+    }
+
+    func end(_ transfer: FileTransfer) {
+        active.removeAll { $0.id == transfer.id }
+        TransferWindow.shared.hideIfIdle()
+    }
+
+    static func alert(_ message: String, detail: String) {
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = detail
@@ -234,12 +244,14 @@ final class FileTransfers {
 }
 
 /// Asks what to do when an item with the same name already exists, like Explorer's "Replace or Skip Files".
-private final class ConflictResolver {
+final class ConflictResolver {
     enum Choice { case replace, keepBoth, skip, cancel }
 
     private let kind: FileTransfer.Kind
     private let destination: URL
     private var remembered: Choice?
+    /// Replaced in tests.
+    var ask: (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() }
 
     init(kind: FileTransfer.Kind, destination: URL) {
         self.kind = kind
@@ -251,7 +263,7 @@ private final class ConflictResolver {
         let alert = NSAlert()
         alert.messageText = L10n.format("The destination already has an item named “%@”", name)
         alert.informativeText = L10n.format(kind == .copy ? "Copying to %@. " : "Moving to %@. ", BrowserTab.displayName(of: destination))
-            + L10n.text("Replacing moves the existing item to the Trash.")
+            + L10n.text(destination.isRemote ? "Replacing permanently deletes the existing item on the server." : "Replacing moves the existing item to the Trash.")
         alert.addButton(withTitle: L10n.text("Replace"))
         alert.addButton(withTitle: L10n.text("Keep Both"))
         alert.addButton(withTitle: L10n.text("Skip"))
@@ -260,7 +272,7 @@ private final class ConflictResolver {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = L10n.text("Do this for all conflicts")
         }
-        let choice: Choice = switch alert.runModal() {
+        let choice: Choice = switch ask(alert) {
         case .alertFirstButtonReturn: .replace
         case .alertSecondButtonReturn: .keepBoth
         case .alertThirdButtonReturn: .skip

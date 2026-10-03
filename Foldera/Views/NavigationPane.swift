@@ -8,8 +8,11 @@ struct NavigationPane: View {
     @State private var volumes = VolumeMonitor.shared
     @State private var quickAccess = QuickAccess.shared
     @State private var cloud = CloudDrives.shared
+    var sites: SFTPSites = .shared
+    var connections: RemoteConnections = .shared
     @State private var tree = FolderTree()
     @State private var isThisMacExpanded = true
+    @State private var isNetworkExpanded = true
     /// Where a drag over Quick access would land: a pin's key or a divider, and the zone within it.
     @State private var pinDrop: (id: String, zone: PinDropZone)?
 
@@ -38,16 +41,61 @@ struct NavigationPane: View {
                 )
                 .onMiddleClick { model.newTab(url: BrowserTab.thisMacURL, activate: false) }
                 if isThisMacExpanded {
-                    ForEach(volumes.volumes) { volume in
+                    ForEach(volumes.localVolumes) { volume in
                         section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: volume.url.path != "/")
                     }
                 }
+                networkSection
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 6)
         }
         .scrollIndicators(.automatic)
         .background(Theme.content.swiftUI)
+    }
+
+    /// Network: SFTP sites and mounted file-server shares.
+    @ViewBuilder
+    private var networkSection: some View {
+        NavigationRow(
+            title: L10n.text("Network"),
+            icon: AnyView(Image(nsImage: FileIcons.network).resizable().frame(width: 18, height: 18)),
+            isSelected: tab.isNetwork,
+            expansion: $isNetworkExpanded,
+            action: { open(BrowserTab.networkURL) }
+        )
+        .accessibilityIdentifier("nav-network")
+        .onMiddleClick { model.newTab(url: BrowserTab.networkURL, activate: false) }
+        .contextMenu {
+            Button(L10n.text("Connect to Server…")) { model.networkSheet = .connect("") }
+            Button(L10n.text("New SFTP Site…")) { model.networkSheet = .site(SFTPSite(), connect: true) }
+        }
+        if isNetworkExpanded {
+            ForEach(sites.sites) { site in
+                NavigationRow(
+                    title: site.title,
+                    icon: AnyView(Image(nsImage: FileIcons.network).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                    isSelected: tab.url.remoteEndpoint == site.endpoint,
+                    indent: 1,
+                    trailingSymbol: connections.connected.contains(site.endpoint) ? "link_regular" : nil,
+                    action: { model.openSite(site, in: tab) }
+                )
+                .help(site.endpoint.displayName)
+                .onMiddleClick { model.openSiteInNewTab(site, activate: false) }
+                .contextMenu {
+                    Button(L10n.text("Open")) { model.openSite(site, in: tab) }
+                    Button(L10n.text("Open in new tab")) { model.openSiteInNewTab(site) }
+                    Divider()
+                    Button(L10n.text("Edit…")) { model.networkSheet = .site(site, connect: false) }
+                    if connections.connected.contains(site.endpoint) {
+                        Button(L10n.text("Disconnect")) { Task { await connections.disconnect(site.endpoint) } }
+                    }
+                }
+            }
+            ForEach(volumes.networkVolumes) { volume in
+                section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: true)
+            }
+        }
     }
 
     /// The dividers around the pins also take dropped folders, pinning them first or last.

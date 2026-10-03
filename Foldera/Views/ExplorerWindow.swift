@@ -68,6 +68,16 @@ struct ExplorerWindow: View {
             TextFieldClickAway.install()
             model.offerWelcomeIfNeeded()
         }
+        .sheet(item: $model.networkSheet) { sheet in
+            switch sheet {
+            case .connect(let address):
+                ConnectServerSheet(model: model, address: address)
+                    .environment(\.locale, L10n.locale)
+            case .site(let site, let connect):
+                SiteEditorSheet(site: site, connect: connect) { model.openSite($0) }
+                    .environment(\.locale, L10n.locale)
+            }
+        }
         .sheet(isPresented: $model.isShowingWelcome) {
             WelcomeView { model.isShowingWelcome = false }
                 .environment(\.locale, L10n.locale)
@@ -135,7 +145,9 @@ struct ExplorerWindow: View {
     private func fileList(_ tab: BrowserTab, pane: ExplorerWindowModel.Pane) -> some View {
         let onFocus = { if model.focusedPane != pane { model.focusedPane = pane } }
         return Group {
-            if tab.isThisMac {
+            if tab.isNetwork {
+                NetworkView(model: model, tab: tab, onFocus: onFocus)
+            } else if tab.isThisMac {
                 ThisMacView(
                     tab: tab,
                     openInNewTab: { model.newTab(url: $0) },
@@ -198,7 +210,7 @@ struct ExplorerWindow: View {
     }
 
     private func emptyMessage(_ tab: BrowserTab) -> String? {
-        guard !tab.isThisMac else { return nil }
+        guard !tab.isPage else { return nil }
         if let error = tab.loadError { return error }
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
         return tab.isSearchActive ? L10n.text("No items match your search.") : L10n.text("This folder is empty.")
@@ -241,7 +253,9 @@ private struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count) : L10n.format("items.count", tab.visibleItems.count))
+            Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count)
+                 : tab.isNetwork ? L10n.format("items.count", SFTPSites.shared.sites.count + NetworkBrowser.shared.servers.count)
+                 : L10n.format("items.count", tab.visibleItems.count))
                 .accessibilityIdentifier("item-count")
             if !tab.selection.isEmpty {
                 separator

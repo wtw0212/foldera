@@ -31,6 +31,8 @@ final class BrowserTab: Identifiable {
 
     /// The "This Mac" page (drives and their free space), like Explorer's This PC.
     static let thisMacURL = URL(string: "foldera:this-mac")!
+    /// The "Network" page: network drives, SFTP sites and servers found on the local network.
+    static let networkURL = URL(string: "foldera:network")!
 
     let id = UUID()
     private(set) var url: URL
@@ -78,11 +80,18 @@ final class BrowserTab: Identifiable {
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var isThisMac: Bool { url == Self.thisMacURL }
+    var isNetwork: Bool { url == Self.networkURL }
+    /// This Mac or Network: pages that aren't folders, so folder commands don't apply.
+    var isPage: Bool { isThisMac || isNetwork }
+    var isRemote: Bool { url.isRemote }
     var canGoUp: Bool { parentURL != nil }
 
-    /// The enclosing folder; a drive's root goes up to This Mac.
+    /// The enclosing folder; a drive's root goes up to This Mac, a server's root to Network.
     var parentURL: URL? {
-        if isThisMac { return nil }
+        if isPage { return nil }
+        if let endpoint = url.remoteEndpoint {
+            return url.remotePath == "/" ? Self.networkURL : endpoint.url(path: RemotePath.parent(of: url.remotePath))
+        }
         if url.path == "/" || (try? url.resourceValues(forKeys: [.isVolumeKey]).isVolume) == true { return Self.thisMacURL }
         return url.deletingLastPathComponent()
     }
@@ -181,11 +190,18 @@ final class BrowserTab: Identifiable {
     private func scheduleSearch() {
         searchTask?.cancel()
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty, !isThisMac else {
+        guard !query.isEmpty, !isPage else {
             searchTask = nil
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
             itemsVersion += 1
+            return
+        }
+        if isRemote {
+            // Searching a server recursively would be slow and costly; filter this folder instead.
+            searchResults = items.filter { $0.name.localizedStandardContains(query) }
+            itemsVersion += 1
+            isSearching = false
             return
         }
         let root = url
@@ -230,8 +246,8 @@ final class BrowserTab: Identifiable {
     private func load(selecting: Set<URL>) {
         selectAfterLoad = selecting
         let target = url
-        if isThisMac {
-            // Not a folder: ThisMacView shows the drives itself.
+        if isPage {
+            // Not a folder: ThisMacView and NetworkView show their own content.
             loadTask?.cancel()
             watcher = nil
             watcherURL = nil
@@ -239,7 +255,11 @@ final class BrowserTab: Identifiable {
             isLoading = false
             return
         }
-        if watcher == nil || watcherURL != target {
+        if target.isRemote {
+            // Servers can't be watched; Refresh and Foldera's own changes reload them.
+            watcher = nil
+            watcherURL = nil
+        } else if watcher == nil || watcherURL != target {
             watcher = DirectoryWatcher(directory: target) { [weak self] in self?.reload() }
             watcherURL = target
         }
@@ -247,7 +267,7 @@ final class BrowserTab: Identifiable {
         isLoading = true
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await DirectoryLoader.load(target)
+                let loaded = target.isRemote ? try await RemoteDirectory.load(target) : try await DirectoryLoader.load(target)
                 guard let self, !Task.isCancelled, self.url == target else { return }
                 self.apply(loaded)
             } catch {
@@ -277,9 +297,22 @@ final class BrowserTab: Identifiable {
 
     // MARK: Helpers
 
+    /// What the address field shows when editing: a path, "This Mac", "Network" or an sftp:// address.
+    static func editableAddress(of url: URL) -> String {
+        if url == thisMacURL { return "This Mac" }
+        if url == networkURL { return "Network" }
+        if let endpoint = url.remoteEndpoint {
+            let port = endpoint.port == RemoteEndpoint.defaultPort ? "" : ":\(endpoint.port)"
+            return "sftp://\(endpoint.username)@\(endpoint.host)\(port)\(url.remotePath)"
+        }
+        return url.path
+    }
+
     /// Address-bar labels keep the filesystem's names, independent of the interface language.
     static func pathName(of url: URL) -> String {
         if url == thisMacURL { return "This Mac" }
+        if url == networkURL { return "Network" }
+        if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "/"
         }
@@ -288,6 +321,8 @@ final class BrowserTab: Identifiable {
 
     static func displayName(of url: URL) -> String {
         if url == thisMacURL { return L10n.text("This Mac") }
+        if url == networkURL { return L10n.text("Network") }
+        if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? "Macintosh HD"
         }

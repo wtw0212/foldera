@@ -43,10 +43,12 @@ struct DetailsPane: View {
                 } else if tab.isThisMac {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                     property(L10n.text("Drives"), "\(VolumeMonitor.shared.volumes.count)")
+                } else if tab.isNetwork {
+                    header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                 } else {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                     property(L10n.text("Items"), "\(tab.visibleItems.count)")
-                    property(L10n.text("Location"), (tab.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+                    property(L10n.text("Location"), FileFormat.location(of: tab.url))
                 }
             }
             .padding(16)
@@ -62,7 +64,7 @@ private struct ItemDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if item.isNavigable {
+            if item.isNavigable || item.url.isRemote {
                 Image(nsImage: FileIcons.icon(for: item))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -92,7 +94,7 @@ private struct ItemDetails: View {
             property(L10n.text("Location"), FileFormat.location(of: item.url))
         }
         .task(id: item.url) {
-            dimensions = Self.imageDimensions(item.url)
+            dimensions = item.url.isFileURL ? Self.imageDimensions(item.url) : nil
         }
     }
 

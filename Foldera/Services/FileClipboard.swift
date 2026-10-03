@@ -31,12 +31,12 @@ final class FileClipboard {
     }
 
     var canPaste: Bool {
-        pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        ItemPasteboard.hasItems(pasteboard)
     }
 
     /// Pastes into `directory`: a move after Cut, otherwise a copy. Returns what changed.
     func paste(into directory: URL) async -> TransferResult {
-        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let urls = ItemPasteboard.urls(from: pasteboard)
         guard !urls.isEmpty else { return TransferResult() }
         if cutChangeCount == pasteboard.changeCount {
             let changeCount = pasteboard.changeCount
@@ -66,6 +66,6 @@ final class FileClipboard {
 
     private func write(_ urls: [URL]) {
         pasteboard.clearContents()
-        pasteboard.writeObjects(urls as [NSURL])
+        pasteboard.writeObjects(urls.map(ItemPasteboard.writer))
     }
 }
