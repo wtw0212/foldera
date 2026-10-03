@@ -35,7 +35,7 @@ struct ExplorerWindow: View {
             HSplitView {
                 if settings.showNavigationPane {
                     // Starts at its minimum width; drag the divider to widen it.
-                    NavigationPane(model: model, tab: tab)
+                    NavigationPane(model: model, tab: tab, settings: settings)
                         .frame(minWidth: 180, idealWidth: 180, maxWidth: 400)
                         .layoutPriority(0)
                 }

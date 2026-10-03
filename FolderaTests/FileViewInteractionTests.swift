@@ -16,6 +16,7 @@ private final class CommandRecorder: FileViewCommands {
     func copySelection() { calls.append("copy") }
     func paste() { calls.append("paste") }
     func toggleQuickLook() { calls.append("preview") }
+    func zoom(in zoomIn: Bool) { calls.append(zoomIn ? "zoom-in" : "zoom-out") }
     func openInBackgroundTab(index: Int) { calls.append("background:\(index)") }
     func contextMenu(forRow row: Int) -> NSMenu? {
         calls.append("menu:\(row)")
@@ -49,6 +50,19 @@ struct FileViewInteractionTests {
         let count = recorder.calls.count
         #expect(try !FileKeys.handle(key(36, flags: .shift), recorder, settings: settings))
         #expect(try !FileKeys.handle(key(0), recorder, settings: settings) && recorder.calls.count == count)
+    }
+
+    @Test func commandPlusAndMinusZoomTheLayout() throws {
+        let recorder = CommandRecorder()
+        for (code, flags) in [(UInt16(24), NSEvent.ModifierFlags.command), (24, [.command, .shift]), (69, [.command, .numericPad])] {
+            #expect(try FileKeys.handle(key(code, flags: flags), recorder))
+            #expect(recorder.calls.last == "zoom-in")
+        }
+        for code: UInt16 in [27, 78] {
+            #expect(try FileKeys.handle(key(code, flags: .command), recorder))
+            #expect(recorder.calls.last == "zoom-out")
+        }
+        #expect(try !FileKeys.handle(key(24), recorder), "= without ⌘ is typing")
     }
 
     @Test func editMenuValidationUsesSelectionAndFileClipboardState() {

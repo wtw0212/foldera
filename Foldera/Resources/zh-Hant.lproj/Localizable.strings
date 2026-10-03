@@ -326,3 +326,12 @@
 "“%@” isn’t a server address Foldera can connect to." = "「%@」不是 Foldera 可以連線的伺服器位址。";
 "“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format." = "「%@」不是支援的私密金鑰。請使用 OpenSSH 格式的 Ed25519 或 RSA 金鑰。";
 "“%@” no longer exists on the server." = "伺服器上已不存在「%@」。";
+
+/* Zoom and Recent */
+"Zoom In" = "放大";
+"Zoom Out" = "縮小";
+"Recent" = "最近項目";
+"Clear Recent Items" = "清除最近項目";
+"Remove from Recent" = "從最近項目移除";
+"Recent items in navigation pane:" = "導覽窗格中的最近項目：";
+"None" = "無";

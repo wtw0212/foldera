@@ -105,6 +105,12 @@ struct FolderaCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Toggle(L10n.text("Compact View"), isOn: $settings.compactView)
             Divider()
+            Button(L10n.text("Zoom In")) { tab?.zoom(in: true) }
+                .keyboardShortcut("+")
+                .disabled(tab == nil || tab?.isPage == true || tab?.viewMode == ViewMode.zoomOrder.last)
+            Button(L10n.text("Zoom Out")) { tab?.zoom(in: false) }
+                .keyboardShortcut("-")
+                .disabled(tab == nil || tab?.isPage == true || tab?.viewMode == ViewMode.zoomOrder.first)
             ForEach(ViewMode.allCases) { mode in
                 Button(mode.title) { tab?.viewMode = mode }
                     .keyboardShortcut(KeyEquivalent(Character(String(mode.shortcutNumber))), modifiers: [.command, .option])

@@ -71,6 +71,10 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | `Foldera/Views/FileList` | `NSTableView`-based details view, context menus |
 | `Foldera/Theme` | Windows 11 colors and icons |
 
+## Recent items
+
+The navigation pane's **Recent** section, above Quick access, lists the last folders and files you opened (newest first; local items that were deleted or moved are skipped). It shows 5 by default; Settings ▸ General ▸ Recent items in navigation pane picks 3–20, or None to hide it. Right-click an item to remove it, or the section to clear it.
+
 ## Languages
 
 Settings ▸ General ▸ Language switches between **Follow System**, **English** and **繁體中文** immediately and remembers the selection. Unsupported system languages fall back to English. File names, paths and shortcuts are preserved; macOS-owned dialogs and file-type descriptions use the system language.
@@ -91,12 +95,14 @@ Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`
 | New tab / Close tab | ⌘T / ⌘W |
 | Next / previous tab | ⇧⌘] / ⇧⌘[, ⌘1–9 |
 | Edit address | ⌘L |
+| Network / Connect to Server | ⇧⌘K / ⌘K |
 | Search | ⌘F |
 | Refresh | ⌘R |
 | Show hidden items | ⇧⌘. |
 | Properties (Get Info) | ⌘I |
 | Quick Look | Space |
 | Layouts (Extra large icons … Content) | ⌥⌘1–8 |
+| Bigger / smaller layout (Details → List → icons) | ⌘+ / ⌘−, ⌘-scroll, pinch |
 | Details pane (with preview) | ⌥⌘P |
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 | Dual pane on/off | ⌥⌘D |

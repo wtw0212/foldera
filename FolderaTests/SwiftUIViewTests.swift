@@ -19,10 +19,12 @@ struct SwiftUIViewTests {
         for language in AppLanguage.allCases { #expect(labels.contains(language.title)) }
         for location in StartLocation.allCases { #expect(labels.contains(location.title)) }
         let pickers = try view.inspect().findAll(ViewType.Picker.self)
-        #expect(pickers.count == 4)
+        #expect(pickers.count == 5)
         try pickers[0].select(value: AppLanguage.traditionalChinese)
         try pickers[1].select(value: StartLocation.downloads)
-        try pickers[2].select(value: true)
+        try pickers[2].select(value: 10)
+        try pickers[3].select(value: true)
+        #expect(settings.recentItemsCount == 10 && preferences.defaults.integer(forKey: "recentItemsCount") == 10)
         #expect(settings.language == .traditionalChinese && settings.startLocation == .downloads)
         #expect(settings.returnKeyRenames && preferences.defaults.bool(forKey: "returnKeyRenames"))
     }

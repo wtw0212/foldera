@@ -325,6 +325,7 @@ struct FileListView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func zoom(in zoomIn: Bool) { tab?.zoom(in: zoomIn) }
         func openInBackgroundTab(index: Int) {
             guard index < items.count, items[index].isNavigable else { return }
             parent?.openInBackgroundTab(items[index].url)

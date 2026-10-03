@@ -246,6 +246,14 @@ final class FileCollectionView: NSCollectionView {
         super.keyDown(with: event)
     }
 
+    private var zoomGesture = ZoomGesture()
+
+    override func magnify(with event: NSEvent) {
+        guard let commands else { return super.magnify(with: event) }
+        let step = zoomGesture.step(for: event)
+        if step != 0 { commands.zoom(in: step > 0) }
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         window?.makeFirstResponder(self)
         let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil))
@@ -302,6 +310,11 @@ final class FileCollectionView: NSCollectionView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if ZoomGesture.isZoomScroll(event), let commands {
+            let step = zoomGesture.step(for: event)
+            if step != 0 { commands.zoom(in: step > 0) }
+            return
+        }
         super.scrollWheel(with: event)
         refreshHover()
     }

@@ -3,6 +3,7 @@ import AppKit
 /// Commands shared by the command bar, context menu, keyboard shortcuts and the menu bar.
 extension BrowserTab {
     private var clipboard: FileClipboard { .shared }
+    var recents: RecentItems { settings.recents }
 
     var hasSelection: Bool { !selection.isEmpty }
     var canPaste: Bool { !isPage && clipboard.canPaste }
@@ -16,8 +17,18 @@ extension BrowserTab {
         }
     }
 
+    /// Opens a recent item: folders here, files in their app.
+    func openRecent(_ item: RecentItem) {
+        if item.isFolder {
+            navigate(to: item.url)
+        } else {
+            openFile(item.url)
+        }
+    }
+
     /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
     private func openFile(_ url: URL) {
+        recents.record(url, isFolder: false)
         if url.isRemote {
             remoteOpen(url)
         } else {
@@ -232,6 +243,14 @@ extension BrowserTab {
         """
         var error: NSDictionary?
         NSAppleScript(source: source)?.executeAndReturnError(&error)
+    }
+
+    /// Bigger or smaller layout (⌘+ / ⌘−, ⌘-scroll, pinch).
+    func zoom(in zoomIn: Bool) {
+        guard !isPage else { return }
+        viewMode = viewMode.zoomed(in: zoomIn)
+        // Switching between the list and icon views replaces the view; keep keyboard focus for the next ⌘+.
+        requestListFocus()
     }
 
     func selectAll() { selection = Set(visibleItems.map(\.url)) }

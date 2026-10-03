@@ -326,3 +326,12 @@
 "“%@” isn’t a server address Foldera can connect to." = "“%@” isn’t a server address Foldera can connect to.";
 "“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format." = "“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format.";
 "“%@” no longer exists on the server." = "“%@” no longer exists on the server.";
+
+/* Zoom and Recent */
+"Zoom In" = "Zoom In";
+"Zoom Out" = "Zoom Out";
+"Recent" = "Recent";
+"Clear Recent Items" = "Clear Recent Items";
+"Remove from Recent" = "Remove from Recent";
+"Recent items in navigation pane:" = "Recent items in navigation pane:";
+"None" = "None";

@@ -97,6 +97,20 @@ final class ExplorerUITests: XCTestCase {
         }
     }
 
+    func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
+        try withApp { app, _ in
+            app.tables["file-list"].staticTexts["note.txt"].click()
+            app.typeKey("=", modifierFlags: .command)
+            app.typeKey("=", modifierFlags: .command)
+            let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
+            expectation(for: gone, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            app.typeKey("-", modifierFlags: .command)
+            app.typeKey("-", modifierFlags: .command)
+            XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 5))
+        }
+    }
+
     func testTraditionalChineseStatusAndAddressNavigation() throws {
         try withApp(language: "zh-Hant") { app, root in
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "2 個項目")

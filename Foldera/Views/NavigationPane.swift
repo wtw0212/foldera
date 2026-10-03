@@ -10,6 +10,8 @@ struct NavigationPane: View {
     @State private var cloud = CloudDrives.shared
     var sites: SFTPSites = .shared
     var connections: RemoteConnections = .shared
+    var settings: AppSettings = .shared
+    @State private var isRecentExpanded = true
     @State private var tree = FolderTree()
     @State private var isThisMacExpanded = true
     @State private var isNetworkExpanded = true
@@ -26,6 +28,7 @@ struct NavigationPane: View {
                 ForEach(cloud.locations) { location in
                     section(location, key: "cloud:" + location.url.path, cloud: true)
                 }
+                recentSection
                 pinDivider(id: "qa-start") { quickAccess.insert($0, before: nil, atStart: true) }
                 let pins = quickAccess.locations
                 ForEach(Array(pins.enumerated()), id: \.element.id) { index, location in
@@ -52,6 +55,60 @@ struct NavigationPane: View {
         }
         .scrollIndicators(.automatic)
         .background(Theme.content.swiftUI)
+    }
+
+    /// Recently opened folders and files (Settings ▸ General sets how many).
+    @ViewBuilder
+    private var recentSection: some View {
+        let recent = settings.recents.visible(settings.recentItemsCount)
+        if !recent.isEmpty {
+            NavigationRow(
+                title: L10n.text("Recent"),
+                icon: AnyView(Image(systemName: "clock").font(.system(size: 13)).foregroundStyle(Theme.accent.swiftUI).frame(width: 18, height: 18)),
+                isSelected: false,
+                expansion: $isRecentExpanded,
+                action: { isRecentExpanded.toggle() }
+            )
+            .accessibilityIdentifier("nav-recent")
+            .contextMenu { Button(L10n.text("Clear Recent Items")) { settings.recents.clear() } }
+            if isRecentExpanded {
+                ForEach(recent) { item in
+                    NavigationRow(
+                        title: item.name,
+                        icon: AnyView(Image(nsImage: Self.icon(for: item)).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                        isSelected: item.isFolder && tab.url == item.url,
+                        indent: 1,
+                        action: { tab.openRecent(item) }
+                    )
+                    .help(item.url.isRemote ? BrowserTab.editableAddress(of: item.url) : item.url.path)
+                    .onMiddleClick { if item.isFolder { model.newTab(url: item.url, activate: false) } }
+                    .contextMenu { recentMenu(item) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recentMenu(_ item: RecentItem) -> some View {
+        Button(L10n.text("Open")) { tab.openRecent(item) }
+        if item.isFolder {
+            Button(L10n.text("Open in new tab")) { model.newTab(url: item.url) }
+        }
+        if item.url.isFileURL {
+            Button(L10n.text("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        }
+        Divider()
+        Button(L10n.text("Remove from Recent")) { settings.recents.remove(item.url) }
+        Button(L10n.text("Clear Recent Items")) { settings.recents.clear() }
+    }
+
+    static func icon(for item: RecentItem) -> NSImage {
+        if item.isFolder { return item.url.isRemote ? FileIcons.folder : FileIcons.icon(forPath: item.url) }
+        if item.url.isRemote {
+            let entry = RemoteEntry(path: item.url.remotePath, isDirectory: false, isSymlink: false, size: nil, modified: nil, permissions: nil)
+            return FileIcons.icon(for: FileItem(remote: entry, endpoint: item.url.remoteEndpoint ?? RemoteEndpoint(host: "", username: "")))
+        }
+        return FileIcons.icon(for: FileItem(url: item.url))
     }
 
     /// Network: SFTP sites and mounted file-server shares.

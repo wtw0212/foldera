@@ -64,7 +64,7 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var visibleCache: (key: VisibleKey, items: [FileItem])?
     private var itemsVersion = 0
     @ObservationIgnored private var searchTask: Task<Void, Never>?
-    private let settings: AppSettings
+    let settings: AppSettings
 
     init(url: URL, settings: AppSettings = .shared) {
         self.settings = settings
@@ -141,6 +141,7 @@ final class BrowserTab: Identifiable {
     private func navigate(to destination: URL, selecting: Set<URL>) {
         let destination = destination.normalizedFileURL
         guard destination != url else { return }
+        settings.recents.record(destination, isFolder: true)
         backStack.append(url)
         forwardStack.removeAll()
         move(to: destination, selecting: selecting)
