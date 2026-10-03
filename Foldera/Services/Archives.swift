@@ -137,7 +137,7 @@ nonisolated enum Archives {
                 // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does.
                 // For a file, --keepParent includes its containing directory instead of just the file.
                 var arguments = ["-c", "-k", "--sequesterRsrc"]
-                if try first.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                if try first.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
                     arguments.append("--keepParent")
                 }
                 try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [first.path, archive.path])

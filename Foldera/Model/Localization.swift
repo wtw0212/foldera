@@ -4,8 +4,10 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     case system, english = "en", traditionalChinese = "zh-Hant"
 
     static let preferenceKey = "appLanguage"
-    static var saved: AppLanguage {
-        UserDefaults.standard.string(forKey: preferenceKey).flatMap(Self.init(rawValue:)) ?? .system
+    static var saved: AppLanguage { saved(in: .standard) }
+
+    static func saved(in defaults: UserDefaults) -> AppLanguage {
+        defaults.string(forKey: preferenceKey).flatMap(Self.init(rawValue:)) ?? .system
     }
 
     var id: String { rawValue }

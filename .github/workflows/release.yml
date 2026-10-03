@@ -58,6 +58,9 @@ jobs:
           fi
 
       - name: Generate project and run tests
+        env:
+          # CI gates coverage; a release only needs every test to pass.
+          MINIMUM_APP_COVERAGE: "0"
         run: bash scripts/test.sh unit
 
       - name: Save test results

@@ -35,8 +35,11 @@ final class ExplorerWindowModel {
         return AppSettings.shared.startLocation.url
     }
 
-    init(url: URL = ExplorerWindowModel.defaultURL) {
-        let tab = BrowserTab(url: url)
+    @ObservationIgnored private let settings: AppSettings
+
+    init(url: URL = ExplorerWindowModel.defaultURL, settings: AppSettings = .shared) {
+        self.settings = settings
+        let tab = BrowserTab(url: url, settings: settings)
         tabs = [tab]
         activeTabID = tab.id
     }
@@ -69,7 +72,7 @@ final class ExplorerWindowModel {
 
     func toggleDualPane() {
         if !isDualPane, secondaryTab == nil {
-            secondaryTab = BrowserTab(url: primaryTab.url)
+            secondaryTab = BrowserTab(url: primaryTab.url, settings: settings)
         }
         isDualPane.toggle()
         focusedPane = .primary
@@ -92,7 +95,7 @@ final class ExplorerWindowModel {
 
     /// Opens a tab after the active one. `activate: false` (middle-click) opens it in the background.
     func newTab(url: URL? = nil, activate: Bool = true) {
-        let tab = BrowserTab(url: url ?? AppSettings.shared.startLocation.url)
+        let tab = BrowserTab(url: url ?? settings.startLocation.url, settings: settings)
         let anchor = activate ? nil : lastBackgroundTabID.flatMap { id in tabs.firstIndex { $0.id == id } }
         let index = (anchor ?? tabs.firstIndex { $0.id == activeTabID }).map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)

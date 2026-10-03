@@ -32,24 +32,23 @@ struct FileViewInteractionTests {
 
     @Test func shortcutRoutingHonoursModifiersAndReturnPreference() throws {
         let recorder = CommandRecorder()
-        let old = AppSettings.shared.returnKeyRenames
-        defer { AppSettings.shared.returnKeyRenames = old }
-        AppSettings.shared.returnKeyRenames = false
+        let preferences = try TestPreferences(), settings = AppSettings(defaults: preferences.defaults)
+        settings.returnKeyRenames = false
         let cases: [(UInt16, NSEvent.ModifierFlags, String)] = [
             (36, [], "open"), (76, [], "open"), (125, .command, "open"),
             (126, [.command, .function, .numericPad], "up"), (120, [], "rename"),
             (51, [], "back"), (51, .command, "delete"), (117, [], "delete"), (49, [], "preview"),
         ]
         for (code, flags, expected) in cases {
-            #expect(try FileKeys.handle(key(code, flags: flags), recorder))
+            #expect(try FileKeys.handle(key(code, flags: flags), recorder, settings: settings))
             #expect(recorder.calls.last == expected)
         }
-        AppSettings.shared.returnKeyRenames = true
-        #expect(try FileKeys.handle(key(36), recorder))
+        settings.returnKeyRenames = true
+        #expect(try FileKeys.handle(key(36), recorder, settings: settings))
         #expect(recorder.calls.last == "rename")
         let count = recorder.calls.count
-        #expect(try !FileKeys.handle(key(36, flags: .shift), recorder))
-        #expect(try !FileKeys.handle(key(0), recorder) && recorder.calls.count == count)
+        #expect(try !FileKeys.handle(key(36, flags: .shift), recorder, settings: settings))
+        #expect(try !FileKeys.handle(key(0), recorder, settings: settings) && recorder.calls.count == count)
     }
 
     @Test func editMenuValidationUsesSelectionAndFileClipboardState() {

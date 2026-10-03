@@ -29,7 +29,7 @@ if [[ "$STATUS" -ne 0 ]]; then tail -n 60 "$RUN/test.log"; fi
 
 REPORT_STATUS=0
 if xcrun xcresulttool get test-results summary --path "$RESULT" > "$RUN/summary.json"; then
-    REPORT_ARGS=(--summary "$RUN/summary.json")
+    REPORT_ARGS=(--summary "$RUN/summary.json" --minimum-app-coverage "${MINIMUM_APP_COVERAGE:-80}")
     if [[ "$COVERAGE" == YES ]]; then
         if xcrun xccov view --report --json "$RESULT" > "$RUN/coverage.json"; then
             REPORT_ARGS+=(--coverage "$RUN/coverage.json")

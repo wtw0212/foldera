@@ -13,7 +13,7 @@ final class CloudDrives {
     private(set) var added: [URL]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let storage: URL
-    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private static let key = "addedCloudDrives"
 
     /// Apps that sync into ~/Library/CloudStorage, offered when not installed yet.
@@ -46,7 +46,7 @@ final class CloudDrives {
         })
     }
 
-    isolated deinit {
+    deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 

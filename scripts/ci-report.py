@@ -38,7 +38,7 @@ def report(summary, coverage=None, minimum=80.0):
                   f"| Model + Services | {percent:.2f}% ({covered}/{executable}) | Report only |", "",
                   "| App file | Coverage |", "|---|---:|"]
         for file in sorted(target["files"], key=lambda f: f["path"]):
-            relative = file["path"].split("/Foldera/", 1)[1]
+            relative = file["path"].split("/Foldera/", 1)[-1]
             lines.append(f"| {relative} | {file['lineCoverage'] * 100:.2f}% |")
     if not successful:
         lines += ["", "**Failed:** all tests must pass without skips, and whole-app coverage must exceed the threshold."]

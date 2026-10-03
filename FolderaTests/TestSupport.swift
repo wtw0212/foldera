@@ -39,7 +39,7 @@ final class TestPreferences {
 
     init() throws { defaults = try #require(UserDefaults(suiteName: name)) }
 
-    isolated deinit { UserDefaults.standard.removePersistentDomain(forName: name) }
+    deinit { UserDefaults.standard.removePersistentDomain(forName: name) }
 }
 
 /// A deadline reports the failed condition instead of silently continuing after a fixed sleep.

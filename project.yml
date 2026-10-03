@@ -28,6 +28,7 @@ targets:
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
+      Testing: Config/Signing.xcconfig
     sources:
       - Foldera
       # 7-Zip's console program, run by Archives.swift; signed with the app.
@@ -69,6 +70,7 @@ targets:
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
+      Testing: Config/Signing.xcconfig
     sources:
       - FolderaTests
     dependencies:

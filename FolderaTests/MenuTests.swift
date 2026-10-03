@@ -72,22 +72,22 @@ struct MenuTests {
     }
 
     @Test func folderContextMenuOffersNavigationPinningAndRename() async throws {
-        let directory = try TestDirectory()
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let quickAccess = QuickAccess(defaults: preferences.defaults)
         let folder = try directory.folder("nested")
         let tab = BrowserTab(url: directory.url)
         try await eventually { !tab.isLoading }
         tab.selection = [folder]
         var opened: URL?
-        let menu = ContextMenus.itemMenu(tab: tab) { opened = $0 }
+        let menu = ContextMenus.itemMenu(tab: tab, quickAccess: quickAccess) { opened = $0 }
         try invoke(menu, L10n.text("Open in new tab"))
         #expect(opened == folder)
         try invoke(menu, L10n.text("Rename"))
         #expect(tab.renameRequest?.url == folder)
         try invoke(menu, L10n.text("Pin to Quick access"))
-        #expect(QuickAccess.shared.isPinned(folder))
-        defer { QuickAccess.shared.unpin(folder) }
-        try invoke(ContextMenus.itemMenu(tab: tab) { _ in }, L10n.text("Unpin from Quick access"))
-        #expect(!QuickAccess.shared.isPinned(folder))
+        #expect(quickAccess.isPinned(folder))
+        try invoke(ContextMenus.itemMenu(tab: tab, quickAccess: quickAccess) { _ in }, L10n.text("Unpin from Quick access"))
+        #expect(!quickAccess.isPinned(folder))
         try invoke(menu, L10n.text("Copy as path"))
         #expect(NSPasteboard.general.string(forType: .string) == folder.path)
         try invoke(menu, L10n.text("Open"))
@@ -113,10 +113,11 @@ struct MenuTests {
     }
 
     @Test func backgroundMenuProvidesCheckedSortAndCreatesTextDocuments() async throws {
-        let directory = try TestDirectory()
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let quickAccess = QuickAccess(defaults: preferences.defaults)
         let tab = BrowserTab(url: directory.url)
         try await eventually { !tab.isLoading }
-        let menu = ContextMenus.backgroundMenu(tab: tab)
+        let menu = ContextMenus.backgroundMenu(tab: tab, quickAccess: quickAccess)
         let sort = try #require(menu.items.first { $0.title == L10n.text("Sort by") }?.submenu)
         for field in SortField.allCases {
             try invoke(sort, field.title)
@@ -128,9 +129,9 @@ struct MenuTests {
         try invoke(new, L10n.text("Text Document"))
         #expect(tab.renameRequest != nil && FileOperations.exists(tab.renameRequest!.url))
         try invoke(menu, L10n.text("Pin to Quick access"))
-        defer { QuickAccess.shared.unpin(directory.url) }
-        try invoke(ContextMenus.backgroundMenu(tab: tab), L10n.text("Unpin from Quick access"))
-        #expect(!QuickAccess.shared.isPinned(directory.url))
+        #expect(quickAccess.isPinned(directory.url))
+        try invoke(ContextMenus.backgroundMenu(tab: tab, quickAccess: quickAccess), L10n.text("Unpin from Quick access"))
+        #expect(!quickAccess.isPinned(directory.url))
     }
 
     @Test func breadcrumbSubfolderMenuFiltersPackagesAndHighlightsTheCurrentPath() throws {

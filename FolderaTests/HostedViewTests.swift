@@ -116,7 +116,7 @@ struct HostedViewTests {
         let settings = AppSettings(defaults: preferences.defaults)
         settings.showNavigationPane = true
         settings.sidePane = .details
-        let model = ExplorerWindowModel()
+        let model = ExplorerWindowModel(settings: settings)
         model.primaryTab.navigate(to: directory.url)
         model.primaryTab.viewMode = .details
         try await eventually { !model.primaryTab.isLoading }
