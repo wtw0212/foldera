@@ -14,11 +14,56 @@ protocol FileViewCommands: AnyObject {
     func copySelection()
     func paste()
     func toggleQuickLook()
+    /// Switches to a bigger (`in`) or smaller layout.
+    func zoom(in zoomIn: Bool)
     /// Middle-click: opens the folder at `index` in a background tab.
     func openInBackgroundTab(index: Int)
     var hasSelection: Bool { get }
     var canPaste: Bool { get }
     func contextMenu(forRow row: Int) -> NSMenu?
+}
+
+/// Turns ⌘-scroll and trackpad pinches into zoom steps (+1 bigger, −1 smaller, 0 not yet).
+struct ZoomGesture {
+    /// Trackpad scrolling (in points) or pinching needed per step.
+    static let scrollDistance: CGFloat = 40
+    static let pinchAmount: CGFloat = 0.25
+
+    private var scrolled: CGFloat = 0
+    private var pinched: CGFloat = 0
+
+    static func isZoomScroll(_ event: NSEvent) -> Bool {
+        event.type == .scrollWheel && event.modifierFlags.contains(.command)
+    }
+
+    mutating func step(for event: NSEvent) -> Int {
+        if event.type == .magnify {
+            return step(magnification: event.magnification, began: event.phase.contains(.began))
+        }
+        // Rolling a wheel away from you, or pushing fingers up, zooms in whatever the scroll direction setting.
+        let delta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        return step(scroll: delta, precise: event.hasPreciseScrollingDeltas,
+                    momentum: !event.momentumPhase.isEmpty, began: event.phase.contains(.began))
+    }
+
+    /// A mouse wheel steps once per notch; a trackpad once per `scrollDistance`, ignoring momentum.
+    mutating func step(scroll delta: CGFloat, precise: Bool, momentum: Bool, began: Bool) -> Int {
+        guard precise else { return delta > 0 ? 1 : delta < 0 ? -1 : 0 }
+        if began { scrolled = 0 }
+        guard !momentum else { return 0 }
+        scrolled += delta
+        guard abs(scrolled) >= Self.scrollDistance else { return 0 }
+        defer { scrolled = 0 }
+        return scrolled > 0 ? 1 : -1
+    }
+
+    mutating func step(magnification: CGFloat, began: Bool) -> Int {
+        if began { pinched = 0 }
+        pinched += magnification
+        guard abs(pinched) >= Self.pinchAmount else { return 0 }
+        defer { pinched = 0 }
+        return pinched > 0 ? 1 : -1
+    }
 }
 
 /// Keyboard shortcuts and Edit-menu validation shared by the list and icon views.
@@ -35,6 +80,9 @@ enum FileKeys {
         case (51, []): commands.goBack() // ⌫ goes back, like Explorer's Backspace
         case (51, .command), (117, []): commands.trashSelection() // ⌘⌫ or forward delete
         case (49, []): commands.toggleQuickLook() // Space, like Finder
+        // ⌘= / ⌘+ and ⌘− (main keyboard or keypad); the View menu shows them as ⌘+ and ⌘−.
+        case (24, .command), (24, [.command, .shift]), (69, .command): commands.zoom(in: true)
+        case (27, .command), (78, .command): commands.zoom(in: false)
         default: return false
         }
         return true
@@ -184,6 +232,11 @@ final class FileTableView: NSTableView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if ZoomGesture.isZoomScroll(event), let commands {
+            let step = zoomGesture.step(for: event)
+            if step != 0 { commands.zoom(in: step > 0) }
+            return
+        }
         super.scrollWheel(with: event)
         refreshHover()
     }
@@ -201,6 +254,14 @@ final class FileTableView: NSTableView {
     override func keyDown(with event: NSEvent) {
         if let commands, FileKeys.handle(event, commands) { return }
         super.keyDown(with: event)
+    }
+
+    private var zoomGesture = ZoomGesture()
+
+    override func magnify(with event: NSEvent) {
+        guard let commands else { return super.magnify(with: event) }
+        let step = zoomGesture.step(for: event)
+        if step != 0 { commands.zoom(in: step > 0) }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

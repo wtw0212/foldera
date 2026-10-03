@@ -16,6 +16,27 @@ OUTPUT="build.noindex/test-results/$SUITE"
 mkdir -p "$OUTPUT"
 RUN=$(mktemp -d "$OUTPUT/run.XXXXXX")
 RESULT="$RUN/TestResults.xcresult"
+
+# UI tests run sandboxed and can't listen on a port, so the SFTP UI test's throwaway OpenSSH server
+# (key login on 127.0.0.1 only) starts here. xcodebuild hands TEST_RUNNER_* variables to the tests.
+if [[ "$SUITE" == ui && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then
+    SFTP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/foldera-sftp.XXXXXX")
+    trap 'if [[ -f "$SFTP_DIR/sshd.pid" ]]; then kill "$(cat "$SFTP_DIR/sshd.pid")" 2>/dev/null || true; fi; rm -rf "$SFTP_DIR"' EXIT
+    ssh-keygen -q -t ed25519 -N "" -f "$SFTP_DIR/host"
+    ssh-keygen -q -t ed25519 -N "" -f "$SFTP_DIR/client"
+    cp "$SFTP_DIR/client.pub" "$SFTP_DIR/authorized_keys"
+    mkdir "$SFTP_DIR/served"
+    printf 'remote' > "$SFTP_DIR/served/remote.txt"
+    SFTP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+    printf '%s\n' "Port $SFTP_PORT" "ListenAddress 127.0.0.1" "HostKey $SFTP_DIR/host" "PidFile $SFTP_DIR/sshd.pid" \
+        "AuthorizedKeysFile $SFTP_DIR/authorized_keys" "PasswordAuthentication no" "KbdInteractiveAuthentication no" \
+        "UsePAM no" "StrictModes no" "Subsystem sftp /usr/libexec/sftp-server" > "$SFTP_DIR/sshd_config"
+    /usr/sbin/sshd -f "$SFTP_DIR/sshd_config" -E "$SFTP_DIR/sshd.log"
+    export TEST_RUNNER_FOLDERA_SFTP_PORT="$SFTP_PORT"
+    export TEST_RUNNER_FOLDERA_SFTP_KEY="$SFTP_DIR/client"
+    export TEST_RUNNER_FOLDERA_SFTP_ROOT="$SFTP_DIR/served"
+fi
+
 STATUS=0
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" \
     -destination 'platform=macOS' -derivedDataPath build.noindex/tests/DerivedData \

@@ -1,3 +1,5 @@
+import AVFoundation
+import Quartz
 import AppKit
 import SwiftUI
 import Testing
@@ -19,10 +21,12 @@ struct SwiftUIViewTests {
         for language in AppLanguage.allCases { #expect(labels.contains(language.title)) }
         for location in StartLocation.allCases { #expect(labels.contains(location.title)) }
         let pickers = try view.inspect().findAll(ViewType.Picker.self)
-        #expect(pickers.count == 4)
+        #expect(pickers.count == 5)
         try pickers[0].select(value: AppLanguage.traditionalChinese)
         try pickers[1].select(value: StartLocation.downloads)
-        try pickers[2].select(value: true)
+        try pickers[2].select(value: 10)
+        try pickers[3].select(value: true)
+        #expect(settings.recentItemsCount == 10 && preferences.defaults.integer(forKey: "recentItemsCount") == 10)
         #expect(settings.language == .traditionalChinese && settings.startLocation == .downloads)
         #expect(settings.returnKeyRenames && preferences.defaults.bool(forKey: "returnKeyRenames"))
     }
@@ -32,9 +36,11 @@ struct SwiftUIViewTests {
         let settings = AppSettings(defaults: preferences.defaults)
         let view = ViewSettings(settings: settings)
         let toggles = try view.inspect().findAll(ViewType.Toggle.self)
-        #expect(toggles.count == 4)
+        #expect(toggles.count == 5)
+        #expect(!settings.autoplayPreviews, "videos don't play on their own by default")
         for toggle in toggles { try toggle.tap() }
         #expect(settings.showHiddenFiles && !settings.showExtensions && settings.compactView && !settings.showNavigationPane)
+        #expect(settings.autoplayPreviews && AppSettings(defaults: preferences.defaults).autoplayPreviews)
         #expect(settings.rowHeight == 22)
         #expect(try texts(view).contains(L10n.text("Reset All Folders")))
     }
@@ -163,5 +169,99 @@ struct SwiftUIViewTests {
         #expect(transfer.isCancelled)
         #expect(try texts(row).contains(L10n.text("Cancelling…")))
         #expect(try row.inspect().find(ViewType.Button.self).isDisabled())
+    }
+}
+
+@MainActor
+struct PreviewPlaybackTests {
+    @Test func previewsDoNotAutostartUnlessAskedTo() throws {
+        let file = try TestDirectory().file("clip.txt")
+        let off = QuickLookPreview(url: file)
+        #expect(!off.autostarts)
+        let host = NSHostingView(rootView: off.frame(width: 200, height: 200))
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(host.subviews.first { $0 is QLPreviewView } as? QLPreviewView ?? Self.find(in: host))
+        #expect(!view.autostarts)
+        host.rootView = QuickLookPreview(url: file, autostarts: true).frame(width: 200, height: 200)
+        host.layoutSubtreeIfNeeded()
+        #expect(view.autostarts)
+    }
+
+    @Test func videosShowAPlayButtonAndClickingThePictureTogglesPlayback() throws {
+        let file = try TestDirectory().file("clip.mov")
+        let playback = VideoPlayback(url: file)
+        let preview = VideoPreview(playback: playback)
+        #expect(try preview.inspect().vStack().zStack(0).image(1).actualImage().name() == "play.circle.fill", "paused videos show a play button")
+        try preview.inspect().vStack().zStack(0).callOnTapGesture()
+        #expect(playback.isPlaying)
+        #expect((try? preview.inspect().vStack().zStack(0).image(1)) == nil, "the button hides while playing")
+        try preview.inspect().vStack().zStack(0).callOnTapGesture()
+        #expect(!playback.isPlaying, "clicking again pauses")
+        let timeline = try preview.inspect().vStack().hStack(1)
+        #expect(try timeline.text(0).string() == "0:00" && timeline.slider(1).isDisabled(), "no timeline until the video loads")
+
+        let host = NSHostingView(rootView: VideoPreview(url: file).frame(width: 200, height: 200))
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.width > 0)
+        #expect(FileKind.of(file, type: nil) == .video)
+    }
+
+    @Test func videoPlaybackPlaysPausesAndRewindsAtTheEnd() {
+        let playback = VideoPlayback(url: URL(fileURLWithPath: "/nonexistent/clip.mov"))
+        #expect(!playback.isPlaying)
+        playback.toggle()
+        #expect(playback.isPlaying)
+        playback.toggle()
+        #expect(!playback.isPlaying)
+        playback.play()
+        NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: playback.player.currentItem)
+        #expect(!playback.isPlaying, "the end shows the play button again")
+        playback.seek(to: 3.5)
+        #expect(playback.currentTime == 3.5)
+        playback.tick(CMTime(seconds: 1, preferredTimescale: 600))
+        #expect(playback.currentTime == 1)
+        playback.isScrubbing = true
+        playback.tick(CMTime(seconds: 2, preferredTimescale: 600))
+        #expect(playback.currentTime == 1, "dragging the timeline isn't overridden by playback")
+        #expect(VideoPlayback.format(7.9) == "0:07" && VideoPlayback.format(3723) == "1:02:03" && VideoPlayback.format(.nan) == "0:00")
+    }
+
+    @Test func videoTimelineLoadsTheLengthAndSeeks() async throws {
+        let directory = try TestDirectory(), video = directory.path("clip.mov")
+        try await Self.writeVideo(to: video, seconds: 2)
+        let playback = VideoPlayback(url: video)
+        try await eventually { playback.duration > 1.9 }
+        playback.seek(to: 10)
+        #expect(playback.currentTime == playback.duration, "seeking stops at the end")
+        let host = NSHostingView(rootView: VideoPreview(playback: playback).frame(width: 240, height: 286))
+        host.layoutSubtreeIfNeeded()
+        #expect(host.fittingSize.width > 0)
+    }
+
+    /// A short black video, so tests don't need a fixture file.
+    private static func writeVideo(to url: URL, seconds: Int) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 64,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: 64, kCVPixelBufferHeightKey as String: 64,
+        ])
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0...(seconds * 10) {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &buffer)
+            adaptor.append(try #require(buffer), withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 10))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        #expect(writer.status == .completed, "\(String(describing: writer.error))")
+    }
+
+    private static func find(in view: NSView) -> QLPreviewView? {
+        (view as? QLPreviewView) ?? view.subviews.lazy.compactMap(find).first
     }
 }

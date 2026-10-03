@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Windows 11 "subtle" button: transparent until hovered.
 struct SubtleButtonStyle: ButtonStyle {
@@ -142,6 +143,11 @@ struct FolderDropTarget: ViewModifier {
     let folder: URL
     @State private var isTargeted = false
 
+    /// This Mac and Network are pages, not folders.
+    static func acceptsDrops(_ folder: URL) -> Bool {
+        folder != BrowserTab.thisMacURL && folder != BrowserTab.networkURL
+    }
+
     func body(content: Content) -> some View {
         content
             .background(
@@ -149,9 +155,11 @@ struct FolderDropTarget: ViewModifier {
                     .strokeBorder(Theme.accent.swiftUI, lineWidth: isTargeted ? 1.5 : 0)
                     .background(RoundedRectangle(cornerRadius: 4).fill(isTargeted ? Theme.hover.swiftUI : .clear))
             )
-            .dropDestination(for: URL.self) { urls, _ in
-                FileDrop.perform(urls.filter(\.isFileURL), into: folder)
-            } isTargeted: { isTargeted = $0 }
+            .onDrop(of: [.fileURL, .remoteItem], isTargeted: Binding(get: { isTargeted }, set: { isTargeted = $0 && Self.acceptsDrops(folder) })) { _ in
+                // The drag pasteboard can be read synchronously, and carries server items too.
+                guard Self.acceptsDrops(folder) else { return false }
+                return FileDrop.perform(FileDrop.fileURLs(from: NSPasteboard(name: .drag)), into: folder)
+            }
     }
 }
 

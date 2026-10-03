@@ -25,7 +25,7 @@ final class DiskAccess {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.hasFullDiskAccess = DiskAccess.check() }
         }
-        if !hasFullDiskAccess { startPolling() }
+        if showsBanner { startPolling() }
     }
 
     /// macOS never lists apps under Full Disk Access by itself: the user has to add them with "+"
@@ -73,7 +73,8 @@ final class DiskAccess {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                guard let self else { return }
+                // Once the bar is dismissed nothing shows the result; becoming active re-checks anyway.
+                guard let self, !self.isBannerDismissed else { return }
                 if DiskAccess.check() {
                     self.hasFullDiskAccess = true
                     return

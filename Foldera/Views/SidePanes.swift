@@ -2,18 +2,21 @@ import ImageIO
 import Quartz
 import SwiftUI
 
-private struct QuickLookPreview: NSViewRepresentable {
+struct QuickLookPreview: NSViewRepresentable {
     let url: URL
+    /// Off by default: a selected video shows its first frame and a play button instead of playing.
+    var autostarts = false
 
     func makeNSView(context: Context) -> QLPreviewView {
         let view = QLPreviewView(frame: .zero, style: .normal)!
         view.shouldCloseWithWindow = false
-        view.autostarts = true
+        view.autostarts = autostarts
         view.previewItem = url as NSURL
         return view
     }
 
     func updateNSView(_ view: QLPreviewView, context: Context) {
+        view.autostarts = autostarts
         if (view.previewItem as? NSURL) as URL? != url {
             view.previewItem = url as NSURL
         }
@@ -43,10 +46,15 @@ struct DetailsPane: View {
                 } else if tab.isThisMac {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                     property(L10n.text("Drives"), "\(VolumeMonitor.shared.volumes.count)")
+                } else if tab.isNetwork {
+                    header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
+                } else if tab.isRecent {
+                    header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
+                    property(L10n.text("Items"), "\(tab.visibleItems.count)")
                 } else {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                     property(L10n.text("Items"), "\(tab.visibleItems.count)")
-                    property(L10n.text("Location"), (tab.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+                    property(L10n.text("Location"), FileFormat.location(of: tab.url))
                 }
             }
             .padding(16)
@@ -62,13 +70,18 @@ private struct ItemDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if item.isNavigable {
+            if item.isNavigable || item.url.isRemote {
                 Image(nsImage: FileIcons.icon(for: item))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: 120)
+            } else if FileKind.of(item.url, type: item.contentType) == .video {
+                VideoPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
+                    .id(item.url)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 286)
             } else {
-                QuickLookPreview(url: item.url)
+                QuickLookPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
                     .id(item.url)
                     .frame(maxWidth: .infinity)
                     .frame(height: 260)
@@ -92,7 +105,7 @@ private struct ItemDetails: View {
             property(L10n.text("Location"), FileFormat.location(of: item.url))
         }
         .task(id: item.url) {
-            dimensions = Self.imageDimensions(item.url)
+            dimensions = item.url.isFileURL ? Self.imageDimensions(item.url) : nil
         }
     }
 

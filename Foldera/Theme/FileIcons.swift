@@ -4,7 +4,12 @@ import UniformTypeIdentifiers
 
 /// Icon lookup with caching. Folders and files get Windows 11 style icons; apps, packages and drives keep their own.
 enum FileIcons {
-    private static let cache = NSCache<NSString, NSImage>()
+    /// App, package and drive icons; bounded so a folder of many apps doesn't keep every icon.
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 400
+        return cache
+    }()
 
     static let folder: NSImage = {
         let image = NSImage(size: NSSize(width: 16, height: 16), flipped: true) { rect in
@@ -22,6 +27,9 @@ enum FileIcons {
         return image
     }()
 
+    static var network: NSImage { NSImage(named: NSImage.networkName) ?? folder }
+    static var recent: NSImage { NSImage(systemSymbolName: "clock", accessibilityDescription: nil) ?? folder }
+
     static func icon(for item: FileItem) -> NSImage {
         if item.isDirectory && !item.isPackage && !item.isVolume {
             return folder
@@ -35,6 +43,9 @@ enum FileIcons {
 
     static func icon(forPath url: URL) -> NSImage {
         if url == BrowserTab.thisMacURL { return NSImage(named: NSImage.computerName) ?? folder }
+        if url == BrowserTab.networkURL || (url.isRemote && url.remotePath == "/") { return network }
+        if url == BrowserTab.recentURL { return recent }
+        if url.isRemote { return folder }
         return cached(key: "file:" + url.path) { NSWorkspace.shared.icon(forFile: url.path) }
     }
 

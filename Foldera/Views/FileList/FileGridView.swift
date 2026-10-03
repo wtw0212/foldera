@@ -32,7 +32,7 @@ struct FileGridView: NSViewRepresentable {
         grid.allowsEmptySelection = true
         grid.backgroundColors = [Theme.content]
         grid.register(FileGridItem.self, forItemWithIdentifier: FileGridItem.identifier)
-        grid.registerForDraggedTypes([.fileURL])
+        grid.registerForDraggedTypes(ItemPasteboard.types)
         grid.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
         grid.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
         grid.onDoubleClick = { [weak coordinator] indexPath in coordinator?.open(at: indexPath.item) }
@@ -183,7 +183,7 @@ struct FileGridView: NSViewRepresentable {
         }
 
         func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {
-            items[indexPath.item].url as NSURL
+            ItemPasteboard.writer(for: items[indexPath.item].url)
         }
 
         // MARK: Selection
@@ -249,6 +249,7 @@ struct FileGridView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func zoom(in zoomIn: Bool) { tab?.zoom(in: zoomIn) }
         func openInBackgroundTab(index: Int) {
             guard index < items.count, items[index].isNavigable else { return }
             parent?.openInBackgroundTab(items[index].url)

@@ -37,13 +37,14 @@ struct SearchMatcherTests {
 
     @Test func largeSearchStreamsEveryMatchAndMissingRootFinishes() async throws {
         let directory = try TestDirectory()
-        for index in 0..<425 { try directory.file("match\(index).txt", contents: "") }
-        var urls = Set<URL>(), batches = 0
+        for index in 0..<2_150 { try directory.file("match\(index).txt", contents: "") }
+        var urls = Set<URL>(), batches: [Int] = []
         for await batch in FileSearch.run(in: directory.url, query: "match", includeHidden: false) {
-            batches += 1
+            batches.append(batch.count)
             urls.formUnion(batch.map(\.url))
         }
-        #expect(urls.count == 425 && batches >= 3)
+        // Results stream in batches of at most 1,000 (or whatever arrived in the last 200 ms).
+        #expect(urls.count == 2_150 && batches.count >= 3 && batches.allSatisfy { $0 <= 1_000 })
         var missingCount = 0
         for await batch in FileSearch.run(in: directory.path("missing"), query: "*", includeHidden: true) {
             missingCount += batch.count

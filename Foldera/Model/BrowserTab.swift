@@ -31,6 +31,10 @@ final class BrowserTab: Identifiable {
 
     /// The "This Mac" page (drives and their free space), like Explorer's This PC.
     static let thisMacURL = URL(string: "foldera:this-mac")!
+    /// The "Network" page: network drives, SFTP sites and servers found on the local network.
+    static let networkURL = URL(string: "foldera:network")!
+    /// Every recently opened folder and file, newest first.
+    static let recentURL = URL(string: "foldera:recent")!
 
     let id = UUID()
     private(set) var url: URL
@@ -39,7 +43,11 @@ final class BrowserTab: Identifiable {
     private var lastLoadError: NSError?
     var loadError: String? { lastLoadError.map(Self.describe) }
     var selection: Set<URL> = []
-    var sort = SortOrder()
+    var sort = SortOrder() {
+        didSet { if isRecent && sort != oldValue { keepsRecentOrder = false } }
+    }
+    /// Recent lists newest first until a sort is chosen.
+    private var keepsRecentOrder = true
     /// Layout for this folder; remembered per folder.
     var viewMode: ViewMode {
         didSet { if viewMode != oldValue { FolderViewModes.set(viewMode, for: url, defaults: settings.defaults) } }
@@ -62,7 +70,14 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var visibleCache: (key: VisibleKey, items: [FileItem])?
     private var itemsVersion = 0
     @ObservationIgnored private var searchTask: Task<Void, Never>?
-    private let settings: AppSettings
+    let settings: AppSettings
+
+    /// Reloads when a transfer changes the server folder shown here (servers aren't watched).
+    @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
+
+    deinit {
+        if let remoteChangeObserver { NotificationCenter.default.removeObserver(remoteChangeObserver) }
+    }
 
     init(url: URL, settings: AppSettings = .shared) {
         self.settings = settings
@@ -70,6 +85,13 @@ final class BrowserTab: Identifiable {
         self.url = url
         self.viewMode = FolderViewModes.mode(for: url, defaults: settings.defaults)
         load(selecting: [])
+        remoteChangeObserver = NotificationCenter.default.addObserver(forName: .remoteFolderChanged, object: nil, queue: .main) { [weak self] note in
+            let changed = note.userInfo?["url"] as? URL
+            MainActor.assumeIsolated {
+                guard let self, self.isRemote, changed?.normalizedFileURL == self.url else { return }
+                self.reload()
+            }
+        }
     }
 
     // MARK: Derived state
@@ -78,11 +100,21 @@ final class BrowserTab: Identifiable {
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var isThisMac: Bool { url == Self.thisMacURL }
+    var isNetwork: Bool { url == Self.networkURL }
+    /// This Mac or Network: pages that aren't folders, so folder commands don't apply.
+    var isPage: Bool { isThisMac || isNetwork }
+    var isRecent: Bool { url == Self.recentURL }
+    /// A real folder: new items, paste and drops can go here (not This Mac, Network or Recent).
+    var acceptsItems: Bool { !isPage && !isRecent }
+    var isRemote: Bool { url.isRemote }
     var canGoUp: Bool { parentURL != nil }
 
-    /// The enclosing folder; a drive's root goes up to This Mac.
+    /// The enclosing folder; a drive's root goes up to This Mac, a server's root to Network.
     var parentURL: URL? {
-        if isThisMac { return nil }
+        if isPage || isRecent { return nil }
+        if let endpoint = url.remoteEndpoint {
+            return url.remotePath == "/" ? Self.networkURL : endpoint.url(path: RemotePath.parent(of: url.remotePath))
+        }
         if url.path == "/" || (try? url.resourceValues(forKeys: [.isVolumeKey]).isVolume) == true { return Self.thisMacURL }
         return url.deletingLastPathComponent()
     }
@@ -95,6 +127,7 @@ final class BrowserTab: Identifiable {
 
     private struct VisibleKey: Equatable {
         let version: Int
+        let recentOrder: Bool
         let sort: SortOrder
         let search: String
         let showHidden: Bool
@@ -102,12 +135,16 @@ final class BrowserTab: Identifiable {
 
     /// The filtered and sorted listing shown in the file list. Folders always come first, like Explorer.
     var visibleItems: [FileItem] {
-        let key = VisibleKey(version: itemsVersion, sort: sort, search: searchText, showHidden: settings.showHiddenFiles)
+        let key = VisibleKey(version: itemsVersion, recentOrder: keepsRecentOrder, sort: sort, search: searchText, showHidden: settings.showHiddenFiles)
         if let visibleCache, visibleCache.key == key { return visibleCache.items }
 
         let source = isSearchActive ? searchResults : items
         var result = key.showHidden ? source : source.filter { !$0.isHidden }
         let sort = key.sort
+        if isRecent && keepsRecentOrder {
+            visibleCache = (key, result)
+            return result
+        }
         result.sort { a, b in
             if a.isNavigable != b.isNavigable { return a.isNavigable }
             let order: ComparisonResult = switch sort.field {
@@ -132,6 +169,7 @@ final class BrowserTab: Identifiable {
     private func navigate(to destination: URL, selecting: Set<URL>) {
         let destination = destination.normalizedFileURL
         guard destination != url else { return }
+        settings.recents.record(destination, isFolder: true)
         backStack.append(url)
         forwardStack.removeAll()
         move(to: destination, selecting: selecting)
@@ -181,11 +219,18 @@ final class BrowserTab: Identifiable {
     private func scheduleSearch() {
         searchTask?.cancel()
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty, !isThisMac else {
+        guard !query.isEmpty, !isPage else {
             searchTask = nil
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
             itemsVersion += 1
+            return
+        }
+        if isRemote || isRecent {
+            // Searching a server recursively would be slow and costly, and Recent isn't a folder: filter the listing instead.
+            searchResults = items.filter { $0.name.localizedStandardContains(query) }
+            itemsVersion += 1
+            isSearching = false
             return
         }
         let root = url
@@ -218,6 +263,7 @@ final class BrowserTab: Identifiable {
 
     private func move(to destination: URL, selecting: Set<URL>) {
         url = destination
+        keepsRecentOrder = true
         let mode = FolderViewModes.mode(for: destination, defaults: settings.defaults)
         if viewMode != mode { viewMode = mode }
         searchText = ""
@@ -230,8 +276,8 @@ final class BrowserTab: Identifiable {
     private func load(selecting: Set<URL>) {
         selectAfterLoad = selecting
         let target = url
-        if isThisMac {
-            // Not a folder: ThisMacView shows the drives itself.
+        if isPage {
+            // Not a folder: ThisMacView and NetworkView show their own content.
             loadTask?.cancel()
             watcher = nil
             watcherURL = nil
@@ -239,7 +285,18 @@ final class BrowserTab: Identifiable {
             isLoading = false
             return
         }
-        if watcher == nil || watcherURL != target {
+        if isRecent {
+            loadTask?.cancel()
+            watcher = nil
+            watcherURL = nil
+            apply(Self.recentItems(settings.recents))
+            return
+        }
+        if target.isRemote {
+            // Servers can't be watched; Refresh and Foldera's own changes reload them.
+            watcher = nil
+            watcherURL = nil
+        } else if watcher == nil || watcherURL != target {
             watcher = DirectoryWatcher(directory: target) { [weak self] in self?.reload() }
             watcherURL = target
         }
@@ -247,7 +304,7 @@ final class BrowserTab: Identifiable {
         isLoading = true
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await DirectoryLoader.load(target)
+                let loaded = target.isRemote ? try await RemoteDirectory.load(target) : try await DirectoryLoader.load(target)
                 guard let self, !Task.isCancelled, self.url == target else { return }
                 self.apply(loaded)
             } catch {
@@ -269,6 +326,7 @@ final class BrowserTab: Identifiable {
             items = loaded
             itemsVersion += 1
         }
+        if isRemote && isSearchActive { scheduleSearch() }
         let present = Set(loaded.map(\.url))
         let wanted = selectAfterLoad.isEmpty ? selection : selectAfterLoad
         selection = wanted.intersection(present)
@@ -277,9 +335,33 @@ final class BrowserTab: Identifiable {
 
     // MARK: Helpers
 
+    /// The Recent page's listing. Server items are listed from what was recorded, without connecting.
+    static func recentItems(_ recents: RecentItems) -> [FileItem] {
+        recents.visible(RecentItems.capacity).map { item in
+            guard let endpoint = item.url.remoteEndpoint else { return FileItem(url: item.url) }
+            let entry = RemoteEntry(path: item.url.remotePath, isDirectory: item.isFolder, isSymlink: false, size: nil, modified: nil, permissions: nil)
+            return FileItem(remote: entry, endpoint: endpoint)
+        }
+    }
+
+    /// What the address field shows when editing: a path, "This Mac", "Network" or an sftp:// address.
+    static func editableAddress(of url: URL) -> String {
+        if url == thisMacURL { return "This Mac" }
+        if url == networkURL { return "Network" }
+        if url == recentURL { return "Recent" }
+        if let endpoint = url.remoteEndpoint {
+            let port = endpoint.port == RemoteEndpoint.defaultPort ? "" : ":\(endpoint.port)"
+            return "sftp://\(endpoint.username)@\(endpoint.host)\(port)\(url.remotePath)"
+        }
+        return url.path
+    }
+
     /// Address-bar labels keep the filesystem's names, independent of the interface language.
     static func pathName(of url: URL) -> String {
         if url == thisMacURL { return "This Mac" }
+        if url == networkURL { return "Network" }
+        if url == recentURL { return "Recent" }
+        if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "/"
         }
@@ -288,6 +370,9 @@ final class BrowserTab: Identifiable {
 
     static func displayName(of url: URL) -> String {
         if url == thisMacURL { return L10n.text("This Mac") }
+        if url == networkURL { return L10n.text("Network") }
+        if url == recentURL { return L10n.text("Recent") }
+        if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? "Macintosh HD"
         }

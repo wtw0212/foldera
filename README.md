@@ -34,7 +34,7 @@ Each invocation preserves its full log, `.xcresult`, test summary and (for unit 
 
 Every PR, push to `main`, and manual CI run checks workflows with actionlint, shell scripts with ShellCheck, and the Python CI tooling. Unit/integration and UI tests run on Apple Silicon/macOS 26. Results are retained for 14 days and summaries appear in the Actions run. The stable **CI passed** check fails if any required job fails, is cancelled, or is skipped; it can be selected in GitHub branch protection.
 
-CI requires every test to pass without skips and **more than 80% line coverage across the entire Foldera app**, including Model, Services, Views, Theme and App, weighted by executable line count. No app source files are excluded. UI smoke tests cover address/history navigation, recursive search, tab shortcuts, folder creation/undo and Traditional Chinese; appearance fidelity, real cloud-provider accounts and macOS permission prompts still need manual checks.
+CI requires every test to pass without skips and **more than 80% line coverage across the entire Foldera app**, including Model, Services, Views, Theme and App, weighted by executable line count. No app source files are excluded. UI smoke tests cover address/history navigation, recursive search, tab shortcuts, folder creation/undo, Traditional Chinese and connecting to an SFTP server; SFTP tests run against a throwaway, key-only OpenSSH server on 127.0.0.1 that the tests start themselves; appearance fidelity, real cloud-provider accounts and macOS permission prompts still need manual checks.
 
 ### Signing
 
@@ -71,6 +71,10 @@ The DMG is signed with your development certificate, so it runs on your Macs. To
 | `Foldera/Views/FileList` | `NSTableView`-based details view, context menus |
 | `Foldera/Theme` | Windows 11 colors and icons |
 
+## Recent items
+
+The navigation pane's **Recent** section, above Quick access, lists the last folders and files you opened (newest first; local items that were deleted or moved are skipped). It shows 5 by default; Settings ▸ General ▸ Recent items in navigation pane picks 3–20, or None to hide it. Right-click an item to remove it, or the section to clear it.
+
 ## Languages
 
 Settings ▸ General ▸ Language switches between **Follow System**, **English** and **繁體中文** immediately and remembers the selection. Unsupported system languages fall back to English. File names, paths and shortcuts are preserved; macOS-owned dialogs and file-type descriptions use the system language.
@@ -91,12 +95,14 @@ Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`
 | New tab / Close tab | ⌘T / ⌘W |
 | Next / previous tab | ⇧⌘] / ⇧⌘[, ⌘1–9 |
 | Edit address | ⌘L |
+| Network / Connect to Server | ⇧⌘K / ⌘K |
 | Search | ⌘F |
 | Refresh | ⌘R |
 | Show hidden items | ⇧⌘. |
 | Properties (Get Info) | ⌘I |
 | Quick Look | Space |
 | Layouts (Extra large icons … Content) | ⌥⌘1–8 |
+| Bigger / smaller layout (Details → List → icons) | ⌘+ / ⌘−, ⌘-scroll, pinch |
 | Details pane (with preview) | ⌥⌘P |
 | Undo / Redo | ⌘Z / ⇧⌘Z |
 | Dual pane on/off | ⌥⌘D |
@@ -128,6 +134,22 @@ Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdPar
 OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.
 
 Drag a folder onto the edge of a Quick access pin, or onto the dividers around the pins, to pin it there; dropping on the middle of a pin still moves or copies into that folder.
+
+## Network and SFTP
+
+**Network** (⇧⌘K, or the navigation pane) lists saved SFTP sites, mounted network drives and file servers advertised on the local network. **Connect to Server** (⌘K) mounts `smb://`, `afp://`, `nfs://` and WebDAV addresses with macOS's own sign-in, like Finder, and opens `sftp://user@host[:port]/path` in Foldera. The address bar accepts the same addresses.
+
+SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote layout:
+
+- Browse, search the current folder, rename, delete (permanently, after confirming), and create folders and text files.
+- Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
+- Copies omit directory symlinks; a move that would omit one stops before removing its source. If copying succeeds but source deletion fails, the complete destination is kept and the source is removed from Cut to prevent a destructive retry.
+- Opening a server file downloads a temporary copy into its app; each save uploads it again.
+- **Open in Terminal (SSH)** opens an `ssh` session in the current server folder.
+
+Sites sign in with a password or an Ed25519/RSA private key in OpenSSH format. Passwords and key passphrases are kept in the macOS Keychain, never in preferences. The first connection shows the server's SHA-256 key fingerprint to confirm; a changed key is reported before anything is sent. Server changes can't be undone, and Quick Look, thumbnails and archive commands are local-only.
+
+SFTP uses [Citadel](https://github.com/orlandos-nl/Citadel) 0.12.0 (MIT), pinned because 0.12.1 replaced its SSH dependency with an unvetted fork.
 
 ## Roadmap
 

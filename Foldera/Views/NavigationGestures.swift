@@ -115,7 +115,8 @@ struct NavigationGestures: NSViewRepresentable {
         }
 
         private func trackTwoFingerSwipe(_ event: NSEvent, _ handlers: NavigationGestures) -> Bool {
-            guard event.phase == .began, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+            // ⌘-scroll zooms the file view instead.
+            guard event.phase == .began, !event.modifierFlags.contains(.command), NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                   abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5 else { return false }
             // Fingers moving right reveal the previous page, like Safari.
             let goingBack = event.scrollingDeltaX > 0

@@ -22,6 +22,17 @@ struct FileClipboardTests {
         #expect(clipboard.cutURLs == [b] && pastedURLs == [b])
     }
 
+    @Test func committedCopyConsumesItsCutSourceWhileUnstartedItemsStayCut() {
+        defer { pasteboard.clearContents() }
+        let clipboard = FileClipboard(pasteboard: pasteboard)
+        clipboard.cut([a, b])
+        let result = TransferResult(consumedCutSources: [a], error: RemoteError.failed("cleanup"))
+        clipboard.finishMove(result, urls: [a, b], changeCount: pasteboard.changeCount)
+        #expect(result.completedSources.isEmpty)
+        #expect(!clipboard.isCut(a) && clipboard.isCut(b))
+        #expect(clipboard.cutURLs == [b] && pastedURLs == [b])
+    }
+
     @Test func cancelledOrNoOpMovePreservesCutItems() {
         defer { pasteboard.clearContents() }
         let clipboard = FileClipboard(pasteboard: pasteboard)

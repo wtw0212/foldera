@@ -8,9 +8,10 @@ struct ExplorerWindow: View {
     @State private var diskAccess = DiskAccess.shared
     @State private var swipe = SwipeFeedback()
 
-    init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared) {
+    init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared, swipe: SwipeFeedback = SwipeFeedback()) {
         _model = State(initialValue: model)
         _settings = State(initialValue: settings)
+        _swipe = State(initialValue: swipe)
     }
 
     var body: some View {
@@ -34,14 +35,13 @@ struct ExplorerWindow: View {
             HSplitView {
                 if settings.showNavigationPane {
                     // Starts at its minimum width; drag the divider to widen it.
-                    NavigationPane(model: model, tab: tab)
+                    NavigationPane(model: model, tab: tab, settings: settings)
                         .frame(minWidth: 180, idealWidth: 180, maxWidth: 400)
                         .layoutPriority(0)
                 }
                 filePanes
                     .frame(minWidth: 320, maxWidth: .infinity)
                     .layoutPriority(1)
-                    .overlay { SwipeArrowOverlay(feedback: swipe).clipped() }
                 if settings.sidePane == .details {
                     DetailsPane(tab: tab)
                         .frame(minWidth: 240, idealWidth: 320, maxWidth: 700)
@@ -67,6 +67,16 @@ struct ExplorerWindow: View {
         .onAppear {
             TextFieldClickAway.install()
             model.offerWelcomeIfNeeded()
+        }
+        .sheet(item: $model.networkSheet) { sheet in
+            switch sheet {
+            case .connect(let address):
+                ConnectServerSheet(model: model, address: address)
+                    .environment(\.locale, L10n.locale)
+            case .site(let site, let connect):
+                SiteEditorSheet(site: site, connect: connect) { model.openSite($0) }
+                    .environment(\.locale, L10n.locale)
+            }
         }
         .sheet(isPresented: $model.isShowingWelcome) {
             WelcomeView { model.isShowingWelcome = false }
@@ -135,7 +145,9 @@ struct ExplorerWindow: View {
     private func fileList(_ tab: BrowserTab, pane: ExplorerWindowModel.Pane) -> some View {
         let onFocus = { if model.focusedPane != pane { model.focusedPane = pane } }
         return Group {
-            if tab.isThisMac {
+            if tab.isNetwork {
+                NetworkView(model: model, tab: tab, onFocus: onFocus)
+            } else if tab.isThisMac {
                 ThisMacView(
                     tab: tab,
                     openInNewTab: { model.newTab(url: $0) },
@@ -171,6 +183,12 @@ struct ExplorerWindow: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay {
+            // Back/forward navigate the active pane, so its arrow appears there rather than across both panes.
+            if tab === model.activeTab {
+                SwipeArrowOverlay(feedback: swipe).clipped()
+            }
+        }
     }
 
     private func detailsList(_ tab: BrowserTab, onFocus: @escaping () -> Void) -> some View {
@@ -184,7 +202,7 @@ struct ExplorerWindow: View {
             cutURLs: clipboard.cutURLs,
             renameRequest: tab.renameRequest,
             focusToken: tab.focusListToken,
-            isSearchResults: tab.isSearchActive,
+            isSearchResults: tab.isSearchActive || tab.isRecent,
             openInNewTab: { model.newTab(url: $0) },
             openInBackgroundTab: { model.newTab(url: $0, activate: false) },
             onFocus: onFocus
@@ -192,10 +210,11 @@ struct ExplorerWindow: View {
     }
 
     private func emptyMessage(_ tab: BrowserTab) -> String? {
-        guard !tab.isThisMac else { return nil }
+        guard !tab.isPage else { return nil }
         if let error = tab.loadError { return error }
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
-        return tab.isSearchActive ? L10n.text("No items match your search.") : L10n.text("This folder is empty.")
+        if tab.isSearchActive { return L10n.text("No items match your search.") }
+        return tab.isRecent ? L10n.text("Folders and files you open appear here.") : L10n.text("This folder is empty.")
     }
 }
 
@@ -235,7 +254,9 @@ private struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count) : L10n.format("items.count", tab.visibleItems.count))
+            Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count)
+                 : tab.isNetwork ? L10n.format("items.count", SFTPSites.shared.sites.count + NetworkBrowser.shared.servers.count)
+                 : L10n.format("items.count", tab.visibleItems.count))
                 .accessibilityIdentifier("item-count")
             if !tab.selection.isEmpty {
                 separator

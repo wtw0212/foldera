@@ -49,6 +49,18 @@ enum ViewMode: String, CaseIterable, Identifiable {
     var shortcutNumber: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
 }
 
+extension ViewMode {
+    /// ⌘+ / ⌘− and ⌘-scroll or pinch step through these, smallest to largest, like Ctrl+wheel in Explorer.
+    static let zoomOrder: [ViewMode] = [.details, .list, .smallIcons, .mediumIcons, .largeIcons, .extraLargeIcons]
+
+    /// The next layout up (bigger) or down, stopping at either end. Tiles and Content count as medium icons.
+    func zoomed(in zoomIn: Bool) -> ViewMode {
+        let index = Self.zoomOrder.firstIndex(of: self) ?? Self.zoomOrder.firstIndex(of: .mediumIcons) ?? 0
+        let next = min(max(index + (zoomIn ? 1 : -1), 0), Self.zoomOrder.count - 1)
+        return Self.zoomOrder[next]
+    }
+}
+
 /// Remembers the layout per folder, falling back to the last layout chosen anywhere.
 enum FolderViewModes {
     private static let key = "folderViewModes"

@@ -97,6 +97,20 @@ final class ExplorerUITests: XCTestCase {
         }
     }
 
+    func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
+        try withApp { app, root in
+            navigate(app, to: root.path)
+            app.typeKey("=", modifierFlags: .command)
+            app.typeKey("=", modifierFlags: .command)
+            let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
+            expectation(for: gone, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            app.typeKey("-", modifierFlags: .command)
+            app.typeKey("-", modifierFlags: .command)
+            XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 5))
+        }
+    }
+
     func testTraditionalChineseStatusAndAddressNavigation() throws {
         try withApp(language: "zh-Hant") { app, root in
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "2 個項目")
@@ -104,5 +118,59 @@ final class ExplorerUITests: XCTestCase {
             XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForExistence(timeout: 5))
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 個項目")
         }
+    }
+}
+
+/// Connects through the real UI to the throwaway OpenSSH server that scripts/test.sh starts
+/// (UI tests are sandboxed and can't run a server themselves).
+final class NetworkUITests: XCTestCase {
+    @MainActor
+    func testSFTPAddressSavesASiteTrustsTheServerAndListsFiles() throws {
+        continueAfterFailure = false
+        let environment = ProcessInfo.processInfo.environment
+        guard let port = environment["FOLDERA_SFTP_PORT"], let key = environment["FOLDERA_SFTP_KEY"],
+              let served = environment["FOLDERA_SFTP_ROOT"] else {
+            throw XCTSkip("Run with scripts/test.sh ui, which starts the SFTP server.")
+        }
+        let app = XCUIApplication()
+        defer {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "SFTP"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            app.terminate()
+        }
+        app.launchArguments = [
+            "-initialPath", NSTemporaryDirectory(), "-appLanguage", "en",
+            "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
+            "-defaultViewMode", "details", "-folderViewModes", "{}",
+            "-showNavigationPane", "NO", "-sidePane", "none", "-showHiddenFiles", "NO",
+            // Start without saved sites or trusted servers.
+            "-sftpSites", "<>", "-sftpHostKeys", "{}",
+        ]
+        app.launch()
+        XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 10))
+
+        app.typeKey("k", modifierFlags: .command)
+        let address = app.textFields["server-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 5))
+        address.typeText("sftp://\(NSUserName())@127.0.0.1:\(port)\(served)")
+        address.typeKey(.return, modifierFlags: [])
+
+        let host = app.textFields["site-host"]
+        XCTAssertTrue(host.waitForExistence(timeout: 5))
+        XCTAssertEqual(host.value as? String, "127.0.0.1")
+        app.radioButtons["Private key"].click()
+        let keyField = app.textFields["site-key"]
+        XCTAssertTrue(keyField.waitForExistence(timeout: 5))
+        keyField.click()
+        keyField.typeText(key)
+        app.buttons["Save and Connect"].click()
+
+        let trust = app.buttons["Trust and Connect"].firstMatch
+        XCTAssertTrue(trust.waitForExistence(timeout: 15))
+        trust.click()
+        XCTAssertTrue(app.tables["file-list"].staticTexts["remote.txt"].waitForExistence(timeout: 15))
+        XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 item")
     }
 }

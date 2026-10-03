@@ -26,6 +26,8 @@ final class ExplorerWindowModel {
     }
     /// Bumped to move keyboard focus to the search box.
     private(set) var focusSearchToken = 0
+    /// Connect to Server or an SFTP site's settings, shown as a sheet.
+    var networkSheet: NetworkSheet?
 
     /// The first window opens at `-initialPath <path>` when given (e.g. `open Foldera.app --args -initialPath ~/Downloads`).
     static var defaultURL: URL {
@@ -94,12 +96,15 @@ final class ExplorerWindowModel {
     }
 
     /// Opens a tab after the active one. `activate: false` (middle-click) opens it in the background.
-    func newTab(url: URL? = nil, activate: Bool = true) {
+    @discardableResult
+    func newTab(url: URL? = nil, activate: Bool = true) -> BrowserTab {
+        if let url { settings.recents.record(url, isFolder: true) }
         let tab = BrowserTab(url: url ?? settings.startLocation.url, settings: settings)
         let anchor = activate ? nil : lastBackgroundTabID.flatMap { id in tabs.firstIndex { $0.id == id } }
         let index = (anchor ?? tabs.firstIndex { $0.id == activeTabID }).map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)
         if activate { activeTabID = tab.id } else { lastBackgroundTabID = tab.id }
+        return tab
     }
 
     func duplicateActiveTab() {

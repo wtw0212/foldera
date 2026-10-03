@@ -31,6 +31,11 @@ struct GeneralSettings: View {
             Picker(L10n.text("Open new windows and tabs in:"), selection: $settings.startLocation) {
                 ForEach(StartLocation.allCases) { Text($0.title).tag($0) }
             }
+            Picker(L10n.text("Recent items in navigation pane:"), selection: $settings.recentItemsCount) {
+                ForEach(AppSettings.recentItemsChoices, id: \.self) { count in
+                    Text(count == 0 ? L10n.text("None") : "\(count)").tag(count)
+                }
+            }
             Picker(L10n.text("Return key:"), selection: $settings.returnKeyRenames) {
                 Text(L10n.text("Opens the item (like Windows)")).tag(false)
                 Text(L10n.text("Renames the item (like Finder)")).tag(true)
@@ -129,6 +134,7 @@ struct ViewSettings: View {
             Toggle(L10n.text("Show file name extensions"), isOn: $settings.showExtensions)
             Toggle(L10n.text("Compact view"), isOn: $settings.compactView)
             Toggle(L10n.text("Show navigation pane"), isOn: $settings.showNavigationPane)
+            Toggle(L10n.text("Play videos automatically in the Details pane"), isOn: $settings.autoplayPreviews)
         }
     }
 }

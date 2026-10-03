@@ -4,3 +4,4 @@
 "NSRemovableVolumesUsageDescription" = "Foldera 會顯示及管理卸除式磁碟上的檔案。";
 "NSNetworkVolumesUsageDescription" = "Foldera 會顯示及管理網絡磁碟上的檔案。";
 "NSAppleEventsUsageDescription" = "Foldera 會要求 Finder 顯示所選項目的「取得資訊」視窗。";
+"NSLocalNetworkUsageDescription" = "開啟「網路」時，Foldera 會在你的區域網路上尋找檔案伺服器和 SFTP 伺服器。";

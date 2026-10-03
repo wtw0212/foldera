@@ -11,7 +11,7 @@ enum ContextMenus {
         if let folder = single, folder.isNavigable {
             menu.add(L10n.text("Open in new tab"), symbol: "plus.square.on.square") { openInNewTab(folder.url) }
         }
-        if let file = single, !file.isNavigable {
+        if let file = single, !file.isNavigable, !tab.isRemote {
             let openWith = NSMenuItem(title: L10n.text("Open with"), action: nil, keyEquivalent: "")
             openWith.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
             openWith.submenu = openWithMenu(for: file.url)
@@ -26,8 +26,15 @@ enum ContextMenus {
             }
         }
         menu.addSeparator()
-        menu.add(items.count > 1 ? L10n.format("rename.items.menu", items.count) : L10n.text("Rename"), symbol: "character.cursor.ibeam") { tab.beginRename() }
-        menu.add(L10n.text("Delete"), symbol: "trash") { tab.trashSelection() }
+        if tab.isRecent {
+            if single != nil {
+                menu.add(L10n.text("Open file location"), symbol: "folder") { tab.openItemLocation() }
+            }
+            menu.add(L10n.text("Remove from Recent"), symbol: "clock.badge.xmark") { tab.removeSelectionFromRecent() }
+        } else {
+            menu.add(items.count > 1 ? L10n.format("rename.items.menu", items.count) : L10n.text("Rename"), symbol: "character.cursor.ibeam") { tab.beginRename() }
+            menu.add(L10n.text("Delete"), symbol: "trash") { tab.trashSelection() }
+        }
         menu.addSeparator()
         let archives = tab.selectedArchives
         if !archives.isEmpty {
@@ -38,12 +45,14 @@ enum ContextMenus {
                 menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
             }
         }
-        menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
-        if Archives.canCreate7z {
-            menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
+        if !tab.isRemote && !tab.isRecent {
+            menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
+            if Archives.canCreate7z {
+                menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
+            }
         }
         menu.addSeparator()
-        let folders = items.filter(\.isNavigable)
+        let folders = tab.isRemote ? [] : items.filter(\.isNavigable)
         if !folders.isEmpty {
             if folders.allSatisfy({ quickAccess.isPinned($0.url) }) {
                 menu.add(L10n.text("Unpin from Quick access"), symbol: "pin.slash") { folders.forEach { quickAccess.unpin($0.url) } }
@@ -52,7 +61,9 @@ enum ContextMenus {
             }
         }
         menu.add(L10n.text("Copy as path"), symbol: "link") { tab.copyPathOfSelection() }
-        menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
+        if !tab.isRemote {
+            menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
+        }
         menu.addSeparator()
         menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
         return menu
@@ -74,6 +85,14 @@ enum ContextMenus {
         menu.addItem(sortItem)
         menu.add(L10n.text("Show hidden items"), symbol: "eye", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         menu.add(L10n.text("Refresh"), symbol: "arrow.clockwise") { tab.reload() }
+        if tab.isRecent {
+            menu.addSeparator()
+            menu.add(L10n.text("Clear Recent Items"), symbol: "clock.badge.xmark") {
+                tab.recents.clear()
+                tab.reload()
+            }
+            return menu
+        }
         menu.addSeparator()
         menu.add(L10n.text("Paste"), symbol: "doc.on.clipboard", enabled: tab.canPaste) { tab.paste() }
         menu.addSeparator()
@@ -85,13 +104,17 @@ enum ContextMenus {
         newItem.submenu = newMenu
         menu.addItem(newItem)
         menu.addSeparator()
-        if quickAccess.isPinned(tab.url) {
-            menu.add(L10n.text("Unpin from Quick access"), symbol: "pin.slash") { quickAccess.unpin(tab.url) }
+        if tab.isRemote {
+            menu.add(L10n.text("Open in Terminal (SSH)"), symbol: "terminal") { tab.openInTerminal() }
         } else {
-            menu.add(L10n.text("Pin to Quick access"), symbol: "pin") { quickAccess.pin(tab.url) }
+            if quickAccess.isPinned(tab.url) {
+                menu.add(L10n.text("Unpin from Quick access"), symbol: "pin.slash") { quickAccess.unpin(tab.url) }
+            } else {
+                menu.add(L10n.text("Pin to Quick access"), symbol: "pin") { quickAccess.pin(tab.url) }
+            }
+            menu.add(L10n.text("Open in Terminal"), symbol: "terminal") { tab.openInTerminal() }
+            menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
         }
-        menu.add(L10n.text("Open in Terminal"), symbol: "terminal") { tab.openInTerminal() }
-        menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
         menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
         return menu
     }

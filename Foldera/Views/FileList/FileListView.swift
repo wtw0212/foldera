@@ -77,7 +77,7 @@ struct FileListView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.doubleClicked(_:))
         table.setDraggingSourceOperationMask([.copy, .move, .link], forLocal: false)
         table.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
-        table.registerForDraggedTypes([.fileURL])
+        table.registerForDraggedTypes(ItemPasteboard.types)
 
         for column in Column.allCases where column != .location {
             table.addTableColumn(Self.makeColumn(column))
@@ -209,7 +209,7 @@ struct FileListView: NSViewRepresentable {
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            items[row].url as NSURL
+            ItemPasteboard.writer(for: items[row].url)
         }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
@@ -325,6 +325,7 @@ struct FileListView: NSViewRepresentable {
         func cutSelection() { tab?.cutSelection() }
         func copySelection() { tab?.copySelection() }
         func paste() { tab?.paste() }
+        func zoom(in zoomIn: Bool) { tab?.zoom(in: zoomIn) }
         func openInBackgroundTab(index: Int) {
             guard index < items.count, items[index].isNavigable else { return }
             parent?.openInBackgroundTab(items[index].url)

@@ -77,6 +77,8 @@ struct FolderaCommands: Commands {
                 .disabled(tab?.canGoUp != true)
             Divider()
             go(L10n.text("This Mac"), BrowserTab.thisMacURL, key: "c")
+            go(L10n.text("Network"), BrowserTab.networkURL, key: "k")
+            go(L10n.text("Recent"), BrowserTab.recentURL, key: "f")
             go(L10n.text("Home"), StandardLocations.home.url, key: "h")
             ForEach(StandardLocations.pinned) { location in
                 Button(location.title) { open(location.url) }
@@ -84,6 +86,8 @@ struct FolderaCommands: Commands {
             Divider()
             Button(L10n.text("Go to Folder…")) { explorer?.isEditingAddress = true }
                 .keyboardShortcut("l")
+            Button(L10n.text("Connect to Server…")) { explorer?.networkSheet = .connect("") }
+                .keyboardShortcut("k")
             Button(L10n.text("Search")) { explorer?.focusSearch() }
                 .keyboardShortcut("f")
         }
@@ -102,6 +106,12 @@ struct FolderaCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Toggle(L10n.text("Compact View"), isOn: $settings.compactView)
             Divider()
+            Button(L10n.text("Zoom In")) { tab?.zoom(in: true) }
+                .keyboardShortcut("+")
+                .disabled(tab == nil || tab?.isPage == true || tab?.viewMode == ViewMode.zoomOrder.last)
+            Button(L10n.text("Zoom Out")) { tab?.zoom(in: false) }
+                .keyboardShortcut("-")
+                .disabled(tab == nil || tab?.isPage == true || tab?.viewMode == ViewMode.zoomOrder.first)
             ForEach(ViewMode.allCases) { mode in
                 Button(mode.title) { tab?.viewMode = mode }
                     .keyboardShortcut(KeyEquivalent(Character(String(mode.shortcutNumber))), modifiers: [.command, .option])

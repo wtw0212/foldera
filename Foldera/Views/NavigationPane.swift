@@ -8,8 +8,13 @@ struct NavigationPane: View {
     @State private var volumes = VolumeMonitor.shared
     @State private var quickAccess = QuickAccess.shared
     @State private var cloud = CloudDrives.shared
+    var sites: SFTPSites = .shared
+    var connections: RemoteConnections = .shared
+    var settings: AppSettings = .shared
+    @State private var isRecentExpanded = true
     @State private var tree = FolderTree()
     @State private var isThisMacExpanded = true
+    @State private var isNetworkExpanded = true
     /// Where a drag over Quick access would land: a pin's key or a divider, and the zone within it.
     @State private var pinDrop: (id: String, zone: PinDropZone)?
 
@@ -23,6 +28,7 @@ struct NavigationPane: View {
                 ForEach(cloud.locations) { location in
                     section(location, key: "cloud:" + location.url.path, cloud: true)
                 }
+                recentSection
                 pinDivider(id: "qa-start") { quickAccess.insert($0, before: nil, atStart: true) }
                 let pins = quickAccess.locations
                 ForEach(Array(pins.enumerated()), id: \.element.id) { index, location in
@@ -38,16 +44,122 @@ struct NavigationPane: View {
                 )
                 .onMiddleClick { model.newTab(url: BrowserTab.thisMacURL, activate: false) }
                 if isThisMacExpanded {
-                    ForEach(volumes.volumes) { volume in
+                    ForEach(volumes.localVolumes) { volume in
                         section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: volume.url.path != "/")
                     }
                 }
+                networkSection
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 6)
         }
         .scrollIndicators(.automatic)
         .background(Theme.content.swiftUI)
+    }
+
+    /// Recently opened folders and files (Settings ▸ General sets how many).
+    @ViewBuilder
+    private var recentSection: some View {
+        let recent = settings.recents.visible(settings.recentItemsCount)
+        if settings.recentItemsCount > 0 {
+            // The row opens the Recent page with everything; the chevron shows the newest few here.
+            NavigationRow(
+                title: L10n.text("Recent"),
+                icon: AnyView(Image(systemName: "clock").font(.system(size: 13)).foregroundStyle(Theme.accent.swiftUI).frame(width: 18, height: 18)),
+                isSelected: tab.isRecent,
+                expansion: recent.isEmpty ? nil : $isRecentExpanded,
+                action: { open(BrowserTab.recentURL) }
+            )
+            .accessibilityIdentifier("nav-recent")
+            .onMiddleClick { model.newTab(url: BrowserTab.recentURL, activate: false) }
+            .contextMenu {
+                Button(L10n.text("Open")) { open(BrowserTab.recentURL) }
+                Button(L10n.text("Open in new tab")) { model.newTab(url: BrowserTab.recentURL) }
+                Divider()
+                Button(L10n.text("Clear Recent Items")) { settings.recents.clear() }
+            }
+            if isRecentExpanded {
+                ForEach(recent) { item in
+                    NavigationRow(
+                        title: item.name,
+                        icon: AnyView(Image(nsImage: Self.icon(for: item)).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                        isSelected: item.isFolder && tab.url == item.url,
+                        indent: 1,
+                        action: { tab.openRecent(item) }
+                    )
+                    .help(item.url.isRemote ? BrowserTab.editableAddress(of: item.url) : item.url.path)
+                    .onMiddleClick { if item.isFolder { model.newTab(url: item.url, activate: false) } }
+                    .contextMenu { recentMenu(item) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recentMenu(_ item: RecentItem) -> some View {
+        Button(L10n.text("Open")) { tab.openRecent(item) }
+        if item.isFolder {
+            Button(L10n.text("Open in new tab")) { model.newTab(url: item.url) }
+        }
+        if item.url.isFileURL {
+            Button(L10n.text("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        }
+        Divider()
+        Button(L10n.text("Remove from Recent")) { settings.recents.remove(item.url) }
+        Button(L10n.text("Clear Recent Items")) { settings.recents.clear() }
+    }
+
+    static func icon(for item: RecentItem) -> NSImage {
+        if item.isFolder { return item.url.isRemote ? FileIcons.folder : FileIcons.icon(forPath: item.url) }
+        if item.url.isRemote {
+            let entry = RemoteEntry(path: item.url.remotePath, isDirectory: false, isSymlink: false, size: nil, modified: nil, permissions: nil)
+            return FileIcons.icon(for: FileItem(remote: entry, endpoint: item.url.remoteEndpoint ?? RemoteEndpoint(host: "", username: "")))
+        }
+        return FileIcons.icon(for: FileItem(url: item.url))
+    }
+
+    /// Network: SFTP sites and mounted file-server shares.
+    @ViewBuilder
+    private var networkSection: some View {
+        NavigationRow(
+            title: L10n.text("Network"),
+            icon: AnyView(Image(nsImage: FileIcons.network).resizable().frame(width: 18, height: 18)),
+            isSelected: tab.isNetwork,
+            expansion: $isNetworkExpanded,
+            action: { open(BrowserTab.networkURL) }
+        )
+        .accessibilityIdentifier("nav-network")
+        .onMiddleClick { model.newTab(url: BrowserTab.networkURL, activate: false) }
+        .contextMenu {
+            Button(L10n.text("Connect to Server…")) { model.networkSheet = .connect("") }
+            Button(L10n.text("New SFTP Site…")) { model.networkSheet = .site(SFTPSite(), connect: true) }
+        }
+        if isNetworkExpanded {
+            ForEach(sites.sites) { site in
+                NavigationRow(
+                    title: site.title,
+                    icon: AnyView(Image(nsImage: FileIcons.network).resizable().frame(width: 16, height: 16).frame(width: 18)),
+                    isSelected: tab.url.remoteEndpoint == site.endpoint,
+                    indent: 1,
+                    trailingSymbol: connections.connected.contains(site.endpoint) ? "link_regular" : nil,
+                    action: { model.openSite(site, in: tab) }
+                )
+                .help(site.endpoint.displayName)
+                .onMiddleClick { model.openSiteInNewTab(site, activate: false) }
+                .contextMenu {
+                    Button(L10n.text("Open")) { model.openSite(site, in: tab) }
+                    Button(L10n.text("Open in new tab")) { model.openSiteInNewTab(site) }
+                    Divider()
+                    Button(L10n.text("Edit…")) { model.networkSheet = .site(site, connect: false) }
+                    if connections.connected.contains(site.endpoint) {
+                        Button(L10n.text("Disconnect")) { Task { await connections.disconnect(site.endpoint) } }
+                    }
+                }
+            }
+            ForEach(volumes.networkVolumes) { volume in
+                section(volume, key: "vol:" + volume.url.path, indent: 1, ejectable: true)
+            }
+        }
     }
 
     /// The dividers around the pins also take dropped folders, pinning them first or last.
@@ -288,9 +400,12 @@ private struct NavigationRow: View {
                         .frame(width: 12, height: 20)
                         .contentShape(Rectangle())
                         .onTapGesture { expansion.wrappedValue.toggle() }
+                } else {
+                    // Without this the empty slot (and its indent) collapses and the row sits flush left.
+                    Color.clear
                 }
             }
-            .frame(width: 12)
+            .frame(width: 12, height: 20)
             .padding(.leading, CGFloat(indent) * 16)
 
             icon

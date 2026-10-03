@@ -23,9 +23,11 @@ nonisolated enum FileSearch {
     private static func walk(root: URL, matcher: Matcher, includeHidden: Bool, emit: ([FileItem]) -> Bool) {
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants]
         if !includeHidden { options.insert(.skipsHiddenFiles) }
+        // Only matches need their details (read by `FileItem`); prefetching them for every file walked
+        // would slow the search down for no benefit.
         guard let enumerator = FileManager.default.enumerator(
             at: root,
-            includingPropertiesForKeys: FileItem.resourceKeys,
+            includingPropertiesForKeys: [],
             options: options,
             errorHandler: { _, _ in true } // skip unreadable folders and keep going
         ) else { return }
@@ -39,7 +41,8 @@ nonisolated enum FileSearch {
             batch.append(FileItem(url: url))
             found += 1
             if found >= maxResults { break }
-            if batch.count >= 200 || ContinuousClock.now - lastFlush > .milliseconds(150) {
+            // Every batch re-sorts what is shown, so send few large batches rather than many small ones.
+            if batch.count >= 1_000 || ContinuousClock.now - lastFlush > .milliseconds(200) {
                 guard emit(batch) else { return }
                 batch.removeAll(keepingCapacity: true)
                 lastFlush = .now
