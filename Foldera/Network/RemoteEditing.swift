@@ -86,7 +86,7 @@ final class RemoteEditing {
             if version == session.failedVersion, let retryAt = session.retryAt, now < retryAt { continue }
             do {
                 // Staged, so a dropped connection never leaves a half-written file on the server.
-                try await connections.perform(endpoint) { try await $0.uploadAtomically(session.local, to: session.remote.remotePath) { _ in } }
+                try await connections.upload(session.local, replacing: session.remote.remotePath, on: endpoint) { _ in }
                 sessions[index].uploadedVersion = version
                 sessions[index].failedVersion = nil
                 sessions[index].retryAt = nil

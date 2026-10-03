@@ -9,6 +9,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var failures: [String: Error] = [:]
     private var partway: [String: Error] = [:]
     private var delayed: [String: (skip: Int, error: Error)] = [:]
+    private var drops: [String: (skip: Int, applied: Bool)] = [:]
     let homePath: String
 
     init(home: String = NSHomeDirectory()) { homePath = home }
@@ -17,6 +18,14 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     var isConnected: Bool { lock.withLock { connected } }
 
     func disconnect() { lock.withLock { connected = false } }
+    /// Brings a dropped connection back, as signing in again would. For connectors in tests.
+    func reconnect() -> FakeRemoteFileSystem {
+        lock.withLock { connected = true }
+        return self
+    }
+    /// Lets `skip` calls to `operation` succeed, then drops the connection during the next one. With
+    /// `applied`, the server carries it out but the reply is lost. Every later call fails until `reconnect()`.
+    func drop(_ operation: String, afterCalls skip: Int = 0, applied: Bool) { lock.withLock { drops[operation] = (skip, applied) } }
     /// The next call to `operation` throws `error`.
     func fail(_ operation: String, with error: Error) { lock.withLock { failures[operation] = error } }
     /// Lets `skip` calls to `operation` succeed, then fails the next one (e.g. the second rename of a swap).
@@ -25,9 +34,23 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func failPartway(_ operation: String, with error: Error) { lock.withLock { partway[operation] = error } }
     private func partwayFailure(_ operation: String) -> Error? { lock.withLock { partway.removeValue(forKey: operation) } }
 
-    private func record(_ operation: String) throws {
+    private static let lost = RemoteError.failed("connection lost")
+
+    /// Records a call and throws any failure set up for it. Returns whether the connection drops once the
+    /// call is carried out (`finish` throws then).
+    @discardableResult
+    private func record(_ operation: String) throws -> Bool {
         let failure: Error? = lock.withLock {
+            guard connected else { return Self.lost }
             calls.append(operation)
+            if let drop = drops[operation] {
+                if drop.skip == 0 {
+                    drops[operation] = nil
+                    connected = false
+                    return drop.applied ? nil : Self.lost
+                }
+                drops[operation] = (drop.skip - 1, drop.applied)
+            }
             if let pending = delayed[operation] {
                 if pending.skip == 0 {
                     delayed[operation] = nil
@@ -38,6 +61,12 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
             return failures.removeValue(forKey: operation)
         }
         if let failure { throw failure }
+        return lock.withLock { !connected }
+    }
+
+    /// Throws for a call whose reply was lost.
+    private func finish(_ dropped: Bool) throws {
+        if dropped { throw Self.lost }
     }
 
     private let fileManager = FileManager.default
@@ -70,13 +99,15 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     }
 
     func rename(_ path: String, to newPath: String) async throws {
-        try record("rename")
+        let dropped = try record("rename")
         try fileManager.moveItem(atPath: path, toPath: newPath)
+        try finish(dropped)
     }
 
     func removeFile(_ path: String) async throws {
-        try record("removeFile")
+        let dropped = try record("removeFile")
         try fileManager.removeItem(atPath: path)
+        try finish(dropped)
     }
 
     func removeDirectory(_ path: String) async throws {

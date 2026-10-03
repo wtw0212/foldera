@@ -180,7 +180,14 @@ struct HostedViewTests {
             return (try capture(NSRect(x: 0, y: 0, width: bounds.midX - 2, height: bounds.height)),
                     try capture(NSRect(x: bounds.midX + 2, y: 0, width: bounds.midX - 2, height: bounds.height)))
         }
-        let idle = try halves()
+        // Wait for both panes to finish loading and drawing, so only the arrow can change what's captured.
+        try await eventually { !model.primaryTab.isLoading && !(model.secondaryTab?.isLoading ?? true) }
+        var idle = try halves()
+        try await eventually {
+            guard let next = try? halves() else { return false }
+            defer { idle = next }
+            return next == idle
+        }
         // Back draws at the pane's left edge; across the whole window it would land in the left pane.
         swipe.update(.back, progress: 1)
         try await Task.sleep(for: .milliseconds(200))

@@ -85,14 +85,14 @@ struct RemoteTransfers {
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
                 progress.setCurrentName(Self.name(of: job.source))
                 if isServerMove(kind, job) {
-                    try await commit(job.source, to: job.destination, replacing: job.replace)
+                    try await commit(job.source, to: job.destination, replacing: job.replace, isStaging: false)
                 } else {
                     // Copy under a hidden temporary name, then swap it into place. A failed or cancelled transfer
                     // leaves no partial item, and a replaced item is only removed once the new one is in place.
                     let staging = Self.stagingURL(for: job.destination)
                     do {
                         try await copy(job.source, to: staging, counter: counter)
-                        try await commit(staging, to: job.destination, replacing: job.replace)
+                        try await commit(staging, to: job.destination, replacing: job.replace, isStaging: true)
                     } catch {
                         await discard(staging)
                         throw error
@@ -115,18 +115,12 @@ struct RemoteTransfers {
         return result
     }
 
-    /// Moves `item` to `destination`, replacing what's there without ever losing it: see `swapIntoPlace`.
-    /// Locally the replaced item goes to the Trash, and comes back if the move fails.
-    private func commit(_ item: URL, to destination: URL, replacing: Bool) async throws {
+    /// Moves `item` to `destination`, replacing what's there without ever losing it: see
+    /// `RemoteConnections.commit`. Locally the replaced item goes to the Trash, and comes back if the move fails.
+    private func commit(_ item: URL, to destination: URL, replacing: Bool, isStaging: Bool) async throws {
         if destination.isRemote {
-            try await connections.perform(try Self.endpoint(destination)) { system in
-                if replacing {
-                    try await system.swapIntoPlace(item.remotePath, at: destination.remotePath)
-                } else {
-                    try await system.rename(item.remotePath, to: destination.remotePath)
-                }
-            }
-            return
+            return try await connections.commit(item.remotePath, to: destination.remotePath, on: try Self.endpoint(destination),
+                                                replacing: replacing, isStaging: isStaging)
         }
         guard replacing, FileOperations.exists(destination) else {
             return try FileManager.default.moveItem(at: item, to: destination)

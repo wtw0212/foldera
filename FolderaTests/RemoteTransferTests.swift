@@ -156,10 +156,9 @@ struct RemoteTransferTests {
         #expect(try leftovers() == ["data.txt", "other"])
 
         // Edits: the server copy survives a failed swap too.
-        let fake = server
         server.fail("rename", with: RemoteError.failed("connection lost"), afterCalls: 1)
         await #expect(throws: RemoteError.failed("connection lost")) {
-            try await fake.uploadAtomically(file, to: remote.path("data.txt").path) { _ in }
+            try await RemoteConnections.shared.upload(file, replacing: remote.path("data.txt").path, on: endpoint) { _ in }
         }
         #expect(try String(contentsOf: remote.path("data.txt"), encoding: .utf8) == "original")
         #expect(try leftovers() == ["data.txt", "other"])
@@ -193,10 +192,110 @@ struct RemoteTransferTests {
         try await eventually { tab.items.map(\.name).sorted() == ["cut.txt", "dropped.txt"] }
     }
 
+    /// A dropped connection may lose a rename's reply after the server carried it out. Foldera reconnects,
+    /// looks, and either finishes the replace or puts the original back.
+    @Test func replacingRecoversFromDroppedConnections() async throws {
+        let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = FakeRemoteFileSystem()
+        let connections = RemoteConnections { _ in server.reconnect() }
+        connections.install(server, for: endpoint)
+        var transfers = transfers(choice: .alertFirstButtonReturn)
+        transfers.connections = connections
+        let folder = endpoint.url(path: remote.url.path)
+        let target = remote.path("data.txt")
+        func contents() throws -> String { try String(contentsOf: target, encoding: .utf8) }
+        func leftovers() throws -> [String] { try FileManager.default.contentsOfDirectory(atPath: remote.url.path).sorted() }
+        try remote.file("data.txt", contents: "original")
+
+        // The final rename never happens: the original is restored over a new connection.
+        let file = try local.file("data.txt", contents: "new")
+        server.drop("rename", afterCalls: 1, applied: false)
+        let failed = await transfers.run(.copy, [file], into: folder)
+        #expect(failed.error != nil && errors.errors.count == 1)
+        #expect(try contents() == "original")
+        #expect(try leftovers() == ["data.txt"])
+
+        // The final rename happens but its reply is lost: the replace is finished, not reported as failed.
+        server.drop("rename", afterCalls: 1, applied: true)
+        let lost = await transfers.run(.copy, [file], into: folder)
+        #expect(lost.error == nil && errors.errors.count == 1)
+        #expect(try contents() == "new")
+        #expect(try leftovers() == ["data.txt"])
+
+        // A move whose reply is lost still counts as moved, so Cut → Paste forgets the source.
+        let source = try remote.file("other/data.txt", contents: "moved")
+        server.drop("rename", afterCalls: 1, applied: true)
+        let moved = await transfers.run(.move, [endpoint.url(path: source.path)], into: folder)
+        #expect(moved.error == nil && moved.completedSources == [endpoint.url(path: source.path)])
+        #expect(try contents() == "moved")
+        #expect(try leftovers() == ["data.txt", "other"])
+
+        // Edits: the backup's deletion is lost, so it's settled on the next connection.
+        let edit = try local.file("edit.txt", contents: "edited")
+        server.drop("removeFile", applied: false)
+        try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        #expect(try contents() == "edited")
+        #expect(connections.journal.swaps.count == 1)
+        #expect(try leftovers().count == 3, "the backup is still there")
+        _ = try await connections.fileSystem(for: endpoint)
+        #expect(connections.journal.swaps.isEmpty)
+        #expect(try leftovers() == ["data.txt", "other"])
+
+        // When the server can't be reached again at all, the swap waits in the journal and the
+        // original comes back once it can.
+        let unreachable = RemoteConnections { _ in throw RemoteError.notConnected(endpoint.displayName) }
+        unreachable.install(server, for: endpoint)
+        server.drop("rename", afterCalls: 1, applied: false)
+        await #expect(throws: RemoteError.self) { try await unreachable.upload(edit, replacing: target.path, on: endpoint) { _ in } }
+        #expect(!FileManager.default.fileExists(atPath: target.path) && unreachable.journal.swaps.count == 1)
+        unreachable.install(server.reconnect(), for: endpoint)
+        await unreachable.settleLeftoverSwaps(on: endpoint)
+        #expect(try contents() == "edited")
+        #expect(try leftovers() == ["data.txt", "other"])
+        #expect(unreachable.journal.swaps.isEmpty)
+    }
+
+    @Test func swapJournalPersistsAcrossLaunches() throws {
+        let preferences = try TestPreferences()
+        let swap = PendingSwap(endpoint: uniqueEndpoint(), path: "/a", backup: "/.a.old", staging: nil)
+        SwapJournal(defaults: preferences.defaults).add(swap)
+        let reopened = SwapJournal(defaults: preferences.defaults)
+        #expect(reopened.swaps == [swap])
+        reopened.remove(swap)
+        #expect(SwapJournal(defaults: preferences.defaults).swaps.isEmpty)
+    }
+
     @Test func quittingWithPendingEditsAsksFirst() async throws {
         let delegate = FolderaAppDelegate()
         #expect(RemoteEditing.shared.pendingFiles.isEmpty)
         #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateNow)
+
+        // A saved copy the server won't take: uploading is tried once more, then the user is asked.
+        let endpoint = uniqueEndpoint(), remote = try TestDirectory(), cache = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        let file = try remote.file("page.html", contents: "v1")
+        let editing = RemoteEditing(folder: cache.url, openFile: { _ in }, retryDelay: 60)
+        let local = try await editing.open(endpoint.url(path: file.path))
+        try "v2".write(to: local, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: local.path)
+        delegate.editing = editing
+        var asked: [[String]] = [], replies: [Bool] = []
+        delegate.confirm = { asked.append($0); return false }
+        delegate.reply = { replies.append($0) }
+        server.fail("upload", with: RemoteError.failed("down"))
+        #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+        try await eventually { replies == [false] }
+        #expect(asked == [["page.html"]] && errors.errors.count == 1)
+
+        // Once the upload goes through, quitting goes ahead without asking.
+        #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+        try await eventually { replies == [false, true] }
+        #expect(asked.count == 1)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "v2")
+        try FileManager.default.removeItem(at: local)
+        await editing.uploadChanges()
     }
 
     @Test func fileTransfersHandOffRemoteWork() async throws {

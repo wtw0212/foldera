@@ -12,13 +12,18 @@ final class RemoteConnections {
     @ObservationIgnored private var systems: [RemoteEndpoint: any RemoteFileSystem] = [:]
     @ObservationIgnored private var pending: [RemoteEndpoint: Task<any RemoteFileSystem, Error>] = [:]
     @ObservationIgnored private let connector: (RemoteEndpoint) async throws -> any RemoteFileSystem
+    /// Replacements whose old item still sits under a backup name (see `commit(_:to:on:replacing:isStaging:)`).
+    @ObservationIgnored let journal: SwapJournal
+    @ObservationIgnored var swapsInFlight: Set<PendingSwap> = []
+    @ObservationIgnored private var settling: Set<RemoteEndpoint> = []
 
-    init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil) {
+    init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil, journal: SwapJournal? = nil) {
+        // Unit tests bring their own servers; a real sign-in prompt would block the run, and their swaps
+        // mustn't reach the app's own defaults.
+        let testing = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        self.journal = journal ?? SwapJournal(defaults: testing ? nil : .standard)
         self.connector = connector ?? { endpoint in
-            // Unit tests bring their own servers; a real sign-in prompt would block the run.
-            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-                throw RemoteError.notConnected(endpoint.displayName)
-            }
+            if testing { throw RemoteError.notConnected(endpoint.displayName) }
             return try await SFTPLogin(sites: .shared, hostKeys: .shared).connect(endpoint)
         }
     }
@@ -37,6 +42,11 @@ final class RemoteConnections {
         let system = try await attempt.value
         systems[endpoint] = system
         connected.insert(endpoint)
+        if !settling.contains(endpoint), journal.swaps.contains(where: { $0.endpoint == endpoint }) {
+            settling.insert(endpoint)
+            await settleLeftoverSwaps(on: endpoint)
+            settling.remove(endpoint)
+        }
         return system
     }
 

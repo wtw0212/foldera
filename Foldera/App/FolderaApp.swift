@@ -27,14 +27,19 @@ struct FolderaApp: App {
 }
 
 final class FolderaAppDelegate: NSObject, NSApplicationDelegate {
+    var editing: RemoteEditing = .shared
+    /// Asks whether to quit with these files still pending. Replaced in tests.
+    var confirm: @MainActor ([String]) -> Bool = FolderaAppDelegate.confirmQuit
+    /// Answers a `.terminateLater`. Replaced in tests.
+    var reply: @MainActor (Bool) -> Void = { NSApplication.shared.reply(toApplicationShouldTerminate: $0) }
+
     /// Server files edited in other apps whose last save hasn't reached the server yet would be lost on quit.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let pending = RemoteEditing.shared.pendingFiles
-        guard !pending.isEmpty else { return .terminateNow }
+        guard !editing.pendingFiles.isEmpty else { return .terminateNow }
         Task {
-            await RemoteEditing.shared.uploadNow()
-            let stillPending = RemoteEditing.shared.pendingFiles
-            sender.reply(toApplicationShouldTerminate: stillPending.isEmpty || Self.confirmQuit(stillPending))
+            await editing.uploadNow()
+            let stillPending = editing.pendingFiles
+            reply(stillPending.isEmpty || confirm(stillPending))
         }
         return .terminateLater
     }
