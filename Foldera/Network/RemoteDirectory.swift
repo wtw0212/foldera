@@ -28,7 +28,6 @@ nonisolated extension FileItem {
         let type = entry.isDirectory ? UTType.folder : UTType(filenameExtension: (name as NSString).pathExtension)
         url = endpoint.url(path: entry.path)
         self.name = name
-        displayName = name
         isDirectory = entry.isDirectory
         isPackage = false
         isVolume = false
@@ -36,7 +35,7 @@ nonisolated extension FileItem {
         size = entry.isDirectory ? nil : entry.size
         dateModified = entry.modified
         dateCreated = nil
-        kind = entry.isDirectory ? "Folder" : type?.localizedDescription ?? "File"
+        kind = entry.isDirectory ? "Folder" : TypeNames.name(of: type)
         contentType = type
     }
 }

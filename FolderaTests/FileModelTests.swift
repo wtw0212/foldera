@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -29,7 +30,7 @@ struct FileModelTests {
     @Test func missingFileStillHasAUsableNameAndIdentity() throws {
         let directory = try TestDirectory()
         let item = FileItem(url: directory.path("missing.txt"))
-        #expect(item.name == "missing.txt" && item.displayName == "missing.txt")
+        #expect(item.name == "missing.txt")
         #expect(!item.isNavigable && item.size == nil && item.kind == "File")
     }
 
@@ -54,5 +55,44 @@ struct FileModelTests {
         for name in ["text.txt", "archive.zip", "music.mp3", "code.swift"] {
             #expect(!Thumbnails.showsPreview(FileItem(url: URL(fileURLWithPath: "/nonexistent/" + name))))
         }
+    }
+}
+
+@MainActor
+struct DirectoryLoadingPerformanceTests {
+    @Test func typeNamesComeFromContentTypesAndAreShared() {
+        #expect(TypeNames.name(of: .png) == UTType.png.localizedDescription)
+        #expect(TypeNames.name(of: nil) == "File")
+        #expect(TypeNames.name(of: .pdf) == TypeNames.name(of: .pdf))
+    }
+
+    @Test func largeFoldersLoadInParallelInTheSameOrder() async throws {
+        let directory = try TestDirectory()
+        for index in 0..<(DirectoryLoader.parallelThreshold + 90) {
+            try directory.file("item\(index).\(["txt", "png", "swift"][index % 3])")
+        }
+        try directory.folder("Folder.app")
+        try directory.folder("Plain")
+        let urls = try FileManager.default.contentsOfDirectory(at: directory.url, includingPropertiesForKeys: FileItem.resourceKeys)
+        let parallel = DirectoryLoader.items(for: urls)
+        #expect(parallel == urls.map(FileItem.init(url:)))
+        let loaded = try await DirectoryLoader.load(directory.url)
+        #expect(loaded.count == urls.count)
+        let png = try #require(loaded.first { $0.name == "item1.png" })
+        #expect(png.kind == UTType.png.localizedDescription && png.contentType == .png)
+        let app = try #require(loaded.first { $0.name == "Folder.app" })
+        #expect(app.isPackage && !app.isNavigable && app.kind != "Folder")
+        #expect(try #require(loaded.first { $0.name == "Plain" }).kind == "Folder")
+    }
+
+    @Test func thumbnailCacheCostsAreDecodedBytes() {
+        let image = NSImage(size: NSSize(width: 100, height: 50))
+        #expect(Thumbnails.cost(of: image) == 100 * 50 * 4)
+        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 200, pixelsHigh: 100, bitsPerSample: 8, samplesPerPixel: 4,
+                                      hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let retina = NSImage(size: NSSize(width: 100, height: 50))
+        retina.addRepresentation(bitmap)
+        #expect(Thumbnails.cost(of: retina) == 200 * 100 * 4)
+        #expect(Thumbnails.memoryLimit == 96 * 1024 * 1024)
     }
 }

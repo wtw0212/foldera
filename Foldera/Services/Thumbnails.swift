@@ -9,8 +9,19 @@ final class Thumbnails {
     /// Files Quick Look could not thumbnail; they keep their type icon.
     private var failed = Set<String>()
 
+    /// Decoded thumbnails are bitmaps (an extra-large one is about 1 MB), so the cache is bounded by
+    /// memory as well as count.
+    static let memoryLimit = 96 * 1024 * 1024
+
     private init() {
         cache.countLimit = 2_000
+        cache.totalCostLimit = Self.memoryLimit
+    }
+
+    /// Approximate decoded size in bytes.
+    static func cost(of image: NSImage) -> Int {
+        let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
+        return max(pixels, Int(image.size.width * image.size.height)) * 4
     }
 
     private func key(_ item: FileItem, _ size: CGFloat) -> String {
@@ -46,9 +57,10 @@ final class Thumbnails {
         )
         do {
             let image = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage
-            cache.setObject(image, forKey: key as NSString)
+            cache.setObject(image, forKey: key as NSString, cost: Self.cost(of: image))
             return image
         } catch {
+            if failed.count > 10_000 { failed.removeAll() }
             failed.insert(key)
             return nil
         }
