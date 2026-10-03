@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// Commands shared by the command bar, context menu, keyboard shortcuts and the menu bar.
 extension BrowserTab {
@@ -235,18 +236,20 @@ extension BrowserTab {
     func showProperties() {
         if isRemote { return remoteShowProperties() }
         guard !isPage, hasSelection || !isRecent else { return }
-        let targets = hasSelection ? selectedItems.map(\.url) : [url]
-        let list = targets.map { "POSIX file \"\(Self.appleScriptEscaped($0.path))\"" }.joined(separator: ", ")
-        let source = """
-        tell application "Finder"
-            activate
-            repeat with f in {\(list)}
-                open information window of (f as alias)
-            end repeat
-        end tell
-        """
-        var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
+        let targets = (hasSelection ? selectedItems.map(\.url) : [url]).filter(\.isFileURL)
+        guard !targets.isEmpty else { return }
+        do {
+            // One event per item: Finder answers a list of windows with success but opens none of them.
+            for target in targets {
+                let reply = try Self.propertiesEvent(for: target).sendEvent(options: .defaultOptions, timeout: TimeInterval(kAEDefaultTimeout))
+                if let code = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value, code != 0 {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
+                }
+            }
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        } catch {
+            Self.present(error)
+        }
     }
 
     // MARK: Recent
@@ -312,7 +315,28 @@ extension BrowserTab {
         }
     }
 
-    private static func appleScriptEscaped(_ string: String) -> String {
-        string.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    /// Finder's Open event for `url`'s information window: what `open information window of (… as alias)` sends,
+    /// with the file as file-URL data. No filename is interpreted as code.
+    static func propertiesEvent(for url: URL) throws -> NSAppleEventDescriptor {
+        guard url.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
+        func specifier(_ want: OSType, _ form: OSType, _ data: NSAppleEventDescriptor, in container: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
+            let record = NSAppleEventDescriptor.record()
+            record.setDescriptor(NSAppleEventDescriptor(typeCode: want), forKeyword: AEKeyword(keyAEDesiredClass))
+            record.setDescriptor(NSAppleEventDescriptor(enumCode: form), forKeyword: AEKeyword(keyAEKeyForm))
+            record.setDescriptor(data, forKeyword: AEKeyword(keyAEKeyData))
+            record.setDescriptor(container, forKeyword: AEKeyword(keyAEContainer))
+            guard let specifier = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { throw CocoaError(.coderInvalidValue) }
+            return specifier
+        }
+        // alias (by name) → its information window property ('iwnd' in Finder's dictionary).
+        let file = try specifier(OSType(typeAlias), OSType(formName), NSAppleEventDescriptor(fileURL: url), in: .null())
+        let window = try specifier(OSType(cProperty), OSType(formPropertyID), NSAppleEventDescriptor(typeCode: 0x69776E64), in: file)
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
+            targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder"),
+            returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID)
+        )
+        event.setParam(window, forKeyword: AEKeyword(keyDirectObject))
+        return event
     }
 }
