@@ -8,6 +8,11 @@ struct ExplorerWindow: View {
     @State private var diskAccess = DiskAccess.shared
     @State private var swipe = SwipeFeedback()
 
+    init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared) {
+        _model = State(initialValue: model)
+        _settings = State(initialValue: settings)
+    }
+
     var body: some View {
         let tab = model.activeTab
         VStack(spacing: 0) {
@@ -231,6 +236,7 @@ private struct StatusBar: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(tab.isThisMac ? L10n.format("drives.count", VolumeMonitor.shared.volumes.count) : L10n.format("items.count", tab.visibleItems.count))
+                .accessibilityIdentifier("item-count")
             if !tab.selection.isEmpty {
                 separator
                 Text(L10n.format("items.selected", tab.selection.count))

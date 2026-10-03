@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate workflows and scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.7.12 --repo rhysd/actionlint \
+            --pattern actionlint_1.7.12_linux_amd64.tar.gz \
+            --pattern actionlint_1.7.12_checksums.txt --dir "$RUNNER_TEMP/actionlint"
+          cd "$RUNNER_TEMP/actionlint"
+          sha256sum --check --ignore-missing actionlint_1.7.12_checksums.txt
+          tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
+
+      - name: Lint workflows and shell scripts
+        run: |
+          actionlint
+          shellcheck scripts/*.sh
+          for script in scripts/*.sh; do bash -n "$script"; done
+
+      - name: Test CI tooling and packaging input validation
+        run: python3 -m unittest discover -s scripts/tests -v
+
+  tests:
+    name: Tests (${{ matrix.name }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Intel, macOS 15
+            runner: macos-15-intel
+            xcode: "26.3"
+          - name: Apple Silicon, macOS 15
+            runner: macos-15
+            xcode: "26.3"
+          - name: Apple Silicon, macOS 26
+            runner: macos-26
+            xcode: "26.6"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Run unit and filesystem integration tests with coverage
+        run: bash scripts/test.sh unit
+
+      - name: Save results and coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-${{ matrix.runner }}
+          path: build.noindex/test-results/unit
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui:
+    name: UI smoke tests
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Run native UI tests
+        run: bash scripts/test.sh ui
+
+      - name: Save UI results and screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-test-results
+          path: build.noindex/test-results/ui
+          if-no-files-found: warn
+          retention-days: 14
+
+  passed:
+    name: CI passed
+    if: always()
+    needs: [validate, tests, ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          UI_RESULT: ${{ needs.ui.result }}
+        run: |
+          test "$VALIDATE_RESULT" = success
+          test "$TESTS_RESULT" = success
+          test "$UI_RESULT" = success

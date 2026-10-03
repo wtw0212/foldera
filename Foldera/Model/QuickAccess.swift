@@ -8,11 +8,13 @@ final class QuickAccess {
     static let shared = QuickAccess()
 
     private(set) var urls: [URL]
+    @ObservationIgnored private let defaults: UserDefaults
     private static let key = "quickAccessPins"
 
-    private init() {
-        if let paths = UserDefaults.standard.stringArray(forKey: Self.key) {
-            urls = paths.map { URL(fileURLWithPath: $0) }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let paths = defaults.stringArray(forKey: Self.key) {
+            urls = paths.map { URL(fileURLWithPath: $0).normalizedFileURL }
         } else {
             urls = StandardLocations.pinned.map(\.url.normalizedFileURL)
         }
@@ -57,7 +59,7 @@ final class QuickAccess {
     }
 
     private func save() {
-        UserDefaults.standard.set(urls.map(\.path), forKey: Self.key)
+        defaults.set(urls.map(\.path), forKey: Self.key)
     }
 
     /// Standard folders keep their colored icons; anything else shows as a folder.

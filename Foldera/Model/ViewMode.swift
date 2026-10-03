@@ -54,9 +54,9 @@ enum FolderViewModes {
     private static let key = "folderViewModes"
     private static let defaultKey = "defaultViewMode"
 
-    static func mode(for folder: URL) -> ViewMode {
-        let saved = UserDefaults.standard.dictionary(forKey: key) as? [String: String]
-        let raw = saved?[folder.path] ?? UserDefaults.standard.string(forKey: defaultKey)
+    static func mode(for folder: URL, defaults: UserDefaults = .standard) -> ViewMode {
+        let saved = defaults.dictionary(forKey: key) as? [String: String]
+        let raw = saved?[folder.path] ?? defaults.string(forKey: defaultKey)
         return raw.flatMap(ViewMode.init(rawValue:)) ?? .details
     }
 
@@ -67,14 +67,14 @@ enum FolderViewModes {
     }
 
     /// Forgets every per-folder layout.
-    static func resetAll() {
-        UserDefaults.standard.removeObject(forKey: key)
+    static func resetAll(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
     }
 
-    static func set(_ mode: ViewMode, for folder: URL) {
-        var saved = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+    static func set(_ mode: ViewMode, for folder: URL, defaults: UserDefaults = .standard) {
+        var saved = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
         saved[folder.path] = mode.rawValue
-        UserDefaults.standard.set(saved, forKey: key)
-        UserDefaults.standard.set(mode.rawValue, forKey: defaultKey)
+        defaults.set(saved, forKey: key)
+        defaults.set(mode.rawValue, forKey: defaultKey)
     }
 }

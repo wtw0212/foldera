@@ -11,6 +11,8 @@ final class CloudDrives {
 
     private(set) var detected: [Location] = []
     private(set) var added: [URL]
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let storage: URL
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     private static let key = "addedCloudDrives"
 
@@ -33,13 +35,19 @@ final class CloudDrives {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
     }
 
-    private init() {
-        added = (UserDefaults.standard.stringArray(forKey: Self.key) ?? []).map { URL(fileURLWithPath: $0) }
+    init(defaults: UserDefaults = .standard, storageFolder: URL = CloudDrives.storageFolder) {
+        self.defaults = defaults
+        storage = storageFolder
+        added = (defaults.stringArray(forKey: Self.key) ?? []).map { URL(fileURLWithPath: $0).normalizedFileURL }
         refresh()
         // Pick up drives set up while Foldera is running.
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         })
+    }
+
+    isolated deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// Everything to show, detected drives first.
@@ -78,14 +86,14 @@ final class CloudDrives {
         panel.allowsMultipleSelection = true
         panel.prompt = L10n.text("Add")
         panel.message = L10n.text("Choose a cloud or network folder to show in the navigation pane.")
-        panel.directoryURL = FileManager.default.fileExists(atPath: Self.storageFolder.path) ? Self.storageFolder : URL(fileURLWithPath: "/Volumes")
+        panel.directoryURL = FileManager.default.fileExists(atPath: storage.path) ? storage : URL(fileURLWithPath: "/Volumes")
         guard panel.runModal() == .OK else { return }
         panel.urls.forEach(add)
     }
 
     func refresh() {
         let folders = (try? FileManager.default.contentsOfDirectory(
-            at: Self.storageFolder,
+            at: storage,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )) ?? []
@@ -100,7 +108,7 @@ final class CloudDrives {
     }
 
     private func save() {
-        UserDefaults.standard.set(added.map(\.path), forKey: Self.key)
+        defaults.set(added.map(\.path), forKey: Self.key)
     }
 
     /// "OneDrive-Personal" → "OneDrive - Personal", "GoogleDrive-me@gmail.com" → "Google Drive - me@gmail.com".

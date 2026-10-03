@@ -18,8 +18,10 @@ struct SettingsView: View {
     }
 }
 
-private struct GeneralSettings: View {
+struct GeneralSettings: View {
     @State private var settings = AppSettings.shared
+
+    init(settings: AppSettings = .shared) { _settings = State(initialValue: settings) }
 
     var body: some View {
         Form {
@@ -53,8 +55,10 @@ private struct GeneralSettings: View {
     }
 }
 
-private struct CloudSettings: View {
+struct CloudSettings: View {
     @State private var cloud = CloudDrives.shared
+
+    init(cloud: CloudDrives = .shared) { _cloud = State(initialValue: cloud) }
 
     var body: some View {
         Form {
@@ -95,10 +99,12 @@ private struct CloudSettings: View {
     }
 }
 
-private struct ViewSettings: View {
+struct ViewSettings: View {
     @State private var settings = AppSettings.shared
     @State private var defaultMode = FolderViewModes.defaultMode
     @State private var didReset = false
+
+    init(settings: AppSettings = .shared) { _settings = State(initialValue: settings) }
 
     var body: some View {
         Form {
@@ -127,7 +133,7 @@ private struct ViewSettings: View {
     }
 }
 
-private struct AccessSettings: View {
+struct AccessSettings: View {
     @State private var access = DiskAccess.shared
 
     var body: some View {

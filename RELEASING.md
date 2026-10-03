@@ -11,6 +11,8 @@ The Release workflow tests the tagged source, builds a universal app for Apple S
 
 Pull requests changing the release workflow, packaging script or project configuration run the same tests and packaging checks. They save build artifacts without publishing a release. **Run workflow** in GitHub Actions also performs a build without publishing.
 
+The Release workflow uses `scripts/test.sh unit`, including the same no-skips and >80% whole-app coverage gate as CI. Packaging checks verify both architectures in Foldera and the bundled `7zz`, the app signature, language/license resources and DMG integrity. Test logs, result bundles and coverage are saved on success and failure. Ordinary source PRs are covered by the separate CI workflow documented in the README.
+
 The workflow uses GitHub's built-in token; no personal access token is needed. Published builds are **ad-hoc signed and not notarized by Apple**. Developer ID signing and notarization require Apple Developer credentials and are not configured in this workflow. The local packaging script still supports `SIGN_IDENTITY` and `NOTARY_PROFILE` for signed and notarized builds.
 
 For a local CI-style package:

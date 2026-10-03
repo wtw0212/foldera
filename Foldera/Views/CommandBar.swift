@@ -7,6 +7,12 @@ struct CommandBar: View {
     @State private var settings = AppSettings.shared
     @Environment(\.openSettings) private var openSettings
 
+    init(model: ExplorerWindowModel, tab: BrowserTab, settings: AppSettings = .shared) {
+        self.model = model
+        self.tab = tab
+        _settings = State(initialValue: settings)
+    }
+
     var body: some View {
         HStack(spacing: 2) {
             MenuButton(help: L10n.text("Create a new item in the current location")) {
@@ -103,7 +109,7 @@ struct CommandBar: View {
         .frame(height: 18)
     }
 
-    private func sortMenu() -> NSMenu {
+    func sortMenu() -> NSMenu {
         let menu = NSMenu()
         for field in SortField.allCases {
             menu.add(field.title, checked: tab.sort.field == field) {
@@ -116,7 +122,7 @@ struct CommandBar: View {
         return menu
     }
 
-    private func viewMenu() -> NSMenu {
+    func viewMenu() -> NSMenu {
         let menu = NSMenu()
         for mode in ViewMode.allCases {
             let item = menu.add(mode.title, symbol: mode.symbol, checked: tab.viewMode == mode) { tab.viewMode = mode }
@@ -141,7 +147,7 @@ struct CommandBar: View {
         return menu
     }
 
-    private func moreMenu() -> NSMenu {
+    func moreMenu() -> NSMenu {
         let menu = NSMenu()
         menu.add(L10n.text("Select all"), symbol: "checkmark.rectangle.stack") { tab.selectAll() }
         menu.add(L10n.text("Select none"), symbol: "rectangle.stack") { tab.selectNone() }

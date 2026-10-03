@@ -1,4 +1,12 @@
 name: Foldera
+packages:
+  ViewInspector:
+    url: https://github.com/nalexn/ViewInspector
+    exactVersion: 0.10.5
+configs:
+  Debug: debug
+  Release: release
+  Testing: debug
 options:
   bundleIdPrefix: com.wtw0212
   deploymentTarget:
@@ -31,6 +39,10 @@ targets:
       - path: ThirdParty/7-Zip/7-Zip-License.txt
         buildPhase: resources
     settings:
+      configs:
+        # Tests have their own preferences domain and macOS permission identity.
+        Testing:
+          PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera.test-host
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera
         PRODUCT_NAME: Foldera
@@ -61,12 +73,26 @@ targets:
       - FolderaTests
     dependencies:
       - target: Foldera
+      - package: ViewInspector
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera.tests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Foldera.app/Contents/MacOS/Foldera
         BUNDLE_LOADER: $(TEST_HOST)
+  FolderaUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - FolderaUITests
+    dependencies:
+      - target: Foldera
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera.ui-tests
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Foldera
 schemes:
   Foldera:
     build:
@@ -74,5 +100,21 @@ schemes:
         Foldera: all
         FolderaTests: [test]
     test:
+      config: Testing
+      gatherCoverageData: true
+      coverageTargets: [Foldera]
+      commandLineArguments:
+        "-initialPath /tmp": true
+        "-hasSeenWelcome YES": true
+        "-fullDiskAccessBannerDismissed YES": true
       targets:
         - FolderaTests
+  FolderaUI:
+    build:
+      targets:
+        Foldera: all
+        FolderaUITests: [test]
+    test:
+      config: Testing
+      targets:
+        - FolderaUITests

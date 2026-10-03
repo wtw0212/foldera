@@ -20,6 +20,22 @@ open build.noindex/debug/Build/Products/Debug/Foldera.app
 
 `Foldera.xcodeproj` is generated from `project.yml`. Edit `project.yml`, not the project file.
 
+## Tests and CI
+
+```bash
+bash scripts/test.sh unit  # Swift Testing: unit + real filesystem integration tests, with coverage
+bash scripts/test.sh ui    # XCTest: native UI smoke tests (requires a logged-in macOS desktop)
+python3 -m unittest discover -s scripts/tests -v  # CI runner, coverage gate, packaging input tests
+```
+
+Both macOS commands generate the project and use ad-hoc signing, so no Apple Developer account or personal signing config is needed. The `Testing` configuration gives the app a separate bundle identifier and preferences domain. New tests use disposable directories, named pasteboards and isolated UserDefaults suites. The existing volume tests mount disposable APFS/FAT disk images; run them on a Mac that supports `hdiutil`, not inside a restricted sandbox.
+
+Each invocation preserves its full log, `.xcresult`, test summary and (for unit tests) `xccov` JSON under `build.noindex/test-results/<unit|ui>/run.*`. Open the result bundle in Xcode to inspect failures, coverage and UI screenshots. Extra test filters can be passed through, for example `bash scripts/test.sh unit -only-testing:FolderaTests/BrowserTabTests`; focused runs may fall below the full-suite coverage gate.
+
+Every PR, push to `main`, and manual CI run checks workflows with actionlint, shell scripts with ShellCheck, and the Python CI tooling. Unit/integration tests run on Intel/macOS 15 and Apple Silicon/macOS 15 and 26; UI tests run on Apple Silicon/macOS 26. Results are retained for 14 days and summaries appear in the Actions run. The stable **CI passed** check fails if any required job fails, is cancelled, or is skipped; it can be selected in GitHub branch protection.
+
+CI requires every test to pass without skips and **more than 80% line coverage across the entire Foldera app**, including Model, Services, Views, Theme and App, weighted by executable line count. No app source files are excluded. UI smoke tests cover address/history navigation, recursive search, tab shortcuts, folder creation/undo and Traditional Chinese; appearance fidelity, real cloud-provider accounts and macOS permission prompts still need manual checks.
+
 ### Signing
 
 Put your Apple development team in `Config/Local.xcconfig` (not committed):

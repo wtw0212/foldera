@@ -62,9 +62,10 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var visibleCache: (key: VisibleKey, items: [FileItem])?
     private var itemsVersion = 0
     @ObservationIgnored private var searchTask: Task<Void, Never>?
-    private let settings = AppSettings.shared
+    private let settings: AppSettings
 
-    init(url: URL) {
+    init(url: URL, settings: AppSettings = .shared) {
+        self.settings = settings
         let url = url.normalizedFileURL
         self.url = url
         self.viewMode = FolderViewModes.mode(for: url)

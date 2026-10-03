@@ -70,7 +70,7 @@ private struct TransferList: View {
     }
 }
 
-private struct TransferRow: View {
+struct TransferRow: View {
     let transfer: FileTransfer
 
     var body: some View {

@@ -55,6 +55,7 @@ struct FileListView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = FileTableView()
+        table.setAccessibilityIdentifier("file-list")
         table.commands = context.coordinator
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
