@@ -30,7 +30,8 @@ enum Theme {
     static let folderBack = dynamic(light: 0xE8A93C, dark: 0xD99A2B)
     static let folderFront = dynamic(light: 0xFFCB4C, dark: 0xF5BC3C)
 
-    static func dynamic(light: UInt32, alphaLight: CGFloat = 1, dark: UInt32, alphaDark: CGFloat = 1) -> NSColor {
+    /// Nonisolated: AppKit and SwiftUI resolve dynamic colors on render threads, not only the main thread.
+    nonisolated static func dynamic(light: UInt32, alphaLight: CGFloat = 1, dark: UInt32, alphaDark: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return NSColor(hex: isDark ? dark : light, alpha: isDark ? alphaDark : alphaLight)
@@ -39,7 +40,7 @@ enum Theme {
 }
 
 extension NSColor {
-    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+    nonisolated convenience init(hex: UInt32, alpha: CGFloat = 1) {
         self.init(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
             green: CGFloat((hex >> 8) & 0xFF) / 255,
