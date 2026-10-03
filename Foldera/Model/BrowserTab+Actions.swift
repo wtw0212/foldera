@@ -239,9 +239,12 @@ extension BrowserTab {
         let targets = (hasSelection ? selectedItems.map(\.url) : [url]).filter(\.isFileURL)
         guard !targets.isEmpty else { return }
         do {
-            let reply = try Self.propertiesEvent(for: targets).sendEvent(options: .defaultOptions, timeout: TimeInterval(kAEDefaultTimeout))
-            if let code = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value, code != 0 {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
+            // One event per item: Finder answers a list of windows with success but opens none of them.
+            for target in targets {
+                let reply = try Self.propertiesEvent(for: target).sendEvent(options: .defaultOptions, timeout: TimeInterval(kAEDefaultTimeout))
+                if let code = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value, code != 0 {
+                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
+                }
             }
             NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
         } catch {
@@ -312,37 +315,28 @@ extension BrowserTab {
         }
     }
 
-    /// Finder's native Open event, with file references as data. No filename is interpreted as code.
-    static func propertiesEvent(for urls: [URL]) throws -> NSAppleEventDescriptor {
-        guard urls.allSatisfy(\.isFileURL) else { throw CocoaError(.fileReadUnsupportedScheme) }
-        let windows = NSAppleEventDescriptor.list()
-        for (index, url) in urls.enumerated() {
-            // Finder items can be addressed by a file URL as their absolute position.
-            let file = NSAppleEventDescriptor.record()
-            file.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(cObject)), forKeyword: AEKeyword(keyAEDesiredClass))
-            file.setDescriptor(NSAppleEventDescriptor(enumCode: OSType(formAbsolutePosition)), forKeyword: AEKeyword(keyAEKeyForm))
-            file.setDescriptor(NSAppleEventDescriptor(fileURL: url), forKeyword: AEKeyword(keyAEKeyData))
-            file.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: AEKeyword(keyAEContainer))
-            guard let fileSpecifier = file.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
-                throw CocoaError(.coderInvalidValue)
-            }
-            let window = NSAppleEventDescriptor.record()
-            window.setDescriptor(NSAppleEventDescriptor(typeCode: OSType(cProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
-            window.setDescriptor(NSAppleEventDescriptor(enumCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
-            // The information-window property ('iwnd') in Finder's scripting dictionary.
-            window.setDescriptor(NSAppleEventDescriptor(typeCode: 0x69776E64), forKeyword: AEKeyword(keyAEKeyData))
-            window.setDescriptor(fileSpecifier, forKeyword: AEKeyword(keyAEContainer))
-            guard let specifier = window.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else {
-                throw CocoaError(.coderInvalidValue)
-            }
-            windows.insert(specifier, at: index + 1)
+    /// Finder's Open event for `url`'s information window: what `open information window of (… as alias)` sends,
+    /// with the file as file-URL data. No filename is interpreted as code.
+    static func propertiesEvent(for url: URL) throws -> NSAppleEventDescriptor {
+        guard url.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
+        func specifier(_ want: OSType, _ form: OSType, _ data: NSAppleEventDescriptor, in container: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
+            let record = NSAppleEventDescriptor.record()
+            record.setDescriptor(NSAppleEventDescriptor(typeCode: want), forKeyword: AEKeyword(keyAEDesiredClass))
+            record.setDescriptor(NSAppleEventDescriptor(enumCode: form), forKeyword: AEKeyword(keyAEKeyForm))
+            record.setDescriptor(data, forKeyword: AEKeyword(keyAEKeyData))
+            record.setDescriptor(container, forKeyword: AEKeyword(keyAEContainer))
+            guard let specifier = record.coerce(toDescriptorType: DescType(typeObjectSpecifier)) else { throw CocoaError(.coderInvalidValue) }
+            return specifier
         }
+        // alias (by name) → its information window property ('iwnd' in Finder's dictionary).
+        let file = try specifier(OSType(typeAlias), OSType(formName), NSAppleEventDescriptor(fileURL: url), in: .null())
+        let window = try specifier(OSType(cProperty), OSType(formPropertyID), NSAppleEventDescriptor(typeCode: 0x69776E64), in: file)
         let event = NSAppleEventDescriptor(
             eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments),
             targetDescriptor: NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder"),
             returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID)
         )
-        event.setParam(windows, forKeyword: AEKeyword(keyDirectObject))
+        event.setParam(window, forKeyword: AEKeyword(keyDirectObject))
         return event
     }
 }
