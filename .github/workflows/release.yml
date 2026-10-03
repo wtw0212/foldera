@@ -23,10 +23,10 @@ concurrency:
 jobs:
   build:
     name: Test and package
-    runs-on: macos-15-intel
+    runs-on: macos-26
     timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,19 +71,17 @@ jobs:
           path: build.noindex/test-results/unit
           retention-days: 7
 
-      - name: Build universal DMG
+      - name: Build DMG
         env:
           SIGN_IDENTITY: "-"
           BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/make-dmg.sh
 
-      - name: Verify universal app and DMG
+      - name: Verify Apple Silicon app and DMG
         run: |
           app=build.noindex/release/Build/Products/Release/Foldera.app
-          for binary in Foldera 7zz; do
-            architectures=$(lipo -archs "$app/Contents/MacOS/$binary")
-            [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]]
-          done
+          test "$(lipo -archs "$app/Contents/MacOS/Foldera")" = arm64
+          [[ " $(lipo -archs "$app/Contents/MacOS/7zz") " == *" arm64 "* ]]
           codesign --verify --deep --strict "$app"
           test -f "$app/Contents/Resources/7-Zip-License.txt"
           for language in en zh-Hant; do
@@ -131,4 +129,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Foldera $GITHUB_REF_NAME" \
-            --notes "Universal DMG for Apple Silicon and Intel Macs running macOS 15 or later. This build is ad-hoc signed and is not notarized by Apple."
+            --notes "DMG for Apple Silicon Macs running macOS 26 or later. This build is ad-hoc signed and is not notarized by Apple."

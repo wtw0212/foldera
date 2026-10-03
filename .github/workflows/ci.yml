@@ -51,12 +51,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Intel, macOS 15
-            runner: macos-15-intel
-            xcode: "26.3"
-          - name: Apple Silicon, macOS 15
-            runner: macos-15
-            xcode: "26.3"
           - name: Apple Silicon, macOS 26
             runner: macos-26
             xcode: "26.6"

@@ -35,7 +35,7 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
 fi
 xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' \
     -derivedDataPath build.noindex/release "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
-    'ARCHS=arm64 x86_64' ONLY_ACTIVE_ARCH=NO ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
 
 echo "▸ Staging DMG contents"
 rm -rf build.noindex/dmg
