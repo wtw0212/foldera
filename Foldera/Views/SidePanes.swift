@@ -45,6 +45,9 @@ struct DetailsPane: View {
                     property(L10n.text("Drives"), "\(VolumeMonitor.shared.volumes.count)")
                 } else if tab.isNetwork {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
+                } else if tab.isRecent {
+                    header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
+                    property(L10n.text("Items"), "\(tab.visibleItems.count)")
                 } else {
                     header(icon: FileIcons.icon(forPath: tab.url), title: tab.title)
                     property(L10n.text("Items"), "\(tab.visibleItems.count)")

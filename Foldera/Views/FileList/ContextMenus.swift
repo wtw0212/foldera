@@ -26,8 +26,15 @@ enum ContextMenus {
             }
         }
         menu.addSeparator()
-        menu.add(items.count > 1 ? L10n.format("rename.items.menu", items.count) : L10n.text("Rename"), symbol: "character.cursor.ibeam") { tab.beginRename() }
-        menu.add(L10n.text("Delete"), symbol: "trash") { tab.trashSelection() }
+        if tab.isRecent {
+            if single != nil {
+                menu.add(L10n.text("Open file location"), symbol: "folder") { tab.openItemLocation() }
+            }
+            menu.add(L10n.text("Remove from Recent"), symbol: "clock.badge.xmark") { tab.removeSelectionFromRecent() }
+        } else {
+            menu.add(items.count > 1 ? L10n.format("rename.items.menu", items.count) : L10n.text("Rename"), symbol: "character.cursor.ibeam") { tab.beginRename() }
+            menu.add(L10n.text("Delete"), symbol: "trash") { tab.trashSelection() }
+        }
         menu.addSeparator()
         let archives = tab.selectedArchives
         if !archives.isEmpty {
@@ -38,7 +45,7 @@ enum ContextMenus {
                 menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
             }
         }
-        if !tab.isRemote {
+        if !tab.isRemote && !tab.isRecent {
             menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
             if Archives.canCreate7z {
                 menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
@@ -78,6 +85,14 @@ enum ContextMenus {
         menu.addItem(sortItem)
         menu.add(L10n.text("Show hidden items"), symbol: "eye", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         menu.add(L10n.text("Refresh"), symbol: "arrow.clockwise") { tab.reload() }
+        if tab.isRecent {
+            menu.addSeparator()
+            menu.add(L10n.text("Clear Recent Items"), symbol: "clock.badge.xmark") {
+                tab.recents.clear()
+                tab.reload()
+            }
+            return menu
+        }
         menu.addSeparator()
         menu.add(L10n.text("Paste"), symbol: "doc.on.clipboard", enabled: tab.canPaste) { tab.paste() }
         menu.addSeparator()

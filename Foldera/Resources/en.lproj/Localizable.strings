@@ -253,7 +253,7 @@
 /* Network and SFTP */
 "%@ doesn’t offer SFTP." = "%@ doesn’t offer SFTP.";
 "%@ · Connected" = "%@ · Connected";
-"Add a site to browse a server over SFTP, like WinSCP." = "Add a site to browse a server over SFTP, like WinSCP.";
+"Add a site to browse a server over SFTP." = "Add a site to browse a server over SFTP.";
 "Ask when connecting" = "Ask when connecting";
 "Choose" = "Choose";
 "Choose…" = "Choose…";
@@ -335,3 +335,7 @@
 "Remove from Recent" = "Remove from Recent";
 "Recent items in navigation pane:" = "Recent items in navigation pane:";
 "None" = "None";
+"Folders and files you open appear here." = "Folders and files you open appear here.";
+"Open file location" = "Open file location";
+"Folders and files you open appear here." = "Folders and files you open appear here.";
+"Open file location" = "Open file location";

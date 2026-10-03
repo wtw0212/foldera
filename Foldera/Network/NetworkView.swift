@@ -37,7 +37,7 @@ struct NetworkView: View {
 
                 section(L10n.text("SFTP sites"), count: sites.sites.count) {
                     if sites.sites.isEmpty {
-                        placeholder(L10n.text("Add a site to browse a server over SFTP, like WinSCP."))
+                        placeholder(L10n.text("Add a site to browse a server over SFTP."))
                     } else {
                         grid {
                             ForEach(sites.sites) { site in

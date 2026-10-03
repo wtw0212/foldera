@@ -51,7 +51,7 @@ struct NetworkViewTests {
         let empty = NetworkView(model: f.model, tab: f.model.activeTab, sites: SFTPSites(defaults: f.preferences.defaults.emptyCopy(), secrets: MemorySecrets()),
                                 connections: f.connections, browser: NetworkBrowser(canBrowse: false))
         let emptyLabels = try texts(empty)
-        #expect(emptyLabels.contains(L10n.text("Add a site to browse a server over SFTP, like WinSCP.")))
+        #expect(emptyLabels.contains(L10n.text("Add a site to browse a server over SFTP.")))
         #expect(emptyLabels.contains(L10n.text("No file servers found.")))
     }
 

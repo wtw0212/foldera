@@ -15,7 +15,11 @@ final class RemoteConnections {
 
     init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil) {
         self.connector = connector ?? { endpoint in
-            try await SFTPLogin(sites: .shared, hostKeys: .shared).connect(endpoint)
+            // Unit tests bring their own servers; a real sign-in prompt would block the run.
+            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+                throw RemoteError.notConnected(endpoint.displayName)
+            }
+            return try await SFTPLogin(sites: .shared, hostKeys: .shared).connect(endpoint)
         }
     }
 

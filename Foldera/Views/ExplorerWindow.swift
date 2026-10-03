@@ -202,7 +202,7 @@ struct ExplorerWindow: View {
             cutURLs: clipboard.cutURLs,
             renameRequest: tab.renameRequest,
             focusToken: tab.focusListToken,
-            isSearchResults: tab.isSearchActive,
+            isSearchResults: tab.isSearchActive || tab.isRecent,
             openInNewTab: { model.newTab(url: $0) },
             openInBackgroundTab: { model.newTab(url: $0, activate: false) },
             onFocus: onFocus
@@ -213,7 +213,8 @@ struct ExplorerWindow: View {
         guard !tab.isPage else { return nil }
         if let error = tab.loadError { return error }
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
-        return tab.isSearchActive ? L10n.text("No items match your search.") : L10n.text("This folder is empty.")
+        if tab.isSearchActive { return L10n.text("No items match your search.") }
+        return tab.isRecent ? L10n.text("Folders and files you open appear here.") : L10n.text("This folder is empty.")
     }
 }
 

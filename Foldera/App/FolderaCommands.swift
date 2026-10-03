@@ -78,6 +78,7 @@ struct FolderaCommands: Commands {
             Divider()
             go(L10n.text("This Mac"), BrowserTab.thisMacURL, key: "c")
             go(L10n.text("Network"), BrowserTab.networkURL, key: "k")
+            go(L10n.text("Recent"), BrowserTab.recentURL, key: "f")
             go(L10n.text("Home"), StandardLocations.home.url, key: "h")
             ForEach(StandardLocations.pinned) { location in
                 Button(location.title) { open(location.url) }

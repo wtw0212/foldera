@@ -33,6 +33,8 @@ final class BrowserTab: Identifiable {
     static let thisMacURL = URL(string: "foldera:this-mac")!
     /// The "Network" page: network drives, SFTP sites and servers found on the local network.
     static let networkURL = URL(string: "foldera:network")!
+    /// Every recently opened folder and file, newest first.
+    static let recentURL = URL(string: "foldera:recent")!
 
     let id = UUID()
     private(set) var url: URL
@@ -41,7 +43,11 @@ final class BrowserTab: Identifiable {
     private var lastLoadError: NSError?
     var loadError: String? { lastLoadError.map(Self.describe) }
     var selection: Set<URL> = []
-    var sort = SortOrder()
+    var sort = SortOrder() {
+        didSet { if isRecent && sort != oldValue { keepsRecentOrder = false } }
+    }
+    /// Recent lists newest first until a sort is chosen.
+    private var keepsRecentOrder = true
     /// Layout for this folder; remembered per folder.
     var viewMode: ViewMode {
         didSet { if viewMode != oldValue { FolderViewModes.set(viewMode, for: url, defaults: settings.defaults) } }
@@ -83,12 +89,15 @@ final class BrowserTab: Identifiable {
     var isNetwork: Bool { url == Self.networkURL }
     /// This Mac or Network: pages that aren't folders, so folder commands don't apply.
     var isPage: Bool { isThisMac || isNetwork }
+    var isRecent: Bool { url == Self.recentURL }
+    /// A real folder: new items, paste and drops can go here (not This Mac, Network or Recent).
+    var acceptsItems: Bool { !isPage && !isRecent }
     var isRemote: Bool { url.isRemote }
     var canGoUp: Bool { parentURL != nil }
 
     /// The enclosing folder; a drive's root goes up to This Mac, a server's root to Network.
     var parentURL: URL? {
-        if isPage { return nil }
+        if isPage || isRecent { return nil }
         if let endpoint = url.remoteEndpoint {
             return url.remotePath == "/" ? Self.networkURL : endpoint.url(path: RemotePath.parent(of: url.remotePath))
         }
@@ -104,6 +113,7 @@ final class BrowserTab: Identifiable {
 
     private struct VisibleKey: Equatable {
         let version: Int
+        let recentOrder: Bool
         let sort: SortOrder
         let search: String
         let showHidden: Bool
@@ -111,12 +121,16 @@ final class BrowserTab: Identifiable {
 
     /// The filtered and sorted listing shown in the file list. Folders always come first, like Explorer.
     var visibleItems: [FileItem] {
-        let key = VisibleKey(version: itemsVersion, sort: sort, search: searchText, showHidden: settings.showHiddenFiles)
+        let key = VisibleKey(version: itemsVersion, recentOrder: keepsRecentOrder, sort: sort, search: searchText, showHidden: settings.showHiddenFiles)
         if let visibleCache, visibleCache.key == key { return visibleCache.items }
 
         let source = isSearchActive ? searchResults : items
         var result = key.showHidden ? source : source.filter { !$0.isHidden }
         let sort = key.sort
+        if isRecent && keepsRecentOrder {
+            visibleCache = (key, result)
+            return result
+        }
         result.sort { a, b in
             if a.isNavigable != b.isNavigable { return a.isNavigable }
             let order: ComparisonResult = switch sort.field {
@@ -198,8 +212,8 @@ final class BrowserTab: Identifiable {
             itemsVersion += 1
             return
         }
-        if isRemote {
-            // Searching a server recursively would be slow and costly; filter this folder instead.
+        if isRemote || isRecent {
+            // Searching a server recursively would be slow and costly, and Recent isn't a folder: filter the listing instead.
             searchResults = items.filter { $0.name.localizedStandardContains(query) }
             itemsVersion += 1
             isSearching = false
@@ -235,6 +249,7 @@ final class BrowserTab: Identifiable {
 
     private func move(to destination: URL, selecting: Set<URL>) {
         url = destination
+        keepsRecentOrder = true
         let mode = FolderViewModes.mode(for: destination, defaults: settings.defaults)
         if viewMode != mode { viewMode = mode }
         searchText = ""
@@ -254,6 +269,13 @@ final class BrowserTab: Identifiable {
             watcherURL = nil
             lastLoadError = nil
             isLoading = false
+            return
+        }
+        if isRecent {
+            loadTask?.cancel()
+            watcher = nil
+            watcherURL = nil
+            apply(Self.recentItems(settings.recents))
             return
         }
         if target.isRemote {
@@ -298,10 +320,20 @@ final class BrowserTab: Identifiable {
 
     // MARK: Helpers
 
+    /// The Recent page's listing. Server items are listed from what was recorded, without connecting.
+    static func recentItems(_ recents: RecentItems) -> [FileItem] {
+        recents.visible(RecentItems.capacity).map { item in
+            guard let endpoint = item.url.remoteEndpoint else { return FileItem(url: item.url) }
+            let entry = RemoteEntry(path: item.url.remotePath, isDirectory: item.isFolder, isSymlink: false, size: nil, modified: nil, permissions: nil)
+            return FileItem(remote: entry, endpoint: endpoint)
+        }
+    }
+
     /// What the address field shows when editing: a path, "This Mac", "Network" or an sftp:// address.
     static func editableAddress(of url: URL) -> String {
         if url == thisMacURL { return "This Mac" }
         if url == networkURL { return "Network" }
+        if url == recentURL { return "Recent" }
         if let endpoint = url.remoteEndpoint {
             let port = endpoint.port == RemoteEndpoint.defaultPort ? "" : ":\(endpoint.port)"
             return "sftp://\(endpoint.username)@\(endpoint.host)\(port)\(url.remotePath)"
@@ -313,6 +345,7 @@ final class BrowserTab: Identifiable {
     static func pathName(of url: URL) -> String {
         if url == thisMacURL { return "This Mac" }
         if url == networkURL { return "Network" }
+        if url == recentURL { return "Recent" }
         if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "/"
@@ -323,6 +356,7 @@ final class BrowserTab: Identifiable {
     static func displayName(of url: URL) -> String {
         if url == thisMacURL { return L10n.text("This Mac") }
         if url == networkURL { return L10n.text("Network") }
+        if url == recentURL { return L10n.text("Recent") }
         if url.isRemote { return RemoteDirectory.name(of: url) }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? "Macintosh HD"

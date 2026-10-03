@@ -10,7 +10,8 @@ enum FileDrop {
 
     static func operation(for urls: [URL], into directory: URL, modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> FileTransfer.Kind? {
         let directory = directory.normalizedFileURL
-        guard !urls.isEmpty else { return nil }
+        // This Mac, Network and Recent are pages, not folders.
+        guard !urls.isEmpty, directory.isFileURL || directory.isRemote else { return nil }
         // Can't drop a folder into itself or its own subfolder.
         if urls.contains(where: { RemoteTransfers.contains($0.normalizedFileURL, directory) }) {
             return nil

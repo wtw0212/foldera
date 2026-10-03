@@ -61,16 +61,23 @@ struct NavigationPane: View {
     @ViewBuilder
     private var recentSection: some View {
         let recent = settings.recents.visible(settings.recentItemsCount)
-        if !recent.isEmpty {
+        if settings.recentItemsCount > 0 {
+            // The row opens the Recent page with everything; the chevron shows the newest few here.
             NavigationRow(
                 title: L10n.text("Recent"),
                 icon: AnyView(Image(systemName: "clock").font(.system(size: 13)).foregroundStyle(Theme.accent.swiftUI).frame(width: 18, height: 18)),
-                isSelected: false,
-                expansion: $isRecentExpanded,
-                action: { isRecentExpanded.toggle() }
+                isSelected: tab.isRecent,
+                expansion: recent.isEmpty ? nil : $isRecentExpanded,
+                action: { open(BrowserTab.recentURL) }
             )
             .accessibilityIdentifier("nav-recent")
-            .contextMenu { Button(L10n.text("Clear Recent Items")) { settings.recents.clear() } }
+            .onMiddleClick { model.newTab(url: BrowserTab.recentURL, activate: false) }
+            .contextMenu {
+                Button(L10n.text("Open")) { open(BrowserTab.recentURL) }
+                Button(L10n.text("Open in new tab")) { model.newTab(url: BrowserTab.recentURL) }
+                Divider()
+                Button(L10n.text("Clear Recent Items")) { settings.recents.clear() }
+            }
             if isRecentExpanded {
                 ForEach(recent) { item in
                     NavigationRow(
@@ -393,9 +400,12 @@ private struct NavigationRow: View {
                         .frame(width: 12, height: 20)
                         .contentShape(Rectangle())
                         .onTapGesture { expansion.wrappedValue.toggle() }
+                } else {
+                    // Without this the empty slot (and its indent) collapses and the row sits flush left.
+                    Color.clear
                 }
             }
-            .frame(width: 12)
+            .frame(width: 12, height: 20)
             .padding(.leading, CGFloat(indent) * 16)
 
             icon

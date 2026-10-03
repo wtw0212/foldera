@@ -108,6 +108,10 @@ private struct AddressBar: View {
             tab.navigate(to: BrowserTab.networkURL)
             return
         }
+        if input.lowercased() == "recent" || input == L10n.text("Recent") {
+            tab.navigate(to: BrowserTab.recentURL)
+            return
+        }
         if input.contains("://") || input.lowercased().hasPrefix("mailto:"), let url = URL(string: input) {
             // sftp:// opens here, smb://, afp:// and nfs:// mount; https://… and mailto: open in their apps.
             if model.openServerAddress(input, in: tab) { return }
@@ -189,7 +193,7 @@ struct Breadcrumbs: View {
 
     /// The location's folders from This Mac down, e.g. This Mac › Macintosh HD › Users › me › Documents.
     static func segments(for url: URL) -> [URL] {
-        guard url != BrowserTab.thisMacURL, url != BrowserTab.networkURL else { return [url] }
+        guard url != BrowserTab.thisMacURL, url != BrowserTab.networkURL, url != BrowserTab.recentURL else { return [url] }
         if let endpoint = url.remoteEndpoint {
             var result = [endpoint.root]
             var path = ""

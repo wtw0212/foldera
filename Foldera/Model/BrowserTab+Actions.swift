@@ -6,7 +6,7 @@ extension BrowserTab {
     var recents: RecentItems { settings.recents }
 
     var hasSelection: Bool { !selection.isEmpty }
-    var canPaste: Bool { !isPage && clipboard.canPaste }
+    var canPaste: Bool { acceptsItems && clipboard.canPaste }
 
     /// Opens an item: folders navigate in place, everything else opens with its default app.
     func open(_ item: FileItem) {
@@ -29,6 +29,7 @@ extension BrowserTab {
     /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
     private func openFile(_ url: URL) {
         recents.record(url, isFolder: false)
+        if isRecent { reload() }
         if url.isRemote {
             remoteOpen(url)
         } else {
@@ -71,6 +72,7 @@ extension BrowserTab {
 
     /// Inline rename for one item; the bulk rename sheet when several are selected (like Finder).
     func beginRename(_ url: URL? = nil) {
+        guard !isRecent else { return }
         if url == nil, selection.count > 1 {
             bulkRenameItems = selectedItems
             return
@@ -114,6 +116,7 @@ extension BrowserTab {
 
     func trashSelection() {
         if isRemote { return remoteDeleteSelection() }
+        if isRecent { return removeSelectionFromRecent() }
         let urls = selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
         perform { _ in
@@ -132,7 +135,7 @@ extension BrowserTab {
 
     enum ExtractDestination { case here, ownFolder }
 
-    var selectedArchives: [URL] { isRemote ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
+    var selectedArchives: [URL] { isRemote || isRecent ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
 
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
     /// Encrypted archives ask for their password (again if it was wrong).
@@ -168,7 +171,7 @@ extension BrowserTab {
     /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
     func compressSelection(_ format: Archives.Format = .zip) {
         let items = selectedItems.map(\.url)
-        guard !items.isEmpty, !isRemote else { return }
+        guard !items.isEmpty, !isRemote, !isRecent else { return }
         let folder = url
         Task {
             do {
@@ -214,9 +217,9 @@ extension BrowserTab {
     }
 
     func showInFinder() {
-        guard !isRemote, !isPage else { return }
+        guard !isRemote, !isPage, hasSelection || !isRecent else { return }
         if hasSelection {
-            NSWorkspace.shared.activateFileViewerSelecting(selectedItems.map(\.url))
+            NSWorkspace.shared.activateFileViewerSelecting(selectedItems.map(\.url).filter(\.isFileURL))
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -224,13 +227,14 @@ extension BrowserTab {
 
     func openInTerminal() {
         if isRemote { return remoteOpenInTerminal() }
-        guard !isPage, let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
+        guard acceptsItems, let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
         NSWorkspace.shared.open([url], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
     }
 
     /// Opens the Finder "Get Info" window, the closest macOS equivalent of Explorer's Properties.
     func showProperties() {
         if isRemote { return remoteShowProperties() }
+        guard !isPage, hasSelection || !isRecent else { return }
         let targets = hasSelection ? selectedItems.map(\.url) : [url]
         let list = targets.map { "POSIX file \"\(Self.appleScriptEscaped($0.path))\"" }.joined(separator: ", ")
         let source = """
@@ -243,6 +247,23 @@ extension BrowserTab {
         """
         var error: NSDictionary?
         NSAppleScript(source: source)?.executeAndReturnError(&error)
+    }
+
+    // MARK: Recent
+
+    /// On the Recent page, Delete forgets items instead of deleting them.
+    func removeSelectionFromRecent() {
+        for item in selectedItems { recents.remove(item.url) }
+        selection = []
+        reload()
+    }
+
+    /// Opens the folder that contains the selected item, with the item selected.
+    func openItemLocation() {
+        guard let item = selectedItems.first else { return }
+        let folder = item.url.isRemote ? RemoteTransfers.parent(of: item.url) : item.url.deletingLastPathComponent().normalizedFileURL
+        navigate(to: folder)
+        selection = [item.url]
     }
 
     /// Bigger or smaller layout (⌘+ / ⌘−, ⌘-scroll, pinch).
@@ -268,7 +289,7 @@ extension BrowserTab {
     // MARK: Helpers
 
     private func perform(_ body: (URL) throws -> Void) {
-        guard !isPage else { return }
+        guard acceptsItems else { return }
         do {
             try body(url)
             reload()

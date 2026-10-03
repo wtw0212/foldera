@@ -144,6 +144,59 @@ struct RecentItemsTests {
         #expect(model.activeTab.url == a && settings.recents.items.first?.url == a)
     }
 
+    @Test func recentPageListsEverythingNewestFirstAndForgetsOnDelete() async throws {
+        let preferences = try TestPreferences(), directory = try TestDirectory()
+        let errors = ErrorCollector()
+        let settings = AppSettings(defaults: preferences.defaults)
+        let older = try directory.folder("Older"), file = try directory.file("Older/report.txt"), newer = try directory.folder("Newer")
+        // Opening the server item's location connects, so it needs the stand-in server (never a real sign-in prompt).
+        let remote = uniqueEndpoint()
+        installFakeServer(remote)
+        settings.recents.record(older, isFolder: true)
+        settings.recents.record(file, isFolder: false)
+        settings.recents.record(remote.url(path: "/srv/app.log"), isFolder: false)
+        settings.recents.record(newer, isFolder: true)
+        let model = ExplorerWindowModel(url: BrowserTab.recentURL, settings: settings)
+        let tab = model.activeTab
+        try await eventually { tab.items.count == 4 }
+        #expect(tab.isRecent && !tab.isPage && !tab.acceptsItems && tab.parentURL == nil && tab.title == L10n.text("Recent"))
+        #expect(tab.visibleItems.map(\.name) == ["Newer", "app.log", "report.txt", "Older"], "newest first, folders not grouped")
+        tab.setSort(.name) // like clicking the Name column
+        #expect(tab.visibleItems.map(\.name) == ["Older", "Newer", "report.txt", "app.log"], "choosing a sort leaves recency order")
+        tab.setSort(.name)
+        #expect(tab.visibleItems.map(\.name) == ["Newer", "Older", "app.log", "report.txt"])
+        tab.searchText = "re"
+        try await eventually { tab.visibleItems.map(\.name) == ["report.txt"] }
+        tab.searchText = ""
+        #expect(BrowserTab.editableAddress(of: BrowserTab.recentURL) == "Recent" && BrowserTab.pathName(of: BrowserTab.recentURL) == "Recent")
+        #expect(Breadcrumbs.segments(for: BrowserTab.recentURL) == [BrowserTab.recentURL])
+        #expect(FileDrop.operation(for: [file], into: BrowserTab.recentURL, modifiers: []) == nil)
+
+        tab.selection = [file]
+        let menu = ContextMenus.itemMenu(tab: tab) { _ in }.items.map(\.title)
+        #expect(menu.contains(L10n.text("Open file location")) && menu.contains(L10n.text("Remove from Recent")))
+        #expect(!menu.contains(L10n.text("Delete")) && !menu.contains(L10n.text("Rename")) && !menu.contains(L10n.text("Compress to ZIP file")))
+        #expect(ContextMenus.backgroundMenu(tab: tab).items.map(\.title).contains(L10n.text("Clear Recent Items")))
+        tab.beginRename()
+        tab.newFolder()
+        tab.showProperties()
+        tab.openInTerminal()
+        #expect(tab.renameRequest == nil && errors.errors.isEmpty)
+
+        tab.trashSelection()
+        #expect(FileManager.default.fileExists(atPath: file.path), "Delete on Recent only forgets the item")
+        #expect(!settings.recents.items.map(\.url).contains(file) && tab.items.count == 3)
+
+        tab.selection = [remote.url(path: "/srv/app.log")]
+        tab.openItemLocation()
+        #expect(tab.url == remote.url(path: "/srv") && tab.selection == [remote.url(path: "/srv/app.log")])
+        tab.goBack()
+        // The server folder that was just opened is now the newest recent item.
+        try await eventually { tab.isRecent && tab.visibleItems.first?.url == remote.url(path: "/srv") && tab.items.count == 4 }
+        tab.open(try #require(tab.visibleItems.first { $0.name == "Older" }))
+        #expect(tab.url == older)
+    }
+
     @Test func navigationPaneShowsTheConfiguredNumberOfRecentItems() throws {
         let preferences = try TestPreferences(), directory = try TestDirectory()
         let settings = AppSettings(defaults: preferences.defaults)
@@ -153,7 +206,7 @@ struct RecentItemsTests {
             try NavigationPane(model: model, tab: model.activeTab, sites: sites, settings: settings)
                 .inspect().findAll(ViewType.Text.self).map { try $0.string() }
         }
-        #expect(try !labels().contains(L10n.text("Recent")), "no section until something is opened")
+        #expect(try labels().contains(L10n.text("Recent")), "the Recent page is reachable before anything is opened")
         let file = try directory.file("report.pdf")
         let remote = RemoteEndpoint(host: "h", username: "u")
         settings.recents.record(try directory.folder("Alpha"), isFolder: true)
