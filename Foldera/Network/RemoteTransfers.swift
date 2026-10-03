@@ -46,6 +46,13 @@ struct RemoteTransfers {
             let name = Self.name(of: source)
             let sameFolder = Self.parent(of: source) == directory
             if sameFolder && kind == .move { continue }
+            let serverMove = kind == .move && source.isRemote && source.remoteEndpoint == directory.remoteEndpoint
+            if !serverMove, try await isDirectoryLink(source) {
+                if kind == .move {
+                    throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", name))
+                }
+                continue
+            }
             var job = Job(source: source, destination: Self.child(directory, name))
             if sameFolder {
                 job.destination = try await uniqueURL(named: name, in: directory, copySuffix: true)
@@ -185,27 +192,42 @@ struct RemoteTransfers {
 
     private func download(_ source: URL, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
         let endpoint = try Self.endpoint(source)
-        guard let entry = try await connections.read(endpoint, { try await $0.entry(at: source.remotePath) }) else {
+        guard let entry = try await connections.read(endpoint, { try await $0.unfollowedEntry(at: source.remotePath) }) else {
             throw RemoteError.notFound(Self.name(of: source))
+        }
+        try await download(entry, from: endpoint, to: destination, counter: counter, moving: moving)
+    }
+
+    private func download(_ entry: RemoteEntry, from endpoint: RemoteEndpoint, to destination: URL, counter: ByteCounter, moving: Bool) async throws {
+        if entry.isSymlink && entry.isDirectory {
+            if moving {
+                throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", entry.name))
+            }
+            return
         }
         if entry.isDirectory {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            let children = try await connections.read(endpoint) { try await $0.list(source.remotePath) }
+            let children = try await connections.read(endpoint) { try await $0.list(entry.path) }
             for child in children {
-                if child.isSymlink && child.isDirectory {
-                    if moving {
-                        throw RemoteError.failed(L10n.format("Foldera can’t move the linked folder “%@” between file systems.", child.name))
-                    }
-                    continue
-                }
-                try await download(endpoint.url(path: child.path), to: destination.appendingPathComponent(child.name), counter: counter, moving: moving)
+                try await download(child, from: endpoint, to: destination.appendingPathComponent(child.name), counter: counter, moving: moving)
             }
         } else {
-            try await connections.perform(endpoint) { try await $0.download(source.remotePath, to: destination, written: counter.add) }
+            try await connections.perform(endpoint) { try await $0.download(entry.path, to: destination, written: counter.add) }
         }
     }
 
     // MARK: Local and remote helpers
+
+    private func isDirectoryLink(_ url: URL) async throws -> Bool {
+        if url.isRemote {
+            guard let entry = try await connections.read(try Self.endpoint(url), { try await $0.unfollowedEntry(at: url.remotePath) }) else {
+                throw RemoteError.notFound(Self.name(of: url))
+            }
+            return entry.isSymlink && entry.isDirectory
+        }
+        let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
+        return values.isSymbolicLink == true && (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    }
 
     private func exists(_ url: URL) async throws -> Bool {
         guard url.isRemote else { return FileOperations.exists(url) }
@@ -215,7 +237,7 @@ struct RemoteTransfers {
     private func size(of url: URL) async throws -> Int64 {
         guard url.isRemote else { return CopyEngine.size(of: url) }
         return try await connections.read(try Self.endpoint(url)) { system in
-            guard let entry = try await system.entry(at: url.remotePath) else { return 0 }
+            guard let entry = try await system.unfollowedEntry(at: url.remotePath) else { return 0 }
             return try await system.totalSize(entry)
         }
     }

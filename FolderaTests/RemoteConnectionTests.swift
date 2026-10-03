@@ -59,14 +59,65 @@ struct RemoteConnectionsTests {
         #expect(connections.connected == [endpoint])
     }
 
-    @Test func aConnectionDroppedBySwapSettlementIsReconnectedBeforeAMutation() async throws {
+    @Test(arguments: [false, true])
+    func concurrentCallersWaitForSwapSettlement(duringLogin: Bool) async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory()
-        let path = try directory.file("data.txt", contents: "new")
+        let path = directory.path("data.txt")
+        let backup = try directory.file(".data.old", contents: "original")
+        let journal = SwapJournal(defaults: nil)
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        let loginStarted = ConnectionTestGate(), finishLogin = ConnectionTestGate()
+        let settlementStarted = ConnectionTestGate(), finishSettlement = ConnectionTestGate()
+        let system = FakeRemoteFileSystem(beforeList: {
+            await settlementStarted.open()
+            await finishSettlement.wait()
+        })
+        var attempts = 0
+        let connections = RemoteConnections(connector: { _ in
+            attempts += 1
+            await loginStarted.open()
+            await finishLogin.wait()
+            return system
+        }, journal: journal)
+        let first = Task { try await connections.fileSystem(for: endpoint) }
+        await loginStarted.wait()
+        if !duringLogin {
+            await finishLogin.open()
+            await settlementStarted.wait()
+        }
+        var requested = false, mutations = 0, recoveredBeforeMutation = false
+        let second = Task {
+            requested = true
+            try await connections.perform(endpoint) { filesystem in
+                mutations += 1
+                recoveredBeforeMutation = journal.swaps.isEmpty
+                // A caller that sees the absent destination can create it and cause the backup to be discarded.
+                if try await filesystem.entry(at: path.path) == nil { try await filesystem.createFile(path.path) }
+            }
+        }
+        try await eventually { requested }
+        await finishLogin.open()
+        await settlementStarted.wait()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(mutations == 0, "no caller may use a connection before recovery finishes")
+        await finishSettlement.open()
+        #expect(try await first.value === system)
+        try await second.value
+        #expect(attempts == 1 && mutations == 1 && recoveredBeforeMutation)
+        #expect(journal.swaps.isEmpty && !FileManager.default.fileExists(atPath: backup.path))
+        #expect(try String(contentsOf: path, encoding: .utf8) == "original")
+    }
+
+    @Test(arguments: [false, true])
+    func aConnectionDroppedBySwapSettlementIsReconnectedBeforeAMutation(restore: Bool) async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = directory.path("data.txt")
+        if !restore { try directory.file("data.txt", contents: "new") }
         let backup = try directory.file(".data.old", contents: "old")
         let journal = SwapJournal(defaults: nil)
         journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
         let dropped = FakeRemoteFileSystem(), replacement = FakeRemoteFileSystem()
-        dropped.simulateConnectionDrop("removeFile", applied: false)
+        dropped.simulateConnectionDrop(restore ? "rename" : "removeFile", applied: false)
         var attempts = 0
         let connections = RemoteConnections(connector: { _ in
             attempts += 1
@@ -82,6 +133,79 @@ struct RemoteConnectionsTests {
         #expect(!dropped.operations.contains("createFile") && replacement.operations.contains("createFile"))
         #expect(try await connections.fileSystem(for: endpoint) === replacement)
         #expect(connections.connected == [endpoint] && FileManager.default.fileExists(atPath: directory.path("created.txt").path))
+        #expect(journal.swaps.isEmpty && !FileManager.default.fileExists(atPath: backup.path))
+        #expect(try String(contentsOf: path, encoding: .utf8) == (restore ? "old" : "new"))
+    }
+
+    @Test func liveConnectionsSettleNewJournalWorkBeforeUse() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = directory.path("data.txt")
+        let backup = try directory.file(".data.old", contents: "original")
+        let journal = SwapJournal(defaults: nil)
+        let system = FakeRemoteFileSystem()
+        let connections = RemoteConnections(connector: { _ in throw RemoteError.failed("unexpected login") }, journal: journal)
+        connections.install(system, for: endpoint)
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        system.fail("rename", with: RemoteError.failed("permission"))
+        var mutations = 0
+
+        await #expect(throws: RemoteError.failed("permission")) {
+            try await connections.perform(endpoint) { _ in mutations += 1 }
+        }
+        #expect(mutations == 0 && journal.swaps.count == 1)
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "original")
+        try await connections.perform(endpoint) { _ in
+            mutations += 1
+            #expect(journal.swaps.isEmpty)
+            let contents = try String(contentsOf: path, encoding: .utf8)
+            #expect(contents == "original")
+        }
+        #expect(mutations == 1 && !FileManager.default.fileExists(atPath: backup.path))
+    }
+
+    @Test func repeatedRecoveryDropsKeepTheJournalAndBlockMutations() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = directory.path("data.txt")
+        let backup = try directory.file(".data.old", contents: "original")
+        let journal = SwapJournal(defaults: nil)
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        let first = FakeRemoteFileSystem(), second = FakeRemoteFileSystem(), recovered = FakeRemoteFileSystem()
+        first.simulateConnectionDrop("rename", applied: false)
+        second.simulateConnectionDrop("rename", applied: false)
+        var attempts = 0, mutations = 0
+        let connections = RemoteConnections(connector: { _ in
+            attempts += 1
+            return attempts == 1 ? first : attempts == 2 ? second : recovered
+        }, journal: journal)
+        await #expect(throws: RemoteError.failed("connection lost")) {
+            try await connections.perform(endpoint) { _ in mutations += 1 }
+        }
+        #expect(attempts == 2 && mutations == 0 && journal.swaps.count == 1)
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "original")
+        try await connections.perform(endpoint) { _ in
+            mutations += 1
+            #expect(journal.swaps.isEmpty)
+            let contents = try String(contentsOf: path, encoding: .utf8)
+            #expect(contents == "original")
+        }
+        #expect(attempts == 3 && mutations == 1)
+    }
+
+    @Test func activeSwapsAreNotSettledByConnectionAcquisition() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let path = directory.path("data.txt")
+        let backup = try directory.file(".data.old", contents: "original")
+        let journal = SwapJournal(defaults: nil)
+        let swap = PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil)
+        journal.add(swap)
+        let connections = RemoteConnections(connector: { _ in FakeRemoteFileSystem() }, journal: journal)
+        connections.swapsInFlight.insert(swap)
+        _ = try await connections.fileSystem(for: endpoint)
+        #expect(journal.swaps == [swap] && !FileManager.default.fileExists(atPath: path.path))
+        connections.swapsInFlight.remove(swap)
+        _ = try await connections.fileSystem(for: endpoint)
+        #expect(journal.swaps.isEmpty)
+        #expect(try String(contentsOf: path, encoding: .utf8) == "original")
     }
 
     @Test func failedSignInsAreNotCached() async throws {
@@ -96,6 +220,22 @@ struct RemoteConnectionsTests {
         #expect(connections.connected.isEmpty)
         _ = try await connections.fileSystem(for: endpoint)
         #expect(attempts == 2 && connections.connected == [endpoint])
+    }
+}
+
+private actor ConnectionTestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters.removeAll()
     }
 }
 

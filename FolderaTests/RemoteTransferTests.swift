@@ -73,6 +73,109 @@ struct RemoteTransferTests {
         #expect(clipboard.cutURLs == [sourceURL] && clipboard.canPaste, "a move that never committed remains on Cut")
     }
 
+    @Test func downloadsReuseDirectoryListingMetadata() async throws {
+        let endpoint = uniqueEndpoint(), source = try TestDirectory(), destination = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        for index in 0..<12 { try source.file("tree/file-\(index).txt", contents: "data") }
+        let result = await transfers().run(.copy, [endpoint.url(path: source.path("tree").path)], into: destination.url)
+        #expect(result.error == nil && errors.errors.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path("tree").path).count == 12)
+        #expect(server.operations.filter { $0 == "download" }.count == 12)
+        #expect(server.operations.filter { $0 == "list" }.count <= 6, "directory listings must not grow with the number of files")
+    }
+
+    @Test(arguments: [false, true])
+    func directRemoteDirectoryLinksAreNotDereferencedOnARealServer(moving: Bool) async throws {
+        let server = try LocalSSHServer(), source = try TestDirectory(), destination = try TestDirectory()
+        let target = try source.folder("target")
+        try source.file("target/data.txt", contents: "original")
+        let link = source.path("shortcut")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let system = try await server.connect()
+        let connections = RemoteConnections { _ in throw RemoteError.failed("unexpected login") }
+        connections.install(system, for: server.endpoint)
+        let errors = ErrorCollector()
+        var transfers = transfers()
+        transfers.connections = connections
+
+        let result = await transfers.run(moving ? .move : .copy, [server.endpoint.url(path: link.path)], into: destination.url)
+        #expect((result.error != nil) == moving && errors.errors.count == (moving ? 1 : 0))
+        #expect(result.results.isEmpty && result.completedSources.isEmpty && result.consumedCutSources.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path).isEmpty)
+        #expect(try String(contentsOf: source.path("target/data.txt"), encoding: .utf8) == "original")
+        await connections.disconnect(server.endpoint)
+    }
+
+    @Test(arguments: Direction.allCases, [false, true])
+    func directDirectoryLinksAreRejectedOrOmitted(_ direction: Direction, moving: Bool) async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory(), linked = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint), otherServer = installFakeServer(other)
+        try linked.file("data.txt", contents: "linked data")
+        let link = source.path("shortcut")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: linked.url)
+        try destination.file("shortcut/original.txt", contents: "original")
+        let sourceURL = direction == .upload ? link : endpoint.url(path: link.path)
+        let destinationURL: URL = switch direction {
+        case .upload: endpoint.url(path: destination.url.path)
+        case .download: destination.url
+        case .betweenServers: other.url(path: destination.url.path)
+        }
+
+        let result = await transfers(choice: .alertFirstButtonReturn).run(moving ? .move : .copy, [sourceURL], into: destinationURL)
+        #expect((result.error != nil) == moving && errors.errors.count == (moving ? 1 : 0))
+        #expect(result.results.isEmpty && result.completedSources.isEmpty && result.consumedCutSources.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == linked.url.path)
+        #expect(try String(contentsOf: linked.path("data.txt"), encoding: .utf8) == "linked data")
+        #expect(try String(contentsOf: destination.path("shortcut/original.txt"), encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path) == ["shortcut"])
+        #expect(!server.operations.contains("download") && !server.operations.contains("upload"))
+        #expect(!otherServer.operations.contains("upload"), "a rejected or omitted link never starts copying")
+    }
+
+    @Test(arguments: Direction.allCases)
+    func copiesOmitSelectedDirectoryLinksButContinueWithOtherItems(_ direction: Direction) async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let source = try TestDirectory(), destination = try TestDirectory(), linked = try TestDirectory()
+        let errors = ErrorCollector()
+        installFakeServer(endpoint)
+        installFakeServer(other)
+        let link = source.path("shortcut")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: linked.url)
+        let file = try source.file("file.txt", contents: "keep")
+        let sources = direction == .upload ? [link, file] : [link, file].map { endpoint.url(path: $0.path) }
+        let destinationURL: URL = switch direction {
+        case .upload: endpoint.url(path: destination.url.path)
+        case .download: destination.url
+        case .betweenServers: other.url(path: destination.url.path)
+        }
+
+        let result = await transfers().run(.copy, sources, into: destinationURL)
+        #expect(result.error == nil && errors.errors.isEmpty && result.results == [RemoteTransfers.child(destinationURL, "file.txt")])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path) == ["file.txt"])
+        #expect(try String(contentsOf: destination.path("file.txt"), encoding: .utf8) == "keep")
+    }
+
+    @Test func sameServerCopiesOmitDirectoryLinksButMovesRenameThem() async throws {
+        let endpoint = uniqueEndpoint(), source = try TestDirectory(), destination = try TestDirectory(), linked = try TestDirectory()
+        let errors = ErrorCollector()
+        let system = installFakeServer(endpoint)
+        let link = source.path("shortcut")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: linked.url)
+        let sources = [endpoint.url(path: link.path)], folder = endpoint.url(path: destination.url.path)
+        let copied = await transfers().run(.copy, sources, into: folder)
+        #expect(copied.error == nil && copied.results.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.url.path).isEmpty)
+        let result = await transfers().run(.move, sources, into: folder)
+        #expect(result.error == nil && errors.errors.isEmpty && result.completedSources == [endpoint.url(path: link.path)])
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: destination.path("shortcut").path) == linked.url.path)
+        #expect(!FileManager.default.fileExists(atPath: link.path))
+        #expect(!system.operations.contains("download") && !system.operations.contains("upload"))
+    }
+
     @Test(arguments: [false, true])
     func committedMovesCannotReplayAfterPartialSourceDeletion(betweenServers: Bool) async throws {
         let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
@@ -315,7 +418,7 @@ struct RemoteTransferTests {
         await #expect(throws: RemoteError.self) { try await unreachable.upload(edit, replacing: target.path, on: endpoint) { _ in } }
         #expect(!FileManager.default.fileExists(atPath: target.path) && unreachable.journal.swaps.count == 1)
         unreachable.install(server.reconnect(), for: endpoint)
-        await unreachable.settleLeftoverSwaps(on: endpoint)
+        _ = try await unreachable.fileSystem(for: endpoint)
         #expect(try contents() == "edited")
         #expect(try leftovers() == ["data.txt", "other"])
         #expect(unreachable.journal.swaps.isEmpty)

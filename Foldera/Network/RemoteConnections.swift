@@ -15,7 +15,6 @@ final class RemoteConnections {
     /// Replacements whose old item still sits under a backup name (see `commit(_:to:on:replacing:isStaging:)`).
     @ObservationIgnored let journal: SwapJournal
     @ObservationIgnored var swapsInFlight: Set<PendingSwap> = []
-    @ObservationIgnored private var settling: Set<RemoteEndpoint> = []
 
     init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil, journal: SwapJournal? = nil) {
         // Unit tests bring their own servers; a real sign-in prompt would block the run, and their swaps
@@ -28,35 +27,43 @@ final class RemoteConnections {
         }
     }
 
-    /// The connection for `endpoint`, connecting (and signing in) first if needed.
-    /// Concurrent callers share one attempt, so only one password prompt appears.
+    /// The connection for `endpoint`, signing in and recovering leftover swaps before handing it out.
+    /// Concurrent callers share the entire readiness attempt, including recovery on a live connection.
     func fileSystem(for endpoint: RemoteEndpoint) async throws -> any RemoteFileSystem {
-        if let system = systems[endpoint] {
-            if await system.isConnected { return system }
-            drop(endpoint)
-        }
         if let attempt = pending[endpoint] { return try await attempt.value }
-        let attempt = Task { try await connector(endpoint) }
-        pending[endpoint] = attempt
-        let system: any RemoteFileSystem
-        do {
+        let attempt = Task {
             defer { pending[endpoint] = nil }
-            system = try await attempt.value
+            return try await prepareFileSystem(for: endpoint)
         }
-        systems[endpoint] = system
-        connected.insert(endpoint)
-        if !settling.contains(endpoint), journal.swaps.contains(where: { $0.endpoint == endpoint }) {
-            settling.insert(endpoint)
-            defer { settling.remove(endpoint) }
-            await settleLeftoverSwaps(on: endpoint)
-            // Reconnect once with settlement still guarded: cleanup can drop the new connection too.
-            if !(await system.isConnected) { return try await fileSystem(for: endpoint) }
+        pending[endpoint] = attempt
+        return try await attempt.value
+    }
+
+    private func prepareFileSystem(for endpoint: RemoteEndpoint) async throws -> any RemoteFileSystem {
+        for retry in 0..<2 {
+            let system: any RemoteFileSystem
+            if let cached = systems[endpoint], await cached.isConnected {
+                system = cached
+            } else {
+                drop(endpoint)
+                system = try await connector(endpoint)
+                systems[endpoint] = system
+            }
+            do {
+                repeat {
+                    // Recovery uses the raw system, never its own pending readiness task.
+                    try await settleLeftoverSwaps(on: endpoint, using: system)
+                    guard await system.isConnected else { throw RemoteError.notConnected(endpoint.displayName) }
+                } while journal.swaps.contains(where: { $0.endpoint == endpoint && !swapsInFlight.contains($0) })
+                connected.insert(endpoint)
+                return system
+            } catch {
+                guard !(await system.isConnected) else { throw error }
+                drop(endpoint)
+                if retry == 1 { throw error }
+            }
         }
-        guard await system.isConnected else {
-            drop(endpoint)
-            throw RemoteError.notConnected(endpoint.displayName)
-        }
-        return system
+        throw RemoteError.notConnected(endpoint.displayName)
     }
 
     /// Runs a change on the server. It is never run twice: if the connection drops, the change may or may

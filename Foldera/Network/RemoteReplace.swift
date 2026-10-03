@@ -90,24 +90,28 @@ extension RemoteConnections {
     /// then deletes a leftover staging copy and forgets the swap.
     func settle(_ swap: PendingSwap) async throws {
         try await perform(swap.endpoint) { system in
-            if let backup = try await system.unfollowedEntry(at: swap.backup) {
-                if try await system.unfollowedEntry(at: swap.path) == nil {
-                    try await system.rename(swap.backup, to: swap.path)
-                } else {
-                    try await system.removeRecursively(backup)
-                }
+            try await settle(swap, using: system)
+        }
+    }
+
+    func settle(_ swap: PendingSwap, using system: any RemoteFileSystem) async throws {
+        if let backup = try await system.unfollowedEntry(at: swap.backup) {
+            if try await system.unfollowedEntry(at: swap.path) == nil {
+                try await system.rename(swap.backup, to: swap.path)
+            } else {
+                try await system.removeRecursively(backup)
             }
-            if let staging = swap.staging, let entry = try await system.unfollowedEntry(at: staging) {
-                try await system.removeRecursively(entry)
-            }
+        }
+        if let staging = swap.staging, let entry = try await system.unfollowedEntry(at: staging) {
+            try await system.removeRecursively(entry)
         }
         journal.remove(swap)
     }
 
-    /// Settles swaps a dropped connection or an earlier run left on `endpoint`. Runs on each new connection.
-    func settleLeftoverSwaps(on endpoint: RemoteEndpoint) async {
-        for swap in journal.swaps where swap.endpoint == endpoint && !swapsInFlight.contains(swap) {
-            try? await settle(swap)
+    /// Settles abandoned swaps before a connection becomes usable; active commits recover their own swaps.
+    func settleLeftoverSwaps(on endpoint: RemoteEndpoint, using system: any RemoteFileSystem) async throws {
+        while let swap = journal.swaps.first(where: { $0.endpoint == endpoint && !swapsInFlight.contains($0) }) {
+            try await settle(swap, using: system)
         }
     }
 

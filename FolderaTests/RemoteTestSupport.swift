@@ -10,9 +10,13 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var partway: [String: Error] = [:]
     private var delayed: [String: (skip: Int, error: Error)] = [:]
     private var drops: [String: (skip: Int, applied: Bool)] = [:]
+    private let beforeList: (@Sendable () async -> Void)?
     let homePath: String
 
-    init(home: String = NSHomeDirectory()) { homePath = home }
+    init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil) {
+        homePath = home
+        self.beforeList = beforeList
+    }
 
     var operations: [String] { lock.withLock { calls } }
     var isConnected: Bool { lock.withLock { connected } }
@@ -78,6 +82,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
 
     func list(_ path: String) async throws -> [RemoteEntry] {
         try record("list")
+        await beforeList?()
         guard fileManager.fileExists(atPath: path) else { throw RemoteError.notFound(RemotePath.name(of: path)) }
         return try fileManager.contentsOfDirectory(atPath: path).map { try Self.entry(RemotePath.join(path, $0), followLinks: false) }
     }
