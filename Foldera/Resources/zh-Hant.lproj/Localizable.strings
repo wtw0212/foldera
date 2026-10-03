@@ -340,3 +340,7 @@
 "Open file location" = "開啟檔案位置";
 "“%@” couldn’t be uploaded to the server yet: %@ Foldera keeps trying while it’s open." = "「%@」尚未能上傳到伺服器：%@ Foldera 開啟期間會持續重試。";
 "Play videos automatically in the Details pane" = "在詳細資料窗格中自動播放影片";
+"%lld edited server files haven’t been uploaded" = "有 %lld 個已編輯的伺服器檔案尚未上傳";
+"If you quit now, these changes stay only in Foldera’s temporary copies and won’t reach the server." = "如果現在結束，這些變更只會留在 Foldera 的暫存副本中，不會傳到伺服器。";
+"Don’t Quit" = "不要結束";
+"Quit Anyway" = "仍要結束";

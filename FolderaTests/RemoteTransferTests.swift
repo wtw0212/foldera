@@ -130,6 +130,75 @@ struct RemoteTransferTests {
         #expect(RemoteTransfers.stagingURL(for: remote.path("x.txt")).lastPathComponent.hasPrefix(".x.txt.foldera-"))
     }
 
+    @Test func replacingNeverLosesTheOriginalWhenTheFinalRenameFails() async throws {
+        let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
+        let errors = ErrorCollector()
+        let server = installFakeServer(endpoint)
+        let file = try local.file("data.txt", contents: "new")
+        try remote.file("data.txt", contents: "original")
+        let folder = endpoint.url(path: remote.url.path)
+        func leftovers() throws -> [String] { try FileManager.default.contentsOfDirectory(atPath: remote.url.path).sorted() }
+
+        // Upload + Replace: original → backup succeeds, staging → final fails.
+        server.fail("rename", with: RemoteError.failed("connection lost"), afterCalls: 1)
+        let upload = await transfers(choice: .alertFirstButtonReturn).run(.copy, [file], into: folder)
+        #expect(upload.error != nil && errors.errors.count == 1)
+        #expect(try String(contentsOf: remote.path("data.txt"), encoding: .utf8) == "original")
+        #expect(try leftovers() == ["data.txt"], "no staging or backup is left behind")
+
+        // Same-server move + Replace.
+        try remote.file("other/data.txt", contents: "moved")
+        server.fail("rename", with: RemoteError.failed("connection lost"), afterCalls: 1)
+        let move = await transfers(choice: .alertFirstButtonReturn).run(.move, [endpoint.url(path: remote.path("other/data.txt").path)], into: folder)
+        #expect(move.error != nil && move.completedSources.isEmpty)
+        #expect(try String(contentsOf: remote.path("data.txt"), encoding: .utf8) == "original")
+        #expect(try String(contentsOf: remote.path("other/data.txt"), encoding: .utf8) == "moved")
+        #expect(try leftovers() == ["data.txt", "other"])
+
+        // Edits: the server copy survives a failed swap too.
+        let fake = server
+        server.fail("rename", with: RemoteError.failed("connection lost"), afterCalls: 1)
+        await #expect(throws: RemoteError.failed("connection lost")) {
+            try await fake.uploadAtomically(file, to: remote.path("data.txt").path) { _ in }
+        }
+        #expect(try String(contentsOf: remote.path("data.txt"), encoding: .utf8) == "original")
+        #expect(try leftovers() == ["data.txt", "other"])
+
+        // And when nothing fails, the old item is gone and the new one is in place.
+        let replaced = await transfers(choice: .alertFirstButtonReturn).run(.move, [endpoint.url(path: remote.path("other/data.txt").path)], into: folder)
+        #expect(replaced.error == nil && replaced.completedSources == [endpoint.url(path: remote.path("other/data.txt").path)])
+        #expect(try String(contentsOf: remote.path("data.txt"), encoding: .utf8) == "moved")
+        #expect(try leftovers() == ["data.txt", "other"])
+    }
+
+    @Test func cutAndPasteWithAServerClearsTheClipboardAndDropsRefreshTheFolder() async throws {
+        let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        let folder = endpoint.url(path: remote.url.path)
+        let tab = BrowserTab(url: folder, settings: AppSettings(defaults: preferences.defaults))
+        try await eventually { !tab.isLoading }
+
+        let pasteboard = NSPasteboard(name: .init("FolderaTests.\(UUID())"))
+        let clipboard = FileClipboard(pasteboard: pasteboard)
+        let file = try local.file("cut.txt")
+        clipboard.cut([file])
+        let pasted = await clipboard.paste(into: folder)
+        #expect(pasted.completedSources == [file] && !FileManager.default.fileExists(atPath: file.path))
+        #expect(!clipboard.canPaste && clipboard.cutURLs.isEmpty, "nothing that's gone stays on the clipboard")
+        try await eventually { tab.items.map(\.name) == ["cut.txt"] }
+
+        // Dropping onto the folder shown in a server tab refreshes it, though servers aren't watched.
+        let dropped = try local.file("dropped.txt")
+        #expect(FileDrop.perform([dropped], into: folder))
+        try await eventually { tab.items.map(\.name).sorted() == ["cut.txt", "dropped.txt"] }
+    }
+
+    @Test func quittingWithPendingEditsAsksFirst() async throws {
+        let delegate = FolderaAppDelegate()
+        #expect(RemoteEditing.shared.pendingFiles.isEmpty)
+        #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateNow)
+    }
+
     @Test func fileTransfersHandOffRemoteWork() async throws {
         let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
         installFakeServer(endpoint)

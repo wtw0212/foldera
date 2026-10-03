@@ -58,6 +58,20 @@ final class RemoteEditing {
         return local
     }
 
+    /// Copies saved since their last upload (not yet on the server), for the quit warning.
+    var pendingFiles: [String] {
+        sessions.filter { session in
+            guard let version = Self.version(of: session.local) else { return false }
+            return version != session.uploadedVersion
+        }.map(\.local.lastPathComponent)
+    }
+
+    /// Tries every pending upload now, ignoring backoff (before quitting).
+    func uploadNow() async {
+        for index in sessions.indices { sessions[index].retryAt = nil }
+        await uploadChanges()
+    }
+
     /// Uploads every copy saved since its last upload. Runs every second while files are open.
     func uploadChanges() async {
         guard !isChecking else { return }

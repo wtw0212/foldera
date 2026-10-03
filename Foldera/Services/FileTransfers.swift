@@ -59,6 +59,9 @@ nonisolated struct TransferResult: Sendable {
     var moveCleanups: [(source: URL, completeCopy: URL)] = []
     /// Items replaced in the destination, now in the Trash.
     var replaced: [(original: URL, trashed: URL)] = []
+    /// Sources a move has finished with (server transfers, which record no undo `moved` pairs), so Cut
+    /// knows what is gone.
+    var completedSources: [URL] = []
     /// Failure/cancellation can coexist with committed items above.
     var error: Error?
 }

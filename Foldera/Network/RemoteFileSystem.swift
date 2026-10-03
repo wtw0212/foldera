@@ -71,12 +71,31 @@ nonisolated extension RemoteFileSystem {
         let staging = RemotePath.join(RemotePath.parent(of: path), ".\(RemotePath.name(of: path)).foldera-\(UUID().uuidString.prefix(8)).part")
         do {
             try await upload(local, to: staging, written: written)
+            try await swapIntoPlace(staging, at: path)
         } catch {
             try? await removeFile(staging)
             throw error
         }
-        if let existing = try await unfollowedEntry(at: path) { try await removeRecursively(existing) }
-        try await rename(staging, to: path)
+    }
+
+    /// Renames `staging` to `path`. SFTP renames can't overwrite, so an existing item is first renamed to a
+    /// hidden backup, which is deleted only once the new item is in place; if that rename fails, the backup
+    /// is renamed back. The old item is never deleted before the new one is committed.
+    func swapIntoPlace(_ staging: String, at path: String) async throws {
+        guard let existing = try await unfollowedEntry(at: path) else {
+            return try await rename(staging, to: path)
+        }
+        let backup = RemotePath.join(RemotePath.parent(of: path), ".\(RemotePath.name(of: path)).foldera-\(UUID().uuidString.prefix(8)).old")
+        try await rename(path, to: backup)
+        do {
+            try await rename(staging, to: path)
+        } catch {
+            try? await rename(backup, to: path)
+            throw error
+        }
+        let old = RemoteEntry(path: backup, isDirectory: existing.isDirectory, isSymlink: existing.isSymlink,
+                              size: existing.size, modified: existing.modified, permissions: existing.permissions)
+        try? await removeRecursively(old)
     }
 
     /// "name", "name (2)", … like `FileOperations.uniqueURL`, but on the server.

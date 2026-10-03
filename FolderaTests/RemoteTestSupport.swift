@@ -8,6 +8,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var calls: [String] = []
     private var failures: [String: Error] = [:]
     private var partway: [String: Error] = [:]
+    private var delayed: [String: (skip: Int, error: Error)] = [:]
     let homePath: String
 
     init(home: String = NSHomeDirectory()) { homePath = home }
@@ -18,6 +19,8 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func disconnect() { lock.withLock { connected = false } }
     /// The next call to `operation` throws `error`.
     func fail(_ operation: String, with error: Error) { lock.withLock { failures[operation] = error } }
+    /// Lets `skip` calls to `operation` succeed, then fails the next one (e.g. the second rename of a swap).
+    func fail(_ operation: String, with error: Error, afterCalls skip: Int) { lock.withLock { delayed[operation] = (skip, error) } }
     /// The next upload or download writes half the file, then throws (a dropped connection).
     func failPartway(_ operation: String, with error: Error) { lock.withLock { partway[operation] = error } }
     private func partwayFailure(_ operation: String) -> Error? { lock.withLock { partway.removeValue(forKey: operation) } }
@@ -25,6 +28,13 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private func record(_ operation: String) throws {
         let failure: Error? = lock.withLock {
             calls.append(operation)
+            if let pending = delayed[operation] {
+                if pending.skip == 0 {
+                    delayed[operation] = nil
+                    return pending.error
+                }
+                delayed[operation] = (pending.skip - 1, pending.error)
+            }
             return failures.removeValue(forKey: operation)
         }
         if let failure { throw failure }

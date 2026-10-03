@@ -72,12 +72,26 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     let settings: AppSettings
 
+    /// Reloads when a transfer changes the server folder shown here (servers aren't watched).
+    @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
+
+    deinit {
+        if let remoteChangeObserver { NotificationCenter.default.removeObserver(remoteChangeObserver) }
+    }
+
     init(url: URL, settings: AppSettings = .shared) {
         self.settings = settings
         let url = url.normalizedFileURL
         self.url = url
         self.viewMode = FolderViewModes.mode(for: url, defaults: settings.defaults)
         load(selecting: [])
+        remoteChangeObserver = NotificationCenter.default.addObserver(forName: .remoteFolderChanged, object: nil, queue: .main) { [weak self] note in
+            let changed = note.userInfo?["url"] as? URL
+            MainActor.assumeIsolated {
+                guard let self, self.isRemote, changed?.normalizedFileURL == self.url else { return }
+                self.reload()
+            }
+        }
     }
 
     // MARK: Derived state

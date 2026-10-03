@@ -85,31 +85,60 @@ struct RemoteTransfers {
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
                 progress.setCurrentName(Self.name(of: job.source))
                 if isServerMove(kind, job) {
-                    // SFTP renames can't overwrite, so a replaced item goes first; the rename itself is atomic.
-                    if job.replace { try await remove(job.destination) }
-                    try await connections.perform(try Self.endpoint(job.source)) { try await $0.rename(job.source.remotePath, to: job.destination.remotePath) }
+                    try await commit(job.source, to: job.destination, replacing: job.replace)
                 } else {
-                    // Copy under a hidden temporary name, and only then replace and rename into place. A failed
-                    // or cancelled transfer leaves no partial item, and a replaced item survives until the copy is complete.
+                    // Copy under a hidden temporary name, then swap it into place. A failed or cancelled transfer
+                    // leaves no partial item, and a replaced item is only removed once the new one is in place.
                     let staging = Self.stagingURL(for: job.destination)
                     do {
                         try await copy(job.source, to: staging, counter: counter)
+                        try await commit(staging, to: job.destination, replacing: job.replace)
                     } catch {
                         await discard(staging)
                         throw error
                     }
-                    if job.replace { try await remove(job.destination) }
-                    try await move(staging, to: job.destination)
                     if kind == .move { try await remove(job.source) }
                 }
                 result.results.append(job.destination)
+                if kind == .move { result.completedSources.append(job.source) }
             }
         } catch {
             result.error = error
             if !(error is CopyEngine.Cancelled) { BrowserTab.present(error) }
         }
         transfer.refresh()
+        // Server folders aren't watched: tell tabs showing the destination (and a move's sources) to reload.
+        let changed = Set([directory] + (kind == .move ? jobs.map { Self.parent(of: $0.source) } : []))
+        for folder in changed where folder.isRemote {
+            NotificationCenter.default.post(name: .remoteFolderChanged, object: nil, userInfo: ["url": folder])
+        }
         return result
+    }
+
+    /// Moves `item` to `destination`, replacing what's there without ever losing it: see `swapIntoPlace`.
+    /// Locally the replaced item goes to the Trash, and comes back if the move fails.
+    private func commit(_ item: URL, to destination: URL, replacing: Bool) async throws {
+        if destination.isRemote {
+            try await connections.perform(try Self.endpoint(destination)) { system in
+                if replacing {
+                    try await system.swapIntoPlace(item.remotePath, at: destination.remotePath)
+                } else {
+                    try await system.rename(item.remotePath, to: destination.remotePath)
+                }
+            }
+            return
+        }
+        guard replacing, FileOperations.exists(destination) else {
+            return try FileManager.default.moveItem(at: item, to: destination)
+        }
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: destination, resultingItemURL: &trashed)
+        do {
+            try FileManager.default.moveItem(at: item, to: destination)
+        } catch {
+            if let trashed { try? FileManager.default.moveItem(at: trashed as URL, to: destination) }
+            throw error
+        }
     }
 
     /// A move within one server is a rename; nothing is downloaded.
@@ -197,14 +226,6 @@ struct RemoteTransfers {
             }
         } else {
             try? FileManager.default.removeItem(at: url)
-        }
-    }
-
-    private func move(_ source: URL, to destination: URL) async throws {
-        if source.isRemote {
-            try await connections.perform(try Self.endpoint(source)) { try await $0.rename(source.remotePath, to: destination.remotePath) }
-        } else {
-            try FileManager.default.moveItem(at: source, to: destination)
         }
     }
 

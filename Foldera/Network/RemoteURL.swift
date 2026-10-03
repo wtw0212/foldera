@@ -78,6 +78,11 @@ nonisolated enum RemotePath {
     }
 }
 
+extension Notification.Name {
+    /// Posted with `userInfo["url"]` when a transfer changes a server folder.
+    static let remoteFolderChanged = Notification.Name("FolderaRemoteFolderChanged")
+}
+
 nonisolated extension URL {
     /// An sftp:// address handled by Foldera's own SFTP client.
     var isRemote: Bool { scheme?.lowercased() == "sftp" }
