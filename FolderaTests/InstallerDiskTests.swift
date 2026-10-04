@@ -107,6 +107,31 @@ struct InstallerDiskTests {
         }
     }
 
+    @Test func manualEjectConfirmsSafeRemovalOnlyAfterTheImageIsEjected() async throws {
+        try await withInstaller { _, mount, _ in
+            let volumes = VolumeMonitor(observe: false), errors = ErrorCollector()
+            let drive = Location(url: mount, title: "Test USB", symbol: "hard_drive_filled", tint: .blue)
+            let busy = Process()
+            busy.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            busy.arguments = ["30"]
+            busy.currentDirectoryURL = mount
+            try busy.run()
+            defer { if busy.isRunning { busy.terminate() } }
+            volumes.eject(drive)
+            #expect(volumes.isEjecting(drive) && volumes.lastEjectedName == nil)
+            try await eventually(timeout: .seconds(20)) { !volumes.isEjecting(drive) }
+            #expect(errors.errors.count == 1 && volumes.lastEjectedName == nil)
+            #expect(FileOperations.exists(mount.appendingPathComponent("Foldera.app")))
+            busy.terminate()
+            busy.waitUntilExit()
+
+            volumes.eject(drive)
+            try await eventually(timeout: .seconds(20)) { !volumes.isEjecting(drive) }
+            #expect(volumes.lastEjectedName == "Test USB")
+            #expect(!FileOperations.exists(mount.appendingPathComponent("Foldera.app")))
+        }
+    }
+
     @Test func imageDiscoveryExcludesWritableOrOtherUsersImages() throws {
         let entity = ["mount-point": "/Volumes/Foldera"]
         let eligible: [String: Any] = ["writeable": false, "owner-uid": Int(getuid()), "image-path": "/tmp/Foldera.dmg", "system-entities": [entity]]

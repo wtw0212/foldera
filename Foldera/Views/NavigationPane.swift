@@ -297,7 +297,8 @@ struct NavigationPane: View {
         Button(L10n.text("Show in Finder")) { NSWorkspace.shared.open(url) }
         if let volume {
             Divider()
-            Button(L10n.text("Eject")) { volumes.eject(volume) }
+            Button(L10n.text(volumes.isEjecting(volume) ? "Ejecting…" : "Eject")) { volumes.eject(volume) }
+                .disabled(volumes.isEjecting(volume))
         }
         if isCloud {
             Divider()

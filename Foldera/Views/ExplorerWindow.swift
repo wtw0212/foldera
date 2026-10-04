@@ -6,6 +6,7 @@ struct ExplorerWindow: View {
     @State private var settings = AppSettings.shared
     @State private var clipboard = FileClipboard.shared
     @State private var diskAccess = DiskAccess.shared
+    @State private var volumes = VolumeMonitor.shared
     @State private var swipe = SwipeFeedback()
 
     init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared, swipe: SwipeFeedback = SwipeFeedback()) {
@@ -30,6 +31,10 @@ struct ExplorerWindow: View {
 
             if diskAccess.showsBanner {
                 FullDiskAccessBar(access: diskAccess)
+            }
+
+            if !volumes.ejecting.isEmpty || volumes.lastEjectedName != nil {
+                VolumeEjectionBar(volumes: volumes)
             }
 
             HSplitView {
@@ -215,6 +220,44 @@ struct ExplorerWindow: View {
         guard !tab.isLoading, !tab.isSearching, tab.visibleItems.isEmpty else { return nil }
         if tab.isSearchActive { return L10n.text("No items match your search.") }
         return tab.isRecent ? L10n.text("Folders and files you open appear here.") : L10n.text("This folder is empty.")
+    }
+}
+
+/// A persistent, nonmodal notice: success is shown only after macOS completes the eject.
+struct VolumeEjectionBar: View {
+    let volumes: VolumeMonitor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !volumes.ejecting.isEmpty {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small).frame(width: 14, height: 14)
+                    Text(L10n.format("Ejecting %@…", volumes.ejecting.values.sorted().joined(separator: ", ")))
+                        .accessibilityIdentifier("eject-progress")
+                    Spacer()
+                }
+            }
+            if let name = volumes.lastEjectedName {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text(L10n.format("“%@” has been ejected. You can safely remove the device.", name))
+                        .accessibilityIdentifier("safe-to-remove")
+                    Spacer()
+                    Button {
+                        volumes.dismissEjectionNotice()
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                    }
+                    .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
+                    .accessibilityLabel(L10n.text("Dismiss"))
+                }
+            }
+        }
+        .font(Theme.font)
+        .foregroundStyle(Theme.text.swiftUI)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.selection.swiftUI.opacity(0.6))
     }
 }
 

@@ -60,6 +60,10 @@
 "Dual pane" = "Dual pane";
 "Duplicate Tab" = "Duplicate Tab";
 "Eject" = "Eject";
+"Ejecting…" = "Ejecting…";
+"Ejecting %@…" = "Ejecting %@…";
+"“%@” has been ejected. You can safely remove the device." = "“%@” has been ejected. You can safely remove the device.";
+"Dismiss" = "Dismiss";
 "Enclosing Folder" = "Enclosing Folder";
 "Extra large icons" = "Extra large icons";
 "F2 always renames. ⌘↓ always opens." = "F2 always renames. ⌘↓ always opens.";

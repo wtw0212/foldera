@@ -156,6 +156,10 @@ Right-click archives to **Extract here**, **Extract to “name”** or **Extract
 
 Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdParty/7-Zip`) and runs it as a separate process. tar archives use the system `tar`; single-item ZIPs use `ditto`, like Finder.
 
+## Removable drives
+
+Right-click a drive in This Mac or the navigation pane and choose **Eject**. Foldera stays responsive and shows progress while macOS finishes ejecting it. A persistent **You can safely remove the device** notice appears in the window after success; close it with the × button. If the device is busy, Foldera reports the error so you can close files on it and try again.
+
 ## Cloud drives
 
 OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.

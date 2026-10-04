@@ -54,9 +54,14 @@ final class VolumeMonitor {
     private(set) var networkVolumeURLs: Set<URL> = []
     var localVolumes: [Location] { volumes.filter { !networkVolumeURLs.contains($0.url) } }
     var networkVolumes: [Location] { volumes.filter { networkVolumeURLs.contains($0.url) } }
+    private(set) var ejecting: [URL: String] = [:]
+    private(set) var lastEjectedName: String?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private let ejectDevice: @Sendable (URL) throws -> Void
 
-    private init() {
+    init(observe: Bool = true, ejectDevice: @escaping @Sendable (URL) throws -> Void = { try NSWorkspace.shared.unmountAndEjectDevice(at: $0) }) {
+        self.ejectDevice = ejectDevice
+        guard observe else { return }
         refresh()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
@@ -65,6 +70,8 @@ final class VolumeMonitor {
             })
         }
     }
+
+    isolated deinit { observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver) }
 
     func refresh() {
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsLocalKey]
@@ -83,12 +90,26 @@ final class VolumeMonitor {
         }
     }
 
-    /// Ejects (unmounts) a removable volume.
+    func isEjecting(_ location: Location) -> Bool { ejecting[location.url.normalizedFileURL] != nil }
+
+    func dismissEjectionNotice() { lastEjectedName = nil }
+
+    /// macOS may wait for disk writes and volume notifications; keep the main actor responsive.
     func eject(_ location: Location) {
-        do {
-            try NSWorkspace.shared.unmountAndEjectDevice(at: location.url)
-        } catch {
-            BrowserTab.present(error)
+        let url = location.url.normalizedFileURL, name = location.title, eject = ejectDevice
+        guard ejecting[url] == nil else { return }
+        ejecting[url] = name
+        lastEjectedName = nil
+        Task {
+            do {
+                try await Task.detached { try eject(url) }.value
+                ejecting.removeValue(forKey: url)
+                if !observers.isEmpty { refresh() }
+                lastEjectedName = name
+            } catch {
+                ejecting.removeValue(forKey: url)
+                BrowserTab.present(error)
+            }
         }
     }
 }

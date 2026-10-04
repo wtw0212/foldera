@@ -60,6 +60,10 @@
 "Dual pane" = "雙窗格";
 "Duplicate Tab" = "複製分頁";
 "Eject" = "退出";
+"Ejecting…" = "正在退出…";
+"Ejecting %@…" = "正在退出 %@…";
+"“%@” has been ejected. You can safely remove the device." = "「%@」已退出。你可以安全移除設備。";
+"Dismiss" = "關閉提示";
 "Enclosing Folder" = "上一層資料夾";
 "Extra large icons" = "特大圖示";
 "F2 always renames. ⌘↓ always opens." = "F2 一律重新命名；⌘↓ 一律開啟。";
