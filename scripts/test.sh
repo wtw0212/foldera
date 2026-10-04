@@ -38,7 +38,8 @@ if [[ "$SUITE" == ui && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; the
 fi
 
 STATUS=0
-xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" \
+# -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
+xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
     -destination 'platform=macOS' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
     -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" \
     -parallel-testing-enabled NO COMPILER_INDEX_STORE_ENABLE=NO \

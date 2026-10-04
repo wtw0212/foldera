@@ -10,10 +10,12 @@ let package = Package(
     products: [
         .library(name: "NIOSSH", targets: ["NIOSSH"])
     ],
+    // Exact versions Foldera is built and tested with (upstream: nio from 2.81.0, crypto 1.0.0..<4.0.0, atomics
+    // from 1.0.2); their own dependencies are locked in Package.resolved. Bump together with project.yml.
     dependencies: [
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
-        .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0"..<"4.0.0"),
-        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
+        .package(url: "https://github.com/apple/swift-nio.git", exact: "2.103.0"),
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
+        .package(url: "https://github.com/apple/swift-atomics.git", exact: "1.3.1"),
     ],
     targets: [
         .target(
