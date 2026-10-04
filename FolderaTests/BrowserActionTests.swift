@@ -139,10 +139,7 @@ enum FinderInfoWindows {
     on isOpen(fileURL)
         set testFile to fileURL as alias
         with timeout of 10 seconds
-            tell application "Finder"
-                if exists information window of testFile then return visible of information window of testFile
-                return false
-            end tell
+            tell application "Finder" to return exists information window of testFile
         end timeout
     end isOpen
     on closeWindow(fileURL)
