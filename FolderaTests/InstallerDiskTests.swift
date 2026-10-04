@@ -6,18 +6,21 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct InstallerDiskTests {
-    private func run(_ executable: String, _ arguments: [String]) throws {
-        let process = Process(), output = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "InstallerDiskTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)])
-        }
+    /// AppKit must keep processing volume notifications while a disk tool waits for them.
+    private func run(_ executable: String, _ arguments: [String]) async throws {
+        try await Task.detached {
+            let process = Process(), output = Pipe()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = output
+            process.standardError = output
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw NSError(domain: "InstallerDiskTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)])
+            }
+        }.value
     }
 
     /// Uses the actual packaging marker writer and a disposable read-only disk image.
@@ -35,8 +38,8 @@ struct InstallerDiskTests {
         let marker = contents.appendingPathComponent(".foldera-installer.plist")
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/installer-receipt.py")
         let fixtureScript = try directory.folder("scripts").appendingPathComponent("installer-receipt.py")
-        try run("/bin/cp", [script.path, fixtureScript.path])
-        try run("/usr/bin/env", ["python3", fixtureScript.path])
+        try await run("/bin/cp", [script.path, fixtureScript.path])
+        try await run("/usr/bin/env", ["python3", fixtureScript.path])
         switch kind {
         case "missingReceipt": try fm.removeItem(at: marker)
         case "wrongApplicationsLink":
@@ -47,14 +50,14 @@ struct InstallerDiskTests {
         default: break
         }
         let image = directory.path("installer.dmg"), mount = directory.path("mounted")
-        try run("/usr/bin/hdiutil", ["create", "-volname", "Foldera 1.2.3", "-srcfolder", contents.path, "-format", "UDZO", image.path])
-        try run("/usr/bin/hdiutil", ["attach", image.path, "-nobrowse", "-readonly", "-mountpoint", mount.path])
-        defer {
-            if fm.fileExists(atPath: mount.appendingPathComponent("Foldera.app").path) {
-                try? run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
-            }
+        try await run("/usr/bin/hdiutil", ["create", "-volname", "Foldera 1.2.3", "-srcfolder", contents.path, "-format", "UDZO", image.path])
+        try await run("/usr/bin/hdiutil", ["attach", image.path, "-nobrowse", "-readonly", "-mountpoint", mount.path])
+        var failure: Error?
+        do { try await perform(installed, mount, directory.url) } catch { failure = error }
+        if fm.fileExists(atPath: mount.appendingPathComponent("Foldera.app").path) {
+            try? await run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
         }
-        try await perform(installed, mount, directory.url)
+        if let failure { throw failure }
     }
 
     @Test func automaticallyEjectsTheMarkedInstallerOfTheInstalledCopy() async throws {
