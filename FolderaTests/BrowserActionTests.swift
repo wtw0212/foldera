@@ -155,12 +155,15 @@ enum FinderInfoWindows {
     on closeWindow(fileURL)
         set targetID to my windowID(fileURL)
         if targetID is not 0 then
-            tell application "Finder"
-                -- Close only the identified fixture window, without waiting for a reply.
-                ignoring application responses
-                    close window id targetID
-                end ignoring
-            end tell
+            set testFile to fileURL as alias
+            -- Finder can close an info window without replying. Bound the wait; callers verify closure.
+            try
+                with timeout of 2 seconds
+                    tell application "Finder" to close information window of testFile
+                end timeout
+            on error number -1712
+                return
+            end try
         end if
     end closeWindow
     """)
