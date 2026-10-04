@@ -3,6 +3,9 @@ import hashlib
 from pathlib import Path
 import plistlib
 import runpy
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from uuid import uuid4
@@ -15,7 +18,8 @@ class InstallerReceiptTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.project = Path(temp.name)
+        self.root = self.project / "build.noindex/dmg"
         self.app = self.root / "Foldera.app"
         self.executable = self.app / "Contents/MacOS/Foldera"
         self.executable.parent.mkdir(parents=True)
@@ -30,7 +34,7 @@ class InstallerReceiptTests(unittest.TestCase):
             plistlib.dump(self.info, output)
 
     def test_marker_records_the_signed_executable_and_packaging_identity(self):
-        WRITE_RECEIPT(self.app, self.marker)
+        WRITE_RECEIPT(self.root)
         with self.marker.open("rb") as source:
             record = plistlib.load(source)
         self.assertEqual(record, dict(format=1, installerID=self.info["FolderaInstallerID"],
@@ -43,14 +47,14 @@ class InstallerReceiptTests(unittest.TestCase):
                 self.info["FolderaInstallerID"] = value
                 self.save_info()
                 with self.assertRaises(ValueError):
-                    WRITE_RECEIPT(self.app, self.marker)
+                    WRITE_RECEIPT(self.root)
                 self.assertFalse(self.marker.exists())
 
     def test_an_unrelated_application_cannot_produce_a_marker(self):
         self.info["CFBundleIdentifier"] = "com.example.other"
         self.save_info()
         with self.assertRaises(ValueError):
-            WRITE_RECEIPT(self.app, self.marker)
+            WRITE_RECEIPT(self.root)
         self.assertFalse(self.marker.exists())
 
     def test_symlinked_executable_cannot_bind_an_outside_file(self):
@@ -59,8 +63,24 @@ class InstallerReceiptTests(unittest.TestCase):
         self.executable.unlink()
         self.executable.symlink_to(outside)
         with self.assertRaises(ValueError):
-            WRITE_RECEIPT(self.app, self.marker)
+            WRITE_RECEIPT(self.root)
         self.assertFalse(self.marker.exists())
+
+    def test_cli_writes_only_its_fixed_staging_marker_without_overwriting(self):
+        scripts = self.project / "scripts"
+        scripts.mkdir()
+        script = scripts / "installer-receipt.py"
+        shutil.copyfile(Path(__file__).parents[1] / script.name, script)
+        outside = self.project / "outside.plist"
+        rejected = subprocess.run([sys.executable, str(script), str(self.app), str(outside)], capture_output=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse(outside.exists())
+        self.assertFalse(self.marker.exists())
+        subprocess.run([sys.executable, str(script)], check=True, capture_output=True)
+        original = self.marker.read_bytes()
+        repeated = subprocess.run([sys.executable, str(script)], capture_output=True)
+        self.assertNotEqual(repeated.returncode, 0)
+        self.assertEqual(self.marker.read_bytes(), original)
 
 
 if __name__ == "__main__":

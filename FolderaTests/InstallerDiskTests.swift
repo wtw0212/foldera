@@ -29,12 +29,14 @@ struct InstallerDiskTests {
             "CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "42", "FolderaInstallerID": UUID().uuidString]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: installed.appendingPathComponent("Contents/Info.plist"))
         try Data("SIGNED EXECUTABLE".utf8).write(to: installed.appendingPathComponent("Contents/MacOS/Foldera"))
-        let contents = try directory.folder("contents"), packaged = contents.appendingPathComponent("Foldera.app")
+        let contents = try directory.folder("build.noindex/dmg"), packaged = contents.appendingPathComponent("Foldera.app")
         try fm.copyItem(at: installed, to: packaged)
         try fm.createSymbolicLink(atPath: contents.appendingPathComponent("Applications").path, withDestinationPath: "/Applications")
         let marker = contents.appendingPathComponent(".foldera-installer.plist")
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/installer-receipt.py")
-        try run("/usr/bin/env", ["python3", script.path, packaged.path, marker.path])
+        let fixtureScript = try directory.folder("scripts").appendingPathComponent("installer-receipt.py")
+        try run("/bin/cp", [script.path, fixtureScript.path])
+        try run("/usr/bin/env", ["python3", fixtureScript.path])
         switch kind {
         case "missingReceipt": try fm.removeItem(at: marker)
         case "wrongApplicationsLink":

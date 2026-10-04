@@ -63,6 +63,26 @@ struct FileSafetyTests {
         #expect(FileOperations.contains(directory.url, other))
     }
 
+    @Test(arguments: [FileTransfer.Kind.copy, .move])
+    func aSourceSymlinkCanBeTransferredIntoItsTarget(_ kind: FileTransfer.Kind) async throws {
+        let directory = try TestDirectory(), fm = FileManager.default
+        let target = try directory.folder("real/folder"), child = try directory.folder("real/folder/subdir")
+        let original = try directory.file("real/folder/keep", contents: "KEEP")
+        let source = directory.path("link"), destination = child.appendingPathComponent("link")
+        try fm.createSymbolicLink(at: source, withDestinationURL: target)
+        #expect(!FileOperations.contains(source, child))
+        #expect(!RemoteTransfers.contains(source, child))
+
+        let result = await FileTransfers.shared.run(kind, [source], into: child)
+        #expect(result.error == nil)
+        #expect(result.results == [destination])
+        #expect((try fm.attributesOfItem(atPath: destination.path))[.type] as? FileAttributeType == .typeSymbolicLink)
+        #expect(try fm.destinationOfSymbolicLink(atPath: destination.path) == target.path)
+        #expect(FileOperations.exists(source) == (kind == .copy))
+        #expect(try String(contentsOf: original, encoding: .utf8) == "KEEP")
+        #expect(try fm.contentsOfDirectory(atPath: child.path) == ["link"])
+    }
+
     @Test(arguments: ["-oProxyCommand=touch marker", "-Fprofile", "-iidentity"])
     func sshDestinationIsNeverConsumedAsAnOption(_ username: String) throws {
         let endpoint = RemoteEndpoint(host: "127.0.0.1", username: username)

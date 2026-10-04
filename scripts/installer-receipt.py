@@ -7,7 +7,9 @@ import sys
 from uuid import UUID
 
 
-def write_receipt(app: Path, destination: Path) -> None:
+def write_receipt(staging: Path) -> None:
+    app = staging / "Foldera.app"
+    destination = staging / ".foldera-installer.plist"
     with (app / "Contents/Info.plist").open("rb") as source:
         info = plistlib.load(source)
     if info.get("CFBundleIdentifier") != "com.wtw0212.foldera" or info.get("CFBundleExecutable") != "Foldera":
@@ -30,4 +32,6 @@ def write_receipt(app: Path, destination: Path) -> None:
 
 
 if __name__ == "__main__":
-    write_receipt(Path(sys.argv[1]), Path(sys.argv[2]))
+    if len(sys.argv) != 1:
+        raise SystemExit("Usage: installer-receipt.py (writes only build.noindex/dmg/.foldera-installer.plist)")
+    write_receipt(Path(__file__).resolve().parents[1] / "build.noindex/dmg")

@@ -19,11 +19,12 @@ nonisolated enum FileOperations {
         return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
-    /// Compares the effective locations, including symlinked parents and filesystem aliases.
+    /// Only source directories contain destinations; source symlinks are copied as links.
+    /// Compares directory locations, including symlinked parents and filesystem aliases.
     static func contains(_ source: URL, _ directory: URL) -> Bool {
         guard source.isFileURL, directory.isFileURL else { return false }
         var sourceInfo = stat()
-        guard stat(source.path, &sourceInfo) == 0 else { return false }
+        guard lstat(source.path, &sourceInfo) == 0, sourceInfo.st_mode & S_IFMT == S_IFDIR else { return false }
         var ancestor = directory.resolvingSymlinksInPath().standardizedFileURL
         while true {
             var info = stat()

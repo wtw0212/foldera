@@ -44,7 +44,7 @@ rm -rf build.noindex/dmg
 mkdir -p build.noindex/dmg
 cp -R "$APP" build.noindex/dmg/
 ln -s /Applications build.noindex/dmg/Applications
-python3 scripts/installer-receipt.py build.noindex/dmg/Foldera.app build.noindex/dmg/.foldera-installer.plist
+python3 scripts/installer-receipt.py
 
 echo "▸ Creating ${DMG}"
 rm -f "$DMG"
