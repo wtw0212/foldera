@@ -15,11 +15,13 @@ nonisolated enum SSHPrivateKey {
     /// The file isn't a key Foldera can use, or the passphrase is wrong.
     struct Unsupported: Error {}
 
-    static func authenticationMethod(username: String, key: String, passphrase: Data?) throws -> SSHAuthenticationMethod {
-        .custom(KeyOffer(username: username, key: try privateKey(key, passphrase: passphrase)))
+    static func authenticationMethod(username: String, key: NIOSSHPrivateKey) -> SSHAuthenticationMethod {
+        .custom(KeyOffer(username: username, key: key))
     }
 
-    static func privateKey(_ key: String, passphrase: Data?) throws -> NIOSSHPrivateKey {
+    /// The ways to sign in with the key, in order. RSA keys give several, one per signature algorithm, each tried
+    /// on its own connection (see `SFTPFileSystem.connect`).
+    static func privateKeys(_ key: String, passphrase: Data?) throws -> [NIOSSHPrivateKey] {
         let lines = key.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard let armor = lines.first, armor.hasPrefix("-----BEGIN "), armor.hasSuffix("-----") else { throw Unsupported() }
         let label = armor.dropFirst("-----BEGIN ".count).dropLast("-----".count)
@@ -45,7 +47,7 @@ nonisolated enum SSHPrivateKey {
 
     // MARK: OpenSSH
 
-    private static func openSSH(_ blob: [UInt8], passphrase: Data?) throws -> NIOSSHPrivateKey {
+    private static func openSSH(_ blob: [UInt8], passphrase: Data?) throws -> [NIOSSHPrivateKey] {
         var reader = SSHReader(blob)
         guard reader.take("openssh-key-v1\0".utf8.count) == Array("openssh-key-v1\0".utf8) else { throw Unsupported() }
         let cipher = String(decoding: try reader.string(), as: UTF8.self)
@@ -69,18 +71,17 @@ nonisolated enum SSHPrivateKey {
             _ = try key.string()
             let pair = try key.string()
             guard pair.count == 64 else { throw Unsupported() }
-            return NIOSSHPrivateKey(ed25519Key: try Curve25519.Signing.PrivateKey(rawRepresentation: pair.prefix(32)))
+            return [NIOSSHPrivateKey(ed25519Key: try Curve25519.Signing.PrivateKey(rawRepresentation: pair.prefix(32)))]
         case "ssh-rsa":
             let n = try key.string(), e = try key.string(), d = try key.string()
-            _ = try key.string() // iqmp
-            let p = try key.string(), q = try key.string()
-            return try rsa(n: n, e: e, d: d, p: p, q: q)
+            let iqmp = try key.string(), p = try key.string(), q = try key.string()
+            return try rsa(n: n, e: e, d: d, iqmp: iqmp, p: p, q: q)
         case "ecdsa-sha2-nistp256":
-            return NIOSSHPrivateKey(p256Key: try P256.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 32)))
+            return [NIOSSHPrivateKey(p256Key: try P256.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 32)))]
         case "ecdsa-sha2-nistp384":
-            return NIOSSHPrivateKey(p384Key: try P384.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 48)))
+            return [NIOSSHPrivateKey(p384Key: try P384.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 48)))]
         case "ecdsa-sha2-nistp521":
-            return NIOSSHPrivateKey(p521Key: try P521.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 66)))
+            return [NIOSSHPrivateKey(p521Key: try P521.Signing.PrivateKey(rawRepresentation: fixedWidth(try ecdsaScalar(&key), 66)))]
         default:
             throw Unsupported()
         }
@@ -138,7 +139,7 @@ nonisolated enum SSHPrivateKey {
     private static let ecPublicKey: [UInt8] = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01]
     private static let ed25519: [UInt8] = [0x2B, 0x65, 0x70]
 
-    private static func pkcs8(_ der: [UInt8]) throws -> NIOSSHPrivateKey {
+    private static func pkcs8(_ der: [UInt8]) throws -> [NIOSSHPrivateKey] {
         var outer = DERReader(der)
         var info = DERReader(try outer.read(0x30))
         _ = try info.read(0x02) // version
@@ -152,14 +153,14 @@ nonisolated enum SSHPrivateKey {
             return try sec1(key)
         case ed25519:
             var seed = DERReader(key)
-            return NIOSSHPrivateKey(ed25519Key: try Curve25519.Signing.PrivateKey(rawRepresentation: try seed.read(0x04)))
+            return [NIOSSHPrivateKey(ed25519Key: try Curve25519.Signing.PrivateKey(rawRepresentation: try seed.read(0x04)))]
         default:
             throw Unsupported()
         }
     }
 
     /// A SEC1 EC private key, on its own or inside PKCS#8.
-    private static func sec1(_ der: [UInt8]) throws -> NIOSSHPrivateKey {
+    private static func sec1(_ der: [UInt8]) throws -> [NIOSSHPrivateKey] {
         var outer = DERReader(der)
         var fields = DERReader(try outer.read(0x30))
         _ = try fields.read(0x02) // version
@@ -186,23 +187,46 @@ nonisolated enum SSHPrivateKey {
         }
         // A key on another curve of the same size, such as secp256k1, doesn't match its own public point.
         if let point, point != publicPoint { throw Unsupported() }
-        return key
+        return [key]
     }
 
-    private static func pkcs1(_ der: [UInt8]) throws -> NIOSSHPrivateKey {
+    private static func pkcs1(_ der: [UInt8]) throws -> [NIOSSHPrivateKey] {
         var outer = DERReader(der)
         var fields = DERReader(try outer.read(0x30))
         _ = try fields.read(0x02) // version
         let n = try fields.read(0x02), e = try fields.read(0x02), d = try fields.read(0x02)
         let p = try fields.read(0x02), q = try fields.read(0x02)
-        return try rsa(n: n, e: e, d: d, p: p, q: q)
+        _ = try fields.read(0x02) // d mod (p-1)
+        _ = try fields.read(0x02) // d mod (q-1)
+        return try rsa(n: n, e: e, d: d, iqmp: try fields.read(0x02), p: p, q: q)
     }
 
-    private static func rsa(n: [UInt8], e: [UInt8], d: [UInt8], p: [UInt8], q: [UInt8]) throws -> NIOSSHPrivateKey {
+    /// RSA signs with SHA-512, then SHA-256 (RFC 8332), then legacy SHA-1 "ssh-rsa" for servers older than
+    /// OpenSSH 7.2; the server takes the first one it accepts.
+    private static func rsa(n: [UInt8], e: [UInt8], d: [UInt8], iqmp: [UInt8], p: [UInt8], q: [UInt8]) throws -> [NIOSSHPrivateKey] {
         let strip = { (integer: [UInt8]) in Array(integer.drop { $0 == 0 }) }
-        guard let key = try? _RSA.Signing.PrivateKey(n: strip(n), e: strip(e), d: strip(d), p: strip(p), q: strip(q)) else { throw Unsupported() }
-        _ = RSASHA512.registered
-        return NIOSSHPrivateKey(custom: RSASHA512.PrivateKey(key: key, n: strip(n), e: strip(e)))
+        let (n, e) = (strip(n), strip(e))
+        guard let key = try? _RSA.Signing.PrivateKey(n: n, e: e, d: strip(d), p: strip(p), q: strip(q)) else { throw Unsupported() }
+        _ = RSASHA2.registered
+        let legacy = try Insecure.RSA.PrivateKey(sshRsa: openSSHText(rsa: [n, e, d, iqmp, p, q].map(strip)))
+        return [
+            NIOSSHPrivateKey(custom: RSASHA2.PrivateKey<RSASHA2.SHA512Hash>(key: key, n: n, e: e)),
+            NIOSSHPrivateKey(custom: RSASHA2.PrivateKey<RSASHA2.SHA256Hash>(key: key, n: n, e: e)),
+            NIOSSHPrivateKey(custom: legacy),
+        ]
+    }
+
+    /// An unencrypted OpenSSH "ssh-rsa" key file holding n, e, d, iqmp, p and q, the only RSA form Citadel reads.
+    private static func openSSHText(rsa fields: [[UInt8]]) -> String {
+        func string(_ bytes: [UInt8]) -> [UInt8] { withUnsafeBytes(of: UInt32(bytes.count).bigEndian, Array.init) + bytes }
+        func mpint(_ magnitude: [UInt8]) -> [UInt8] { string(magnitude.first.map { $0 & 0x80 != 0 } == true ? [0] + magnitude : magnitude) }
+        let type = string(Array("ssh-rsa".utf8))
+        let publicKey = type + mpint(fields[1]) + mpint(fields[0])
+        var secret = [UInt8](repeating: 0, count: 8) + type + fields.flatMap(mpint) + string([])
+        secret += (0..<(8 - secret.count % 8) % 8).map { UInt8($0 + 1) }
+        let none = string(Array("none".utf8))
+        let blob = Array("openssh-key-v1\0".utf8) + none + none + string([]) + [0, 0, 0, 1] + string(publicKey) + string(secret)
+        return "-----BEGIN OPENSSH PRIVATE KEY-----\n\(Data(blob).base64EncodedString())\n-----END OPENSSH PRIVATE KEY-----"
     }
 
     private static func fixedWidth(_ integer: [UInt8], _ width: Int) throws -> [UInt8] {
@@ -262,7 +286,7 @@ nonisolated enum SSHPrivateKey {
     }
 }
 
-/// Offers one key once; Citadel builds a fresh method for each connection.
+/// Offers one key once: Citadel's method asks its delegate only once per connection.
 private nonisolated final class KeyOffer: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
     private let username: String
     private var key: NIOSSHPrivateKey?
@@ -283,19 +307,33 @@ private nonisolated final class KeyOffer: NIOSSHClientUserAuthenticationDelegate
     }
 }
 
-/// RSA signatures with SHA-512 (RFC 8332). The algorithm name doubles as the key blob's type, which OpenSSH
-/// accepts because it maps "rsa-sha2-512" to the RSA key type.
-nonisolated enum RSASHA512 {
-    static let name = "rsa-sha2-512"
-    /// Custom key types also become host-key algorithms, in registration order. Citadel's "ssh-rsa" goes first so a
-    /// server with only an RSA host key still picks it, not "rsa-sha2-512", whose host keys NIOSSH can't read.
+/// RSA signatures with SHA-2 (RFC 8332): the algorithm is "rsa-sha2-256" or "rsa-sha2-512", while the key blob keeps
+/// the "ssh-rsa" format, through the vendored swift-nio-ssh's `publicKeyFormatPrefix` (ThirdParty/swift-nio-ssh/PATCHES.md).
+nonisolated enum RSASHA2 {
+    protocol Hash {
+        static var name: String { get }
+        static func digest<D: DataProtocol>(_ data: D) -> any Digest
+    }
+
+    enum SHA512Hash: Hash {
+        static let name = "rsa-sha2-512"
+        static func digest<D: DataProtocol>(_ data: D) -> any Digest { SHA512.hash(data: data) }
+    }
+
+    enum SHA256Hash: Hash {
+        static let name = "rsa-sha2-256"
+        static func digest<D: DataProtocol>(_ data: D) -> any Digest { SHA256.hash(data: data) }
+    }
+
+    /// Citadel's "ssh-rsa" first: when several custom types read the same "ssh-rsa" blob, the first registered wins.
     static let registered: Void = {
         NIOSSHAlgorithms.register(publicKey: Insecure.RSA.PublicKey.self, signature: Insecure.RSA.Signature.self)
-        NIOSSHAlgorithms.register(publicKey: PublicKey.self, signature: Signature.self)
+        NIOSSHAlgorithms.register(publicKey: PublicKey<SHA512Hash>.self, signature: Signature<SHA512Hash>.self)
+        NIOSSHAlgorithms.register(publicKey: PublicKey<SHA256Hash>.self, signature: Signature<SHA256Hash>.self)
     }()
 
-    struct Signature: NIOSSHSignatureProtocol {
-        static let signaturePrefix = RSASHA512.name
+    struct Signature<H: Hash>: NIOSSHSignatureProtocol {
+        static var signaturePrefix: String { H.name }
         let rawRepresentation: Data
 
         func write(to buffer: inout ByteBuffer) -> Int {
@@ -308,8 +346,9 @@ nonisolated enum RSASHA512 {
         }
     }
 
-    struct PublicKey: NIOSSHPublicKeyProtocol {
-        static let publicKeyPrefix = RSASHA512.name
+    struct PublicKey<H: Hash>: NIOSSHPublicKeyProtocol {
+        static var publicKeyPrefix: String { H.name }
+        static var publicKeyFormatPrefix: String { "ssh-rsa" }
         let n: [UInt8], e: [UInt8]
 
         var rawRepresentation: Data {
@@ -319,9 +358,9 @@ nonisolated enum RSASHA512 {
         }
 
         func isValidSignature<D: DataProtocol>(_ signature: NIOSSHSignatureProtocol, for data: D) -> Bool {
-            guard let signature = signature as? Signature, let key = try? _RSA.Signing.PublicKey(n: n, e: e) else { return false }
+            guard let signature = signature as? Signature<H>, let key = try? _RSA.Signing.PublicKey(n: n, e: e) else { return false }
             return key.isValidSignature(_RSA.Signing.RSASignature(rawRepresentation: signature.rawRepresentation),
-                                        for: SHA512.hash(data: data), padding: .insecurePKCS1v1_5)
+                                        for: H.digest(data), padding: .insecurePKCS1v1_5)
         }
 
         func write(to buffer: inout ByteBuffer) -> Int {
@@ -342,10 +381,10 @@ nonisolated enum RSASHA512 {
         }
     }
 
-    final class PrivateKey: NIOSSHPrivateKeyProtocol, @unchecked Sendable {
-        static let keyPrefix = RSASHA512.name
+    final class PrivateKey<H: Hash>: NIOSSHPrivateKeyProtocol, @unchecked Sendable {
+        static var keyPrefix: String { H.name }
         private let key: _RSA.Signing.PrivateKey
-        private let _publicKey: PublicKey
+        private let _publicKey: PublicKey<H>
 
         init(key: _RSA.Signing.PrivateKey, n: [UInt8], e: [UInt8]) {
             self.key = key
@@ -355,7 +394,7 @@ nonisolated enum RSASHA512 {
         var publicKey: NIOSSHPublicKeyProtocol { _publicKey }
 
         func signature<D: DataProtocol>(for data: D) throws -> NIOSSHSignatureProtocol {
-            Signature(rawRepresentation: try key.signature(for: SHA512.hash(data: data), padding: .insecurePKCS1v1_5).rawRepresentation)
+            Signature<H>(rawRepresentation: try key.signature(for: H.digest(data), padding: .insecurePKCS1v1_5).rawRepresentation)
         }
     }
 }

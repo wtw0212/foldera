@@ -523,7 +523,10 @@ extension SSHKeyExchangeStateMachine {
 
     static var supportedServerHostKeyAlgorithms: [Substring] {
         let bundledAlgorithms = bundledServerHostKeyAlgorithms
-        let customAlgorithms = NIOSSHPublicKey.customPublicKeyAlgorithms.map { Substring($0.publicKeyPrefix) }
+        // FOLDERA PATCH: skip user-auth-only types (see `publicKeyFormatPrefix`); their host keys couldn't be read back.
+        let customAlgorithms = NIOSSHPublicKey.customPublicKeyAlgorithms
+            .filter { $0.publicKeyFormatPrefix == $0.publicKeyPrefix }
+            .map { Substring($0.publicKeyPrefix) }
 
         return bundledAlgorithms + customAlgorithms
     }

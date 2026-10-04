@@ -398,7 +398,7 @@ extension ByteBuffer {
             writtenBytes += self.writeSSHString(NIOSSHPublicKey.ecdsaP521PublicKeyPrefix)
             writtenBytes += self.writeECDSAP521PublicKey(baseKey: key)
         case .custom(let key):
-            writtenBytes += writeSSHString(key.publicKeyPrefix.utf8)
+            writtenBytes += writeSSHString(key.publicKeyFormatPrefix.utf8) // FOLDERA PATCH: was publicKeyPrefix
             writtenBytes += key.write(to: &self)
         case .certified(let key):
             return self.writeCertifiedKey(key)
@@ -422,7 +422,7 @@ extension ByteBuffer {
         case .ecdsaP521(let key):
             return self.writeECDSAP521PublicKey(baseKey: key)
         case .custom(let key):
-            var writtenBytes = writeSSHString(key.publicKeyPrefix.utf8)
+            var writtenBytes = writeSSHString(key.publicKeyFormatPrefix.utf8) // FOLDERA PATCH: was publicKeyPrefix
             writtenBytes += key.write(to: &self)
             return writtenBytes
         case .certified:
@@ -454,7 +454,7 @@ extension ByteBuffer {
                 return try buffer.readECDSAP521PublicKey()
             } else {
                 for type in NIOSSHPublicKey.customPublicKeyAlgorithms {
-                    if keyIdentifierBytes.elementsEqual(type.publicKeyPrefix.utf8) {
+                    if keyIdentifierBytes.elementsEqual(type.publicKeyFormatPrefix.utf8) { // FOLDERA PATCH: was publicKeyPrefix
                         let publicKey = try type.read(from: &buffer)
                         return NIOSSHPublicKey(backingKey: .custom(publicKey))
                     }

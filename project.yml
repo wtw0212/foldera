@@ -7,6 +7,10 @@ packages:
   Citadel:
     url: https://github.com/orlandos-nl/Citadel
     exactVersion: 0.12.0
+  # Citadel's swift-nio-ssh fork with Foldera's RFC 8332 patch; as a local package it replaces the remote one
+  # for Citadel too. See ThirdParty/swift-nio-ssh/PATCHES.md.
+  swift-nio-ssh:
+    path: ThirdParty/swift-nio-ssh
   # Already pulled in by Citadel; Foldera uses _CryptoExtras for RSA signatures with SHA-2.
   swift-crypto:
     url: https://github.com/apple/swift-crypto.git
@@ -67,6 +71,8 @@ targets:
       - package: Citadel
       - package: swift-crypto
         product: _CryptoExtras
+      - package: swift-nio-ssh
+        product: NIOSSH
       - sdk: NetFS.framework
     settings:
       configs:

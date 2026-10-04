@@ -1,4 +1,5 @@
 import Foundation
+import NIOSSH
 import Testing
 @testable import Foldera
 
@@ -133,6 +134,44 @@ struct SFTPFileSystemTests {
         let sftp = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(Data(text.utf8), path: key.path, passphrase: nil), hostKey: .acceptAnything())
         #expect(await sftp.isConnected)
         await sftp.close()
+    }
+
+    @Test func rsaKeysSendTheSSHRSABlobWithSHA2Algorithms() throws {
+        let directory = try TestDirectory()
+        let key = directory.path("rsa")
+        let keygen = Process()
+        keygen.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        keygen.arguments = ["-q", "-t", "rsa", "-m", "PEM", "-N", "", "-C", "foldera-tests", "-f", key.path]
+        try keygen.run()
+        keygen.waitUntilExit()
+        let expectedBlob = try String(contentsOf: key.appendingPathExtension("pub"), encoding: .utf8).split(separator: " ")[1]
+        let keys = try SSHPrivateKey.privateKeys(try String(contentsOf: key, encoding: .utf8), passphrase: nil)
+        // RFC 8332: the algorithm names SHA-2, but the key blob is still "ssh-rsa", e, n, exactly as ssh-keygen writes it.
+        let offered = keys.map { String(openSSHPublicKey: $0.publicKey).split(separator: " ") }
+        #expect(offered.map { String($0[0]) } == ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"])
+        #expect(offered.allSatisfy { $0[1] == expectedBlob })
+    }
+
+    @Test(arguments: ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"])
+    func rsaKeysFallBackToWhicheverSignatureTheServerAccepts(algorithm: String) async throws {
+        let server = try LocalSSHServer(extraConfig: "PubkeyAcceptedAlgorithms \(algorithm)")
+        let key = try server.authorizeKey("rsa", ["-t", "rsa", "-N", ""])
+        let sftp = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(try Data(contentsOf: key), path: key.path, passphrase: nil), hostKey: .acceptAnything())
+        #expect(await sftp.isConnected)
+        await sftp.close()
+    }
+
+    @Test func serversWithOnlyAnSSHRSAHostKeyStillConnectAfterRSALogins() async throws {
+        // Like OpenSSH before 8.8. The SHA-2 RSA types must not be offered as host key algorithms: NIOSSH couldn't
+        // read such a host key back. (Citadel verifies RSA host keys only as "ssh-rsa", as before.)
+        let server = try LocalSSHServer(hostKeyType: "rsa", extraConfig: "HostKeyAlgorithms ssh-rsa")
+        let key = try server.authorizeKey("rsa", ["-t", "rsa", "-N", ""])
+        let credentials = [SFTPCredentials.privateKey(try Data(contentsOf: key), path: key.path, passphrase: nil), try server.credentials]
+        for credential in credentials {
+            let sftp = try await SFTPFileSystem.connect(to: server.endpoint, credentials: credential, hostKey: .acceptAnything())
+            #expect(await sftp.isConnected)
+            await sftp.close()
+        }
     }
 
     @Test func onlyEncryptedKeysAskForAPassphrase() async throws {

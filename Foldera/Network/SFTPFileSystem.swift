@@ -41,13 +41,29 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         timeout: Duration = .seconds(15)
     ) async throws -> SFTPFileSystem {
         // Parse the key up front so a bad key or missing passphrase is reported before connecting.
-        _ = try authenticationMethod(for: endpoint.username, credentials)
-        let user = endpoint.username
+        let signIns = try signIns(for: endpoint.username, credentials)
+        // An RSA key has one sign-in per signature algorithm. Citadel gives a login a single try, so each
+        // one the server refuses is retried on a fresh connection with the next.
+        for (index, signIn) in signIns.enumerated() {
+            do {
+                return try await connect(to: endpoint, signIn: signIn, hostKey: hostKey, timeout: timeout)
+            } catch RemoteError.authenticationFailed where index < signIns.count - 1 {
+                continue
+            }
+        }
+        throw RemoteError.authenticationFailed(endpoint.displayName)
+    }
+
+    private static func connect(
+        to endpoint: RemoteEndpoint,
+        signIn: @escaping @Sendable () -> SSHAuthenticationMethod,
+        hostKey: SSHHostKeyValidator,
+        timeout: Duration
+    ) async throws -> SFTPFileSystem {
         var settings = SSHClientSettings(
             host: endpoint.host,
             port: endpoint.port,
-            // Citadel asks for a fresh method per attempt; parsing succeeded above, so this can't throw.
-            authenticationMethod: { try! authenticationMethod(for: user, credentials) },
+            authenticationMethod: signIn,
             hostKeyValidator: hostKey
         )
         settings.connectTimeout = .milliseconds(Int64(timeout.components.seconds * 1000))
@@ -82,20 +98,26 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         String(describing: error).localizedCaseInsensitiveContains("authentication")
     }
 
-    private static func authenticationMethod(for user: String, _ credentials: SFTPCredentials) throws -> SSHAuthenticationMethod {
+    /// The sign-ins to try, in order; each builds a fresh method, as Citadel asks for one per connection attempt.
+    private static func signIns(for user: String, _ credentials: SFTPCredentials) throws -> [@Sendable () -> SSHAuthenticationMethod] {
         switch credentials {
         case .password(let password):
-            return .passwordBased(username: user, password: password)
+            return [{ .passwordBased(username: user, password: password) }]
         case .privateKey(let data, let path, let passphrase):
             guard let text = String(data: data, encoding: .utf8) else { throw RemoteError.unsupportedKey(path) }
             let decryption = passphrase.flatMap { $0.isEmpty ? nil : Data($0.utf8) }
+            let keys: [NIOSSHPrivateKey]
             do {
-                return try SSHPrivateKey.authenticationMethod(username: user, key: text, passphrase: decryption)
+                keys = try SSHPrivateKey.privateKeys(text, passphrase: decryption)
             } catch let error as KeyNeedsPassphrase {
                 throw error
             } catch {
-                // Includes a wrong passphrase, which Citadel reports as an unreadable key.
+                // Includes a wrong passphrase, which shows up as an unreadable key.
                 throw RemoteError.unsupportedKey(path)
+            }
+            return keys.map { key in
+                nonisolated(unsafe) let key = key
+                return { SSHPrivateKey.authenticationMethod(username: user, key: key) }
             }
         }
     }
@@ -171,9 +193,9 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
             throw error // An occupied destination is not ours to remove.
         }
         defer { try? handle.close() }
+        var reads: [Task<ByteBuffer, Error>] = []
         do {
             let knownSize = try? await file.readAttributes().size
-            var reads: [Task<ByteBuffer, Error>] = []
             var next: UInt64 = 0, offset: UInt64 = 0, atEnd = false
             while true {
                 // Ask ahead up to the known size; past it, one read at a time confirms the end.
@@ -207,6 +229,8 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
                 _ = futimes(handle.fileDescriptor, &times)
             }
         } catch {
+            // Let reads already sent finish before the handle closes, as uploads do.
+            for read in reads { _ = try? await read.value }
             try? await file.close()
             var owned = stat(), current = stat()
             if fstat(handle.fileDescriptor, &owned) == 0, lstat(local.path, &current) == 0,

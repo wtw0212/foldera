@@ -61,11 +61,26 @@ public protocol NIOSSHPublicKeyProtocol {
 
     /// Reads this Public Key from the buffer using the same format implemented in `write(to:)`
     static func read(from buffer: inout ByteBuffer) throws -> Self
+
+    /// The key type written at the start of the public key blob. Defaults to `publicKeyPrefix`.
+    ///
+    /// FOLDERA PATCH: RFC 8332 signs with "rsa-sha2-256"/"rsa-sha2-512" (the algorithm name, `publicKeyPrefix`)
+    /// while the key blob keeps the "ssh-rsa" format. Types whose two names differ are only used for
+    /// user authentication, never offered as host key algorithms.
+    static var publicKeyFormatPrefix: String { get }
+}
+
+extension NIOSSHPublicKeyProtocol {
+    public static var publicKeyFormatPrefix: String { publicKeyPrefix }
 }
 
 internal extension NIOSSHPublicKeyProtocol {
     var publicKeyPrefix: String {
         Self.publicKeyPrefix
+    }
+
+    var publicKeyFormatPrefix: String {
+        Self.publicKeyFormatPrefix
     }
 }
 
