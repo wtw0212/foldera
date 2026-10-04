@@ -74,7 +74,7 @@ extension BrowserTab {
         if endpoint.port != RemoteEndpoint.defaultPort { command += ["-p", String(endpoint.port)] }
         if let site, site.authentication == .privateKey { command += ["-i", AddressCommand.shellQuoted(site.expandedKeyPath)] }
         let remote = "cd \(AddressCommand.shellQuoted(path)) && exec \"$SHELL\" -l"
-        command += [AddressCommand.shellQuoted("\(endpoint.username)@\(endpoint.host)"), AddressCommand.shellQuoted(remote)]
+        command += ["--", AddressCommand.shellQuoted("\(endpoint.username)@\(endpoint.host)"), AddressCommand.shellQuoted(remote)]
         return command.joined(separator: " ")
     }
 

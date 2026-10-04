@@ -33,13 +33,9 @@ final class FolderaAppDelegate: NSObject, NSApplicationDelegate {
     /// Answers a `.terminateLater`. Replaced in tests.
     var reply: @MainActor (Bool) -> Void = { NSApplication.shared.reply(toApplicationShouldTerminate: $0) }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        Task { await InstallerDisk.ejectAfterInstall() }
-    }
-
-    /// Server files edited in other apps whose last save hasn't reached the server yet would be lost on quit.
+    /// Waits for current uploads, then warns when saved edits still need recovery after quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !editing.pendingFiles.isEmpty else { return .terminateNow }
+        guard !editing.pendingFiles.isEmpty || editing.isUploading else { return .terminateNow }
         Task {
             await editing.uploadNow()
             let stillPending = editing.pendingFiles
@@ -53,9 +49,13 @@ final class FolderaAppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.messageText = L10n.format("%lld edited server files haven’t been uploaded", files.count)
         alert.informativeText = files.prefix(5).joined(separator: "\n") + "\n\n"
-            + L10n.text("If you quit now, these changes stay only in Foldera’s temporary copies and won’t reach the server.")
+            + L10n.text("If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera.")
         alert.addButton(withTitle: L10n.text("Don’t Quit"))
         alert.addButton(withTitle: L10n.text("Quit Anyway"))
         return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        editing.prepareToQuit()
     }
 }

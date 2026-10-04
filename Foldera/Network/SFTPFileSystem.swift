@@ -1,5 +1,6 @@
 import Citadel
 import Crypto
+import Darwin
 import Foundation
 import NIOCore
 import NIOSSH
@@ -168,12 +169,15 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
 
     func download(_ path: String, to local: URL, written: @Sendable (Int) throws -> Void) async throws {
         nonisolated(unsafe) let file = try await translate(path) { try await self.sftp.openFile(filePath: path, flags: .read) }
+        let handle: FileHandle
         do {
-            guard FileManager.default.createFile(atPath: local.path, contents: nil) else {
-                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: local.path])
-            }
-            let handle = try FileHandle(forWritingTo: local)
-            defer { try? handle.close() }
+            handle = try FileOperations.createFileExclusively(at: local)
+        } catch {
+            try? await file.close()
+            throw error // An occupied destination is not ours to remove.
+        }
+        defer { try? handle.close() }
+        do {
             var offset: UInt64 = 0
             while true {
                 var chunk = try await translate(path) { try await file.read(from: offset, length: UInt32(Self.chunkSize)) }
@@ -185,11 +189,17 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
             let attributes = try? await file.readAttributes()
             try? await file.close()
             if let modified = attributes?.accessModificationTime?.modificationTime {
-                try? FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: local.path)
+                let time = timeval(tv_sec: Int(modified.timeIntervalSince1970), tv_usec: 0)
+                var times = [time, time]
+                _ = futimes(handle.fileDescriptor, &times)
             }
         } catch {
             try? await file.close()
-            try? FileManager.default.removeItem(at: local) // never leave a partial download behind
+            var owned = stat(), current = stat()
+            if fstat(handle.fileDescriptor, &owned) == 0, lstat(local.path, &current) == 0,
+               owned.st_dev == current.st_dev, owned.st_ino == current.st_ino {
+                _ = unlink(local.path)
+            }
             throw error
         }
     }

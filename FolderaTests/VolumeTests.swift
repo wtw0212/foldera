@@ -105,6 +105,27 @@ struct VolumeTests {
         }
     }
 
+    @Test func symlinkedDestinationCannotRecursivelyCopyOnFAT() throws {
+        try withVolume("MS-DOS") { root, volume in
+            let source = volume.appendingPathComponent("source")
+            let child = source.appendingPathComponent("subdir")
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            try Data("KEEP".utf8).write(to: source.appendingPathComponent("keep"))
+            let link = root.appendingPathComponent("link")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: child)
+            let destination = link.appendingPathComponent("source")
+            #expect(!FileOperations.supportsExclusiveRename(in: child))
+            #expect(throws: FileOperations.OperationError.invalidDestination(destination.path)) {
+                try CopyEngine.copyExclusively(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+            }
+            #expect(throws: FileOperations.OperationError.invalidDestination(destination.path)) {
+                try CopyEngine.copy(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: child.path).isEmpty)
+            #expect(try String(contentsOf: source.appendingPathComponent("keep"), encoding: .utf8) == "KEEP")
+        }
+    }
+
     /// Real mounted filesystems, not a forced copy/delete branch. Images and mounts are disposable.
     private func withVolume(_ filesystem: String, perform: (URL, URL) throws -> Void) throws {
         let fm = FileManager()

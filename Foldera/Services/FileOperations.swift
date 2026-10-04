@@ -9,12 +9,47 @@ nonisolated enum FileOperations {
         return lstat(url.path, &info) == 0
     }
 
+    /// Creates a new regular file without replacing a file, directory or dangling symlink.
+    static func createFileExclusively(at url: URL) throws -> FileHandle {
+        guard url.isFileURL, !url.path.isEmpty, !url.path(percentEncoded: false).contains("\0") else {
+            throw OperationError.invalidName(url.lastPathComponent)
+        }
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    /// Compares the effective locations, including symlinked parents and filesystem aliases.
+    static func contains(_ source: URL, _ directory: URL) -> Bool {
+        guard source.isFileURL, directory.isFileURL else { return false }
+        var sourceInfo = stat()
+        guard stat(source.path, &sourceInfo) == 0 else { return false }
+        var ancestor = directory.resolvingSymlinksInPath().standardizedFileURL
+        while true {
+            var info = stat()
+            if stat(ancestor.path, &info) == 0, info.st_dev == sourceInfo.st_dev, info.st_ino == sourceInfo.st_ino { return true }
+            let parent = ancestor.deletingLastPathComponent().standardizedFileURL
+            if parent.path == ancestor.path { return false }
+            ancestor = parent
+        }
+    }
+
+    static func rejectCopyIntoSource(_ source: URL, to destination: URL) throws {
+        var info = stat()
+        // Copying a symlink copies the link itself; only an actual source directory is traversed.
+        guard lstat(source.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return }
+        if contains(source, destination.deletingLastPathComponent()) {
+            throw OperationError.invalidDestination(destination.path)
+        }
+    }
+
     /// Moves without replacing a racing destination; reports a surviving copy if deletion fails.
     static func moveItem(_ source: URL, to destination: URL, progress: TransferProgress = TransferProgress(), baseBytes: Int64 = 0, allowRename: Bool = true, fileManager: FileManager = .default) throws {
         guard source.isFileURL, destination.isFileURL, !source.path.isEmpty, !destination.path.isEmpty,
               !source.path(percentEncoded: false).contains("\0"), !destination.path(percentEncoded: false).contains("\0") else {
             throw OperationError.invalidName(destination.lastPathComponent)
         }
+        try rejectCopyIntoSource(source, to: destination)
         if allowRename, try renameExclusively(source, to: destination) { return }
         try CopyEngine.copy(source, to: destination, progress: progress, baseBytes: baseBytes)
         do {
@@ -51,14 +86,16 @@ nonisolated enum FileOperations {
         return va.isEqual(vb)
     }
 
-    enum OperationError: LocalizedError {
+    enum OperationError: LocalizedError, Equatable {
         case invalidName(String)
         case alreadyExists(String)
+        case invalidDestination(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidName(let name): L10n.format("“%@” is not a valid file name.", language: .saved, arguments: [name])
             case .alreadyExists(let name): L10n.format("An item named “%@” already exists in this location.", language: .saved, arguments: [name])
+            case .invalidDestination: L10n.text("The destination folder is a subfolder of the source folder.", language: .saved)
             }
         }
     }
@@ -70,11 +107,18 @@ nonisolated enum FileOperations {
     }
 
     static func newTextDocument(in directory: URL) throws -> URL {
-        let destination = uniqueURL(named: "New Text Document.txt", in: directory)
-        guard FileManager.default.createFile(atPath: destination.path, contents: Data()) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: destination.path])
+        var index = 1
+        while true {
+            let name = index == 1 ? "New Text Document.txt" : "New Text Document (\(index)).txt"
+            let destination = directory.appendingPathComponent(name)
+            do {
+                let handle = try createFileExclusively(at: destination)
+                try handle.close()
+                return destination
+            } catch let error as POSIXError where error.code == .EEXIST {
+                index += 1
+            }
         }
-        return destination
     }
 
     static func rename(_ url: URL, to newName: String) throws -> URL {
@@ -114,6 +158,7 @@ nonisolated enum FileOperations {
         try await Task.detached(priority: .userInitiated) {
             try urls.map { source in
                 let destination = uniqueURL(named: source.lastPathComponent, in: directory, copySuffix: true)
+                try rejectCopyIntoSource(source, to: destination)
                 try FileManager.default.copyItem(at: source, to: destination)
                 return destination
             }
@@ -128,6 +173,7 @@ nonisolated enum FileOperations {
                     return source
                 }
                 let destination = uniqueURL(named: source.lastPathComponent, in: directory)
+                try rejectCopyIntoSource(source, to: destination)
                 try FileManager.default.moveItem(at: source, to: destination)
                 return destination
             }
@@ -136,9 +182,8 @@ nonisolated enum FileOperations {
 
     /// Returns a free URL for `name` in `directory`: "name (2)", or "name - Copy", "name - Copy (2)" when `copySuffix` is set.
     static func uniqueURL(named name: String, in directory: URL, copySuffix: Bool = false) -> URL {
-        let fileManager = FileManager.default
         let candidate = directory.appendingPathComponent(name)
-        if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+        if !exists(candidate) { return candidate }
 
         let ext = (name as NSString).pathExtension
         let stem = ext.isEmpty ? name : (name as NSString).deletingPathExtension
@@ -146,9 +191,9 @@ nonisolated enum FileOperations {
             directory.appendingPathComponent(ext.isEmpty ? base : "\(base).\(ext)")
         }
         let base = copySuffix ? "\(stem) - Copy" : stem
-        if copySuffix, !fileManager.fileExists(atPath: make(base).path) { return make(base) }
+        if copySuffix, !exists(make(base)) { return make(base) }
         var index = 2
-        while fileManager.fileExists(atPath: make("\(base) (\(index))").path) { index += 1 }
+        while exists(make("\(base) (\(index))")) { index += 1 }
         return make("\(base) (\(index))")
     }
 }

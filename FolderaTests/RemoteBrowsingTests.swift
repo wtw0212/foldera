@@ -131,8 +131,8 @@ struct RemoteBrowsingTests {
         var site = SFTPSite()
         site.host = "h"; site.port = 2222; site.username = "me"; site.authentication = .privateKey; site.keyPath = "/k/id"
         #expect(BrowserTab.sshCommand(for: endpoint, path: "/srv/it's", site: site)
-                == "ssh -t -p 2222 -i '/k/id' 'me@h' 'cd '\\''/srv/it'\\''\\'\\'''\\''s'\\'' && exec \"$SHELL\" -l'")
-        #expect(BrowserTab.sshCommand(for: RemoteEndpoint(host: "h", username: "me"), path: "/", site: nil).hasPrefix("ssh -t 'me@h'"))
+                == "ssh -t -p 2222 -i '/k/id' -- 'me@h' 'cd '\\''/srv/it'\\''\\'\\'''\\''s'\\'' && exec \"$SHELL\" -l'")
+        #expect(BrowserTab.sshCommand(for: RemoteEndpoint(host: "h", username: "me"), path: "/", site: nil).hasPrefix("ssh -t -- 'me@h'"))
         let item = FileItem(remote: RemoteEntry(path: "/srv/a.txt", isDirectory: false, isSymlink: false, size: 2048, modified: Date(), permissions: nil), endpoint: endpoint)
         let details = BrowserTab.remoteDetails(item, location: endpoint.url(path: "/srv"))
         #expect(details.contains("me@h:2222:/srv") && details.split(separator: "\n").count == 4)
@@ -172,7 +172,8 @@ struct RemoteBrowsingTests {
         #expect(editing.sessions.first?.isPending == false && errors.errors.count == 1, "the retry succeeded without another alert")
 
         // Retries wait, and one failed version is only reported once.
-        let waiting = RemoteEditing(folder: cache.url, openFile: { _ in }, retryDelay: 60)
+        let waitingCache = try TestDirectory()
+        let waiting = RemoteEditing(folder: waitingCache.url, openFile: { _ in }, retryDelay: 60)
         let pending = try await waiting.open(endpoint.url(path: remote.path))
         server.fail("upload", with: RemoteError.failed("down"))
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(20)], ofItemAtPath: pending.path)

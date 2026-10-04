@@ -105,7 +105,7 @@ final class FileTransfers {
         let directory = directory.normalizedFileURL
         let sources = sources.map(\.normalizedFileURL)
 
-        if let source = sources.first(where: { directory.path == $0.path || directory.path.hasPrefix($0.path + "/") }) {
+        if let source = sources.first(where: { FileOperations.contains($0, directory) }) {
             Self.alert(
                 L10n.text("The destination folder is a subfolder of the source folder."),
                 detail: L10n.format(kind == .copy ? "“%@” can’t be copied into itself." : "“%@” can’t be moved into itself.", source.lastPathComponent)

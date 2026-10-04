@@ -42,6 +42,7 @@ nonisolated enum CopyEngine {
               !source.path(percentEncoded: false).contains("\0"), !destination.path(percentEncoded: false).contains("\0") else {
             throw FileOperations.OperationError.invalidName(destination.lastPathComponent)
         }
+        try FileOperations.rejectCopyIntoSource(source, to: destination)
         let fm = FileManager.default
         guard !FileOperations.exists(destination) else {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: destination.path])
@@ -97,6 +98,7 @@ nonisolated enum CopyEngine {
         guard lstat(source.path, &info) == 0 else { throw posixError() }
         let isDirectory = info.st_mode & S_IFMT == S_IFDIR
         let isLink = info.st_mode & S_IFMT == S_IFLNK
+        if isDirectory { try FileOperations.rejectCopyIntoSource(source, to: destination) }
         let sourceFD = open(source.path, O_RDONLY | (isLink ? O_SYMLINK : O_NOFOLLOW))
         guard sourceFD >= 0 else { throw posixError() }
         defer { close(sourceFD) }

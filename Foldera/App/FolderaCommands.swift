@@ -6,6 +6,7 @@ struct FolderaCommands: Commands {
     @FocusedValue(\.explorer) private var explorer
     @State private var settings = AppSettings.shared
     @State private var undo = FileUndo.shared
+    @State private var editing = RemoteEditing.shared
 
     private var tab: BrowserTab? { explorer?.activeTab }
 
@@ -38,6 +39,15 @@ struct FolderaCommands: Commands {
         }
 
         CommandGroup(replacing: .saveItem) {
+            Menu(L10n.text("Server Files")) {
+                Button(L10n.text("Finish Editing Server Files")) { Task { await editing.finishEditing() } }
+                    .disabled(editing.sessions.allSatisfy(\.isRecovered))
+                Button(L10n.text("Resume Recovered Edits")) { editing.resumeRecoveredEdits() }
+                    .disabled(!editing.hasRecoveredSessions)
+                Button(L10n.text("Show Server Files")) { NSWorkspace.shared.open(editing.folder) }
+                    .disabled(!FileOperations.exists(editing.folder))
+            }
+            Divider()
             Button(L10n.text("Close Tab")) { explorer?.closeActiveTabOrWindow() }
                 .keyboardShortcut("w")
         }

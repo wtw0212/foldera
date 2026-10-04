@@ -110,12 +110,17 @@ struct RemoteTransfers {
                 } else {
                     // Copy under a hidden temporary name, then swap it into place. A failed or cancelled transfer
                     // leaves no partial item, and a replaced item is only removed once the new one is in place.
-                    let staging = Self.stagingURL(for: job.destination)
+                    // Local staging belongs to a private directory, so failed exclusive creation
+                    // cannot make cleanup delete a colliding public path.
+                    let localStaging = job.destination.isRemote ? nil : try FileManager.default.url(
+                        for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: job.destination, create: true)
+                    let staging = localStaging?.appendingPathComponent("payload") ?? Self.stagingURL(for: job.destination)
+                    defer { if let localStaging { try? FileManager.default.removeItem(at: localStaging) } }
                     do {
                         try await copy(job, to: staging, counter: counter, moving: kind == .move)
                         try await commit(staging, to: job.destination, replacing: job.replace, isStaging: true)
                     } catch {
-                        await discard(staging)
+                        if staging.isRemote { await discard(staging) }
                         throw error
                     }
                 }
@@ -324,7 +329,7 @@ struct RemoteTransfers {
         if source.isRemote {
             return source.remoteEndpoint == directory.remoteEndpoint && RemotePath.isWithin(directory.remotePath, source.remotePath)
         }
-        return directory.path == source.path || directory.path.hasPrefix(source.path + "/")
+        return FileOperations.contains(source, directory)
     }
 }
 

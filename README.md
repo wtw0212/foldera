@@ -175,7 +175,7 @@ SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote
 - Browse, search the current folder, rename, delete (permanently, after confirming), and create folders and text files.
 - Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
 - Copies omit directory symlinks; a move that would omit one stops before removing its source. If copying succeeds but source deletion fails, the complete destination is kept and the source is removed from Cut to prevent a destructive retry.
-- Opening a server file downloads a temporary copy into its app; each save uploads it again.
+- Opening a server file downloads a private editing copy into its app; each save uploads it again. **File ▸ Server Files ▸ Finish Editing Server Files** uploads the last save and removes synchronized copies. Quitting also removes synchronized copies; unsent edits remain in Application Support for recovery. After reopening Foldera, choose **Resume Recovered Edits** to reopen those files and resume uploads, or **Show Server Files** to retrieve a copy manually.
 - **Open in Terminal (SSH)** opens an `ssh` session in the current server folder.
 
 Sites sign in with a password or an Ed25519/RSA private key in OpenSSH format. Passwords and key passphrases are kept in the macOS Keychain, never in preferences. The first connection shows the server's SHA-256 key fingerprint to confirm; a changed key is reported before anything is sent. Server changes can't be undone, and Quick Look, thumbnails and archive commands are local-only.
