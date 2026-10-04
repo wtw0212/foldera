@@ -66,7 +66,8 @@ struct NetworkView: View {
                                         Button(L10n.text("Open")) { tab.navigate(to: drive.url) }
                                         Button(L10n.text("Open in new tab")) { model.newTab(url: drive.url) }
                                         Divider()
-                                        Button(L10n.text("Eject")) { volumes.eject(drive) }
+                                        Button(L10n.text(volumes.isEjecting(drive) ? "Ejecting…" : "Eject")) { volumes.eject(drive) }
+                                            .disabled(volumes.isEjecting(drive))
                                     }
                                     .folderDropTarget(drive.url)
                                     .help(drive.url.path)

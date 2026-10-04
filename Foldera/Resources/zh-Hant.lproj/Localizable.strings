@@ -60,6 +60,10 @@
 "Dual pane" = "雙窗格";
 "Duplicate Tab" = "複製分頁";
 "Eject" = "退出";
+"Ejecting…" = "正在退出…";
+"Ejecting %@…" = "正在退出 %@…";
+"“%@” has been ejected. You can safely remove the device." = "「%@」已退出。你可以安全移除設備。";
+"Dismiss" = "關閉提示";
 "Enclosing Folder" = "上一層資料夾";
 "Extra large icons" = "特大圖示";
 "F2 always renames. ⌘↓ always opens." = "F2 一律重新命名；⌘↓ 一律開啟。";
@@ -348,3 +352,13 @@
 "Play video" = "播放影片";
 "Pause video" = "暫停影片";
 "Timeline" = "時間軸";
+
+"Server Files" = "伺服器檔案";
+
+"Finish Editing Server Files" = "結束編輯伺服器檔案";
+
+"Resume Recovered Edits" = "恢復已復原的編輯";
+
+"Show Server Files" = "顯示伺服器檔案";
+
+"If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera." = "如果現在結束，這些變更會保留在「伺服器檔案」供復原，不會傳到伺服器。重新開啟 Foldera 後，請選擇「恢復已復原的編輯」。";

@@ -85,6 +85,8 @@ targets:
       Testing: Config/Signing.xcconfig
     sources:
       - FolderaTests
+      - path: scripts/installer-receipt.py
+        buildPhase: resources
     dependencies:
       - target: Foldera
       - package: ViewInspector

@@ -119,6 +119,26 @@ final class ExplorerUITests: XCTestCase {
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 個項目")
         }
     }
+
+    func testServerFileCommandsAreLocalizedAndDisabledWithoutSessions() throws {
+        for (language, menu, finish, resume, show) in [
+            ("en", "Server Files", "Finish Editing Server Files", "Resume Recovered Edits", "Show Server Files"),
+            ("zh-Hant", "伺服器檔案", "結束編輯伺服器檔案", "恢復已復原的編輯", "顯示伺服器檔案"),
+        ] {
+            try withApp(language: language) { app, _ in
+                app.menuBars.menuBarItems.element(boundBy: 1).click()
+                let submenu = app.menuItems[menu]
+                XCTAssertTrue(submenu.waitForExistence(timeout: 5))
+                submenu.hover()
+                for title in [finish, resume, show] {
+                    let command = app.menuItems[title]
+                    XCTAssertTrue(command.waitForExistence(timeout: 5))
+                    XCTAssertFalse(command.isEnabled)
+                }
+                app.menuBars.firstMatch.typeKey(.escape, modifierFlags: [])
+            }
+        }
+    }
 }
 
 /// Connects through the real UI to the throwaway OpenSSH server that scripts/test.sh starts

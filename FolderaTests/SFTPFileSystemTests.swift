@@ -5,6 +5,49 @@ import Testing
 /// Real SFTP against a local OpenSSH server.
 @Suite(.serialized)
 struct SFTPFileSystemTests {
+    @Test func downloadsRejectOccupiedPathsWithoutRemovingThem() async throws {
+        let server = try LocalSSHServer(), directory = try TestDirectory()
+        let sftp = try await server.connect()
+        let source = try directory.file("remote", contents: "REMOTE")
+        let existing = try directory.file("existing", contents: "KEEP")
+        let folder = try directory.folder("occupied")
+        try Data("KEEP DIRECTORY".utf8).write(to: folder.appendingPathComponent("keep"))
+        let target = directory.path("missing"), link = directory.path("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        for destination in [existing, folder, link] {
+            await #expect(throws: POSIXError(.EEXIST)) {
+                try await sftp.download(source.path, to: destination) { _ in }
+            }
+        }
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "KEEP")
+        #expect(try String(contentsOf: folder.appendingPathComponent("keep"), encoding: .utf8) == "KEEP DIRECTORY")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+        #expect(!FileOperations.exists(target))
+        await sftp.close()
+    }
+
+    @Test func cancelledDownloadRemovesOnlyTheFileItCreated() async throws {
+        let server = try LocalSSHServer(), directory = try TestDirectory()
+        let sftp = try await server.connect()
+        let source = try directory.file("remote", contents: String(repeating: "R", count: 100_000))
+        let cancelled = directory.path("cancelled")
+        await #expect(throws: CopyEngine.Cancelled.self) {
+            try await sftp.download(source.path, to: cancelled) { _ in throw CopyEngine.Cancelled() }
+        }
+        #expect(!FileOperations.exists(cancelled))
+        let racing = directory.path("racing"), moved = directory.path("moved")
+        await #expect(throws: CopyEngine.Cancelled.self) {
+            try await sftp.download(source.path, to: racing) { _ in
+                try FileManager.default.moveItem(at: racing, to: moved)
+                try Data("RACER".utf8).write(to: racing)
+                throw CopyEngine.Cancelled()
+            }
+        }
+        #expect(try String(contentsOf: racing, encoding: .utf8) == "RACER")
+        #expect(try Data(contentsOf: moved).count > 0)
+        await sftp.close()
+    }
+
     @Test func browsesTransfersRenamesAndDeletesOverSFTP() async throws {
         let server = try LocalSSHServer()
         let local = try TestDirectory()

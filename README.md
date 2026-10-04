@@ -75,7 +75,7 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 ./scripts/make-dmg.sh
 ```
 
-builds a Release app and writes `dist/Foldera-<version>.dmg`. Open it and drag Foldera to Applications.
+builds a Release app and writes `dist/Foldera-<version>.dmg`. Open it and drag Foldera to Applications. When you launch the installed copy from Applications, Foldera automatically ejects its matching installer image if it is not in use. Installers from earlier releases can be ejected manually in Finder.
 
 Then grant Full Disk Access once: Foldera ▸ Settings ▸ Access ▸ **Open Privacy & Security Settings**, and drag Foldera (shown in Finder) into the Full Disk Access list, or click **+** and pick `/Applications/Foldera.app`. macOS never adds apps to that list by itself.
 
@@ -156,6 +156,10 @@ Right-click archives to **Extract here**, **Extract to “name”** or **Extract
 
 Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdParty/7-Zip`) and runs it as a separate process. tar archives use the system `tar`; single-item ZIPs use `ditto`, like Finder.
 
+## Removable drives
+
+Right-click a drive in This Mac or the navigation pane and choose **Eject**. Foldera stays responsive and shows progress while macOS finishes ejecting it. A **You can safely remove the device** notice appears in the window after success and stays until dismissed with × or another drive is mounted. If the device is busy, Foldera reports the error so you can close files on it and try again.
+
 ## Cloud drives
 
 OneDrive, Google Drive, Dropbox and Box folders in `~/Library/CloudStorage` appear in the navigation pane on their own. Settings ▸ Cloud (or right-click a cloud drive ▸ Add cloud drive) adds any other synced or network folder.
@@ -175,7 +179,7 @@ SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote
 - Browse, search the current folder, rename, delete (permanently, after confirming), and create folders and text files.
 - Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
 - Copies omit directory symlinks; a move that would omit one stops before removing its source. If copying succeeds but source deletion fails, the complete destination is kept and the source is removed from Cut to prevent a destructive retry.
-- Opening a server file downloads a temporary copy into its app; each save uploads it again.
+- Opening a server file downloads a private editing copy into its app; each save uploads it again. **File ▸ Server Files ▸ Finish Editing Server Files** uploads the last save and removes synchronized copies. Quitting also removes synchronized copies; unsent edits remain in Application Support for recovery. After reopening Foldera, choose **Resume Recovered Edits** to reopen those files and resume uploads, or **Show Server Files** to retrieve a copy manually.
 - **Open in Terminal (SSH)** opens an `ssh` session in the current server folder.
 
 Sites sign in with a password or an Ed25519/RSA private key in OpenSSH format. Passwords and key passphrases are kept in the macOS Keychain, never in preferences. The first connection shows the server's SHA-256 key fingerprint to confirm; a changed key is reported before anything is sent. Server changes can't be undone, and Quick Look, thumbnails and archive commands are local-only.

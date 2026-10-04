@@ -25,6 +25,7 @@ DMG="dist/Foldera-${VERSION}.dmg"
 APP="build.noindex/release/Build/Products/Release/Foldera.app"
 
 echo "▸ Building Foldera ${VERSION} (Release)"
+FOLDERA_INSTALLER_ID=$(uuidgen)
 xcodegen generate --quiet
 SIGN_ARGS=()
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
@@ -35,6 +36,7 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
 fi
 xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' \
     -derivedDataPath build.noindex/release "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
+    "FOLDERA_INSTALLER_ID=$FOLDERA_INSTALLER_ID" \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=NO ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
 
 echo "▸ Staging DMG contents"
@@ -42,6 +44,7 @@ rm -rf build.noindex/dmg
 mkdir -p build.noindex/dmg
 cp -R "$APP" build.noindex/dmg/
 ln -s /Applications build.noindex/dmg/Applications
+python3 scripts/installer-receipt.py
 
 echo "▸ Creating ${DMG}"
 rm -f "$DMG"

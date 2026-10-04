@@ -3,6 +3,7 @@ import Testing
 @testable import Foldera
 
 @MainActor
+@Suite(.serialized)
 struct VolumeTests {
     private func makeTree(_ directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -15,8 +16,8 @@ struct VolumeTests {
         }
     }
 
-    @Test func partiallyDeletedMoveSourceIsRebuiltBeforeUndoRemovesCompleteCopy() throws {
-        try withVolume("HFS+") { root, volume in
+    @Test func partiallyDeletedMoveSourceIsRebuiltBeforeUndoRemovesCompleteCopy() async throws {
+        try await withVolume("HFS+") { root, volume in
             let fm = FileManager()
             let source = volume.appendingPathComponent("source"), destination = root.appendingPathComponent("destination")
             try makeTree(source)
@@ -48,8 +49,8 @@ struct VolumeTests {
     }
 
     @Test(arguments: [false, true])
-    func inversePartialRemovalRebuildsFromCompleteCopy(redo: Bool) throws {
-        try withVolume("HFS+") { root, volume in
+    func inversePartialRemovalRebuildsFromCompleteCopy(redo: Bool) async throws {
+        try await withVolume("HFS+") { root, volume in
             let fm = FileManager()
             let source = root.appendingPathComponent("source"), destination = volume.appendingPathComponent("destination")
             try makeTree(source)
@@ -73,8 +74,8 @@ struct VolumeTests {
         }
     }
 
-    @Test func fatCopyFitsOnePayloadAndCountsFallbackMoveProgress() throws {
-        try withVolume("MS-DOS") { root, volume in
+    @Test func fatCopyFitsOnePayloadAndCountsFallbackMoveProgress() async throws {
+        try await withVolume("MS-DOS") { root, volume in
             let bytes = 20 * 1024 * 1024
             let source = root.appendingPathComponent("large"), destination = volume.appendingPathComponent("large")
             try Data(repeating: 7, count: bytes).write(to: source)
@@ -105,39 +106,65 @@ struct VolumeTests {
         }
     }
 
+    @Test func symlinkedDestinationCannotRecursivelyCopyOnFAT() async throws {
+        try await withVolume("MS-DOS") { root, volume in
+            let source = volume.appendingPathComponent("source")
+            let child = source.appendingPathComponent("subdir")
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            try Data("KEEP".utf8).write(to: source.appendingPathComponent("keep"))
+            let link = root.appendingPathComponent("link")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: child)
+            let destination = link.appendingPathComponent("source")
+            #expect(!FileOperations.supportsExclusiveRename(in: child))
+            #expect(throws: FileOperations.OperationError.invalidDestination(destination.path)) {
+                try CopyEngine.copyExclusively(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+            }
+            #expect(throws: FileOperations.OperationError.invalidDestination(destination.path)) {
+                try CopyEngine.copy(source, to: destination, progress: TransferProgress(), baseBytes: 0)
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: child.path).isEmpty)
+            #expect(try String(contentsOf: source.appendingPathComponent("keep"), encoding: .utf8) == "KEEP")
+        }
+    }
+
     /// Real mounted filesystems, not a forced copy/delete branch. Images and mounts are disposable.
-    private func withVolume(_ filesystem: String, perform: (URL, URL) throws -> Void) throws {
+    private func withVolume(_ filesystem: String, perform: (URL, URL) throws -> Void) async throws {
         let fm = FileManager()
         let root = fm.temporaryDirectory.appendingPathComponent("FolderaVolume-\(UUID())")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
         let image = root.appendingPathComponent("disk.dmg")
         let mount = root.appendingPathComponent("mounted")
-        func hdiutil(_ arguments: [String]) throws {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-            process.arguments = arguments
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            let message = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw NSError(domain: "FolderaVolumeTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: message, as: UTF8.self)])
-            }
+        func hdiutil(_ arguments: [String]) async throws {
+            // Disk tools wait for AppKit's volume callbacks; let the main actor process them.
+            try await Task.detached {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+                process.arguments = arguments
+                let output = Pipe()
+                process.standardOutput = output
+                process.standardError = output
+                try process.run()
+                let message = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else {
+                    throw NSError(domain: "FolderaVolumeTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: message, as: UTF8.self)])
+                }
+            }.value
         }
-        try hdiutil(["create", "-size", "32m", "-fs", filesystem, "-volname", "FOLDERATEST", image.path])
+        try await hdiutil(["create", "-size", "32m", "-fs", filesystem, "-volname", "FOLDERATEST", image.path])
         // FAT has no owners: with ownership on, files belong to the console user, and CI runners
         // have none, so the volume isn't writable there. Ownership doesn't matter for these tests.
         let owners = filesystem == "MS-DOS" ? "off" : "on"
-        try hdiutil(["attach", image.path, "-nobrowse", "-owners", owners, "-mountpoint", mount.path])
-        defer { try? hdiutil(["detach", mount.path]) }
-        try perform(root, mount)
+        try await hdiutil(["attach", image.path, "-nobrowse", "-owners", owners, "-mountpoint", mount.path])
+        var failure: Error?
+        do { try perform(root, mount) } catch { failure = error }
+        try? await hdiutil(["detach", mount.path])
+        if let failure { throw failure }
     }
 
     @Test func crossVolumeUndoAndRedoJournalFailedSourceRemoval() async throws {
-        try withVolume("HFS+") { root, volume in
+        try await withVolume("HFS+") { root, volume in
             let fm = FileManager()
             let source = root.appendingPathComponent("source")
             let directory = volume.appendingPathComponent("destination")
@@ -184,8 +211,8 @@ struct VolumeTests {
         }
     }
 
-    @Test func volumeWithoutExclusiveRenameSupportsCopyMoveAndBulkRollback() throws {
-        try withVolume("MS-DOS") { root, volume in
+    @Test func volumeWithoutExclusiveRenameSupportsCopyMoveAndBulkRollback() async throws {
+        try await withVolume("MS-DOS") { root, volume in
             let fm = FileManager()
             #expect(try volume.resourceValues(forKeys: [.volumeSupportsExclusiveRenamingKey]).volumeSupportsExclusiveRenaming == false)
             let source = root.appendingPathComponent("source")

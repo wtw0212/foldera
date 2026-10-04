@@ -11,11 +11,13 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var delayed: [String: (skip: Int, error: Error)] = [:]
     private var drops: [String: (skip: Int, applied: Bool)] = [:]
     private let beforeList: (@Sendable () async -> Void)?
+    private let beforeUpload: (@Sendable () async -> Void)?
     let homePath: String
 
-    init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil) {
+    init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil, beforeUpload: (@Sendable () async -> Void)? = nil) {
         homePath = home
         self.beforeList = beforeList
+        self.beforeUpload = beforeUpload
     }
 
     var operations: [String] { lock.withLock { calls } }
@@ -134,6 +136,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
 
     func upload(_ local: URL, to path: String, written: @Sendable (Int) throws -> Void) async throws {
         try record("upload")
+        await beforeUpload?()
         let data = try Data(contentsOf: local)
         if let failure = partwayFailure("upload") {
             try data.prefix(data.count / 2).write(to: URL(fileURLWithPath: path))

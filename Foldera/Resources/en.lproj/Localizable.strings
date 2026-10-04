@@ -60,6 +60,10 @@
 "Dual pane" = "Dual pane";
 "Duplicate Tab" = "Duplicate Tab";
 "Eject" = "Eject";
+"Ejecting…" = "Ejecting…";
+"Ejecting %@…" = "Ejecting %@…";
+"“%@” has been ejected. You can safely remove the device." = "“%@” has been ejected. You can safely remove the device.";
+"Dismiss" = "Dismiss";
 "Enclosing Folder" = "Enclosing Folder";
 "Extra large icons" = "Extra large icons";
 "F2 always renames. ⌘↓ always opens." = "F2 always renames. ⌘↓ always opens.";
@@ -348,3 +352,13 @@
 "Play video" = "Play video";
 "Pause video" = "Pause video";
 "Timeline" = "Timeline";
+
+"Server Files" = "Server Files";
+
+"Finish Editing Server Files" = "Finish Editing Server Files";
+
+"Resume Recovered Edits" = "Resume Recovered Edits";
+
+"Show Server Files" = "Show Server Files";
+
+"If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera." = "If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera.";
