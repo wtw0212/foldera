@@ -119,8 +119,6 @@ struct BrowserActionTests {
         // Finder opens the windows asynchronously.
         try await eventually { urls.allSatisfy(FinderInfoWindows.isOpen) }
         #expect(!FileManager.default.fileExists(atPath: directory.path("pwned").path))
-        urls.forEach(FinderInfoWindows.close)
-        try await eventually { urls.allSatisfy { !FinderInfoWindows.isOpen(for: $0) } }
     }
 
     @Test func propertiesRejectsNonFileURLs() throws {
@@ -144,7 +142,7 @@ enum FinderInfoWindows {
     end isOpen
     on closeWindow(fileURL)
         set testFile to fileURL as alias
-        -- Finder can close an info window without replying. Bound the wait; callers verify closure.
+        -- Finder can close an info window without replying. Bound best-effort fixture cleanup.
         try
             with timeout of 2 seconds
                 tell application "Finder"

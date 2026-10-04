@@ -106,12 +106,17 @@ jobs:
           retention-days: 14
 
   ui:
-    name: UI smoke tests
+    name: UI tests (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [navigation, localization-network]
     runs-on: macos-26
     timeout-minutes: 15
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: "1"
+      FOLDERA_UI_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -137,7 +142,20 @@ jobs:
             deriveddata-ui-macos-26-xcode26.6-
 
       - name: Run native UI tests
-        run: bash scripts/test.sh ui
+        # The navigation shard runs every test except the other shard's explicit subset, so new tests
+        # automatically remain covered. Each runner keeps UI execution serial on its own desktop.
+        run: |
+          if [[ "$FOLDERA_UI_SHARD" == localization-network ]]; then
+            bash scripts/test.sh ui \
+              -only-testing:FolderaUITests/NetworkUITests \
+              -only-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
+              -only-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
+          else
+            bash scripts/test.sh ui \
+              -skip-testing:FolderaUITests/NetworkUITests \
+              -skip-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
+              -skip-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
+          fi
 
       - name: Save compiled packages for test retries
         if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
@@ -153,15 +171,27 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ui-test-results
+          name: ui-test-results-${{ matrix.shard }}
           path: build.noindex/test-results/ui
           if-no-files-found: warn
           retention-days: 14
 
+  ui_gate:
+    name: UI smoke tests
+    if: always()
+    needs: [ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every UI shard to succeed
+        env:
+          UI_RESULT: ${{ needs.ui.result }}
+        run: test "$UI_RESULT" = success
+
   passed:
     name: CI passed
     if: always()
-    needs: [validate, tests, ui]
+    needs: [validate, tests, ui_gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -169,7 +199,7 @@ jobs:
         env:
           VALIDATE_RESULT: ${{ needs.validate.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
-          UI_RESULT: ${{ needs.ui.result }}
+          UI_RESULT: ${{ needs.ui_gate.result }}
         run: |
           test "$VALIDATE_RESULT" = success
           test "$TESTS_RESULT" = success
