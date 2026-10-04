@@ -131,29 +131,37 @@ struct BrowserActionTests {
     }
 }
 
-/// Asks Finder about information windows through AppleScript's own `alias` resolution, so a test can check
-/// what `propertiesEvent` opened without reusing its object specifier. The file is passed as data.
+/// Checks Finder's open windows by their item, independently of `propertiesEvent`'s file specifier.
+/// Looking up a closed file's `information window` can time out on macOS 26. The file is passed as data.
 @MainActor
 enum FinderInfoWindows {
     private static let script = NSAppleScript(source: """
-    on isOpen(fileURL)
+    on windowID(fileURL)
         set testFile to fileURL as alias
         with timeout of 5 seconds
-            tell application "Finder" to return exists information window of testFile
+            tell application "Finder"
+                repeat with candidate in (get every window)
+                    if class of candidate is information window then
+                        if (item of candidate as alias) is testFile then return id of candidate
+                    end if
+                end repeat
+            end tell
         end timeout
+        return 0
+    end windowID
+    on isOpen(fileURL)
+        return (my windowID(fileURL)) is not 0
     end isOpen
     on closeWindow(fileURL)
-        set testFile to fileURL as alias
-        tell application "Finder"
-            with timeout of 5 seconds
-                if exists information window of testFile then
-                    -- Finder can close the window without replying; don't wait for its 120-second timeout.
-                    ignoring application responses
-                        close information window of testFile
-                    end ignoring
-                end if
-            end timeout
-        end tell
+        set targetID to my windowID(fileURL)
+        if targetID is not 0 then
+            tell application "Finder"
+                -- Close only the identified fixture window, without waiting for a reply.
+                ignoring application responses
+                    close window id targetID
+                end ignoring
+            end tell
+        end if
     end closeWindow
     """)
 
