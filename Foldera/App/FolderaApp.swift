@@ -33,6 +33,10 @@ final class FolderaAppDelegate: NSObject, NSApplicationDelegate {
     /// Answers a `.terminateLater`. Replaced in tests.
     var reply: @MainActor (Bool) -> Void = { NSApplication.shared.reply(toApplicationShouldTerminate: $0) }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await InstallerDisk.ejectAfterInstall() }
+    }
+
     /// Server files edited in other apps whose last save hasn't reached the server yet would be lost on quit.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !editing.pendingFiles.isEmpty else { return .terminateNow }
