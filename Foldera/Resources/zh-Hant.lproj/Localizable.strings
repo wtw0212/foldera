@@ -58,6 +58,7 @@
 "Drives" = "磁碟機";
 "Dual Pane" = "雙窗格";
 "Dual pane" = "雙窗格";
+"Dual pane (⌥⌘D)" = "雙窗格（⌥⌘D）";
 "Duplicate Tab" = "複製分頁";
 "Eject" = "退出";
 "Ejecting…" = "正在退出…";
@@ -268,7 +269,7 @@
 "Connect to an SMB, AFP, NFS or WebDAV server to see its shares here." = "連線到 SMB、AFP、NFS 或 WebDAV 伺服器後，其共享項目會顯示在這裡。";
 "Disconnect" = "中斷連線";
 "Do you trust %@?" = "你信任 %@ 嗎？";
-"Ed25519 or RSA keys in OpenSSH format. Foldera asks for the passphrase if the key has one." = "OpenSSH 格式的 Ed25519 或 RSA 金鑰。如果金鑰設有密語，Foldera 會詢問。";
+"Ed25519, ECDSA or RSA keys in OpenSSH or PEM format. Foldera asks for the passphrase if the key has one." = "OpenSSH 或 PEM 格式的 Ed25519、ECDSA 或 RSA 金鑰。如果金鑰設有密語，Foldera 會詢問。";
 "Edit “%@”" = "編輯「%@」";
 "Edit…" = "編輯⋯";
 "Enter the passphrase for “%@”" = "輸入「%@」的密語";
@@ -328,7 +329,7 @@
 "User name:" = "使用者名稱：";
 "You don’t have permission to access “%@” on the server." = "你沒有權限存取伺服器上的「%@」。";
 "“%@” isn’t a server address Foldera can connect to." = "「%@」不是 Foldera 可以連線的伺服器位址。";
-"“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format." = "「%@」不是支援的私密金鑰。請使用 OpenSSH 格式的 Ed25519 或 RSA 金鑰。";
+"“%@” isn’t a supported private key. Use an Ed25519, ECDSA or RSA key in OpenSSH or PEM format. PEM keys can’t have a passphrase." = "「%@」不是支援的私密金鑰。請使用 OpenSSH 或 PEM 格式的 Ed25519、ECDSA 或 RSA 金鑰。PEM 金鑰不能設有密語。";
 "“%@” no longer exists on the server." = "伺服器上已不存在「%@」。";
 
 /* Zoom and Recent */
@@ -362,3 +363,13 @@
 "Show Server Files" = "顯示伺服器檔案";
 
 "If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera." = "如果現在結束，這些變更會保留在「伺服器檔案」供復原，不會傳到伺服器。重新開啟 Foldera 後，請選擇「恢復已復原的編輯」。";
+"Clear search" = "清除搜尋";
+"Connected" = "已連線";
+"Pinned to Quick access" = "已釘選至快速存取";
+"Show folders in “%@”" = "顯示「%@」中的資料夾";
+"Show the rest of the path" = "顯示路徑的其餘部分";
+"Choose where to extract “%@”." = "選擇要將「%@」解壓縮到哪裡。";
+"Choose where to extract %lld archives." = "選擇要將 %lld 個壓縮檔解壓縮到哪裡。";
+"Extract into a new folder “%@”" = "解壓縮到新資料夾「%@」";
+"Extract each into a new folder named after it" = "將每個壓縮檔解壓縮到以其命名的新資料夾";
+"Extract the selected archive to a folder you choose" = "將所選壓縮檔解壓縮到你選擇的資料夾";

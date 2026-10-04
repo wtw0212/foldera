@@ -222,6 +222,18 @@ struct RemoteConnectionsTests {
         #expect(attempts == 2 && connections.connected == [endpoint])
     }
 
+    @Test func disconnectingLeavesTheServerInEveryTab() async throws {
+        let endpoint = uniqueEndpoint(), other = uniqueEndpoint()
+        let connections = RemoteConnections { _ in FakeRemoteFileSystem() }
+        let onServer = BrowserTab(url: endpoint.url(path: "/srv/data"))
+        let elsewhere = BrowserTab(url: other.url(path: "/home"))
+        await connections.disconnect(endpoint)
+        for _ in 0..<50 where !onServer.isNetwork { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(onServer.isNetwork, "no stale server folder to click, which would sign in again")
+        #expect(onServer.canGoBack)
+        #expect(elsewhere.url.remoteEndpoint == other)
+    }
+
     @Test func disconnectInvalidatesAnUnfinishedLogin() async throws {
         let endpoint = uniqueEndpoint(), started = ConnectionTestGate(), finish = ConnectionTestGate()
         let system = FakeRemoteFileSystem()

@@ -101,7 +101,7 @@ nonisolated enum RemoteError: LocalizedError, Equatable {
         case .hostKeyRejected(let server):
             L10n.format("The connection to %@ was cancelled because its identity wasn’t trusted.", language: language, arguments: [server])
         case .unsupportedKey(let path):
-            L10n.format("“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format.", language: language, arguments: [path])
+            L10n.format("“%@” isn’t a supported private key. Use an Ed25519, ECDSA or RSA key in OpenSSH or PEM format. PEM keys can’t have a passphrase.", language: language, arguments: [path])
         case .notFound(let name):
             L10n.format("“%@” no longer exists on the server.", language: language, arguments: [name])
         case .alreadyExists(let name):

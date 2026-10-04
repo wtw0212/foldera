@@ -102,7 +102,7 @@ struct NetworkViewTests {
         let new = SiteEditorSheet(site: draft, connect: true, sites: f.sites) { opened.append($0) }
         let newLabels = try texts(new)
         #expect(newLabels.contains(L10n.text("New SFTP Site")))
-        #expect(newLabels.contains(L10n.text("Ed25519 or RSA keys in OpenSSH format. Foldera asks for the passphrase if the key has one.")))
+        #expect(newLabels.contains(L10n.text("Ed25519, ECDSA or RSA keys in OpenSSH or PEM format. Foldera asks for the passphrase if the key has one.")))
         try new.inspect().find(button: L10n.text("Save and Connect")).tap()
         #expect(opened.map(\.host) == ["new.example.com"] && f.sites.sites.count == 2)
         try new.inspect().find(button: L10n.text("Save")).tap()

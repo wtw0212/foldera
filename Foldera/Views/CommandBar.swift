@@ -71,6 +71,17 @@ struct CommandBar: View {
 
             VerticalSeparator()
 
+            if !tab.selectedArchives.isEmpty {
+                Button {
+                    tab.extractSelectionChoosingDestination()
+                } label: {
+                    labeled(L10n.text("Extract"), symbol: "folder_zip_regular")
+                }
+                .buttonStyle(SubtleButtonStyle())
+                .hint(L10n.text("Extract the selected archive to a folder you choose"))
+                .accessibilityIdentifier("extract-archive")
+            }
+
             MenuButton(help: L10n.text("See more")) {
                 moreMenu()
             } label: {
@@ -80,6 +91,17 @@ struct CommandBar: View {
 
             Spacer()
 
+            Button {
+                model.toggleDualPane()
+            } label: {
+                AppIcon(name: "panel_split_regular")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(SubtleButtonStyle())
+            .background(RoundedRectangle(cornerRadius: 4).fill(model.isDualPane ? Theme.selection.swiftUI : .clear))
+            .hint(L10n.text("Dual pane (⌥⌘D)"))
+            .accessibilityLabel(L10n.text("Dual pane"))
+
             // Explorer keeps the Details pane toggle at the right end of the command bar.
             Button {
                 settings.toggle(.details)
@@ -88,7 +110,7 @@ struct CommandBar: View {
             }
             .buttonStyle(SubtleButtonStyle())
             .background(RoundedRectangle(cornerRadius: 4).fill(settings.sidePane == .details ? Theme.selection.swiftUI : .clear))
-            .help(L10n.text("Details pane with preview (⌥⌘P)"))
+            .hint(L10n.text("Details pane with preview (⌥⌘P)"))
 
             IconButton(symbol: "settings_regular", help: L10n.text("Settings (⌘,)")) { openSettings() }
         }

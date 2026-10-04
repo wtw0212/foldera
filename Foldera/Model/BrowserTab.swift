@@ -74,9 +74,12 @@ final class BrowserTab: Identifiable {
 
     /// Reloads when a transfer changes the server folder shown here (servers aren't watched).
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
+    /// Leaves a server's folders for the Network page when the user disconnects from it.
+    @ObservationIgnored nonisolated(unsafe) private var disconnectObserver: NSObjectProtocol?
 
     deinit {
         if let remoteChangeObserver { NotificationCenter.default.removeObserver(remoteChangeObserver) }
+        if let disconnectObserver { NotificationCenter.default.removeObserver(disconnectObserver) }
     }
 
     init(url: URL, settings: AppSettings = .shared) {
@@ -90,6 +93,13 @@ final class BrowserTab: Identifiable {
             MainActor.assumeIsolated {
                 guard let self, self.isRemote, changed?.normalizedFileURL == self.url else { return }
                 self.reload()
+            }
+        }
+        disconnectObserver = NotificationCenter.default.addObserver(forName: .remoteServerDisconnected, object: nil, queue: .main) { [weak self] note in
+            let endpoint = note.userInfo?["endpoint"] as? RemoteEndpoint
+            MainActor.assumeIsolated {
+                guard let self, let endpoint, self.url.remoteEndpoint == endpoint else { return }
+                self.navigate(to: Self.networkURL)
             }
         }
     }
@@ -166,7 +176,7 @@ final class BrowserTab: Identifiable {
         navigate(to: destination, selecting: [])
     }
 
-    private func navigate(to destination: URL, selecting: Set<URL>) {
+    func navigate(to destination: URL, selecting: Set<URL>) {
         let destination = destination.normalizedFileURL
         guard destination != url else { return }
         settings.recents.record(destination, isFolder: true)
@@ -211,7 +221,8 @@ final class BrowserTab: Identifiable {
     }
 
     func reload() {
-        load(selecting: selection)
+        // A reload while a navigation is loading (a watcher firing at once) keeps the selection it asked for.
+        load(selecting: selection.union(selectAfterLoad))
         if isSearchActive { scheduleSearch() }
     }
 

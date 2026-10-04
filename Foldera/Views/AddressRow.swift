@@ -240,6 +240,7 @@ private struct Segment: View {
                     .foregroundStyle(Theme.secondaryText.swiftUI)
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4)))
+            .hint(L10n.format("Show folders in “%@”", BrowserTab.pathName(of: url)))
         }
     }
 }
@@ -262,6 +263,7 @@ private struct OverflowButton: View {
                 .foregroundStyle(Theme.secondaryText.swiftUI)
         }
         .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4)))
+        .hint(L10n.text("Show the rest of the path"))
     }
 }
 
@@ -376,6 +378,7 @@ private struct SearchBox: View {
                     AppIcon(name: "dismiss_regular", size: 12)
                 }
                 .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
+                .hint(L10n.text("Clear search"))
             }
         }
         .padding(.leading, 10)

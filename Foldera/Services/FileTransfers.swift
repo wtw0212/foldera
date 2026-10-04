@@ -4,7 +4,7 @@ import Observation
 /// One running copy or move, observed by the progress window.
 @Observable
 final class FileTransfer: Identifiable {
-    nonisolated enum Kind: Sendable { case copy, move }
+    nonisolated enum Kind: Sendable { case copy, move, compress }
 
     let id = UUID()
     let kind: Kind
@@ -28,7 +28,12 @@ final class FileTransfer: Identifiable {
     var destinationName: String { BrowserTab.displayName(of: destination) }
 
     var title: String {
-        L10n.format(kind == .copy ? "transfer.copy" : "transfer.move", itemCount, sourceName, destinationName)
+        let key = switch kind {
+        case .copy: "transfer.copy"
+        case .move: "transfer.move"
+        case .compress: "transfer.compress"
+        }
+        return L10n.format(key, itemCount, sourceName, destinationName)
     }
 
     var fraction: Double {
@@ -227,6 +232,22 @@ final class FileTransfers {
             }
         }
         return result
+    }
+
+    /// Runs `work` off the main actor while the progress window shows `transfer`.
+    func track<T: Sendable>(_ transfer: FileTransfer, totalBytes: Int64, _ work: @escaping @Sendable (TransferProgress) throws -> T) async throws -> T {
+        transfer.totalBytes = totalBytes
+        begin(transfer)
+        defer { end(transfer) }
+        let worker = Task.detached(priority: .userInitiated) { [progress = transfer.progress] in try work(progress) }
+        let ticker = Task {
+            while !Task.isCancelled {
+                transfer.refresh()
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { ticker.cancel() }
+        return try await worker.value
     }
 
     /// Shows a transfer in the progress window until `end`.

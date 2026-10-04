@@ -29,6 +29,29 @@ struct BrowserArchiveTests {
         #expect(try String(contentsOf: try #require(tab.selection.first), encoding: .utf8) == "archive payload")
     }
 
+    @Test func extractingToAChosenFolderOpensItAndSelectsTheResult() async throws {
+        let directory = try TestDirectory()
+        let original = try directory.file("note.txt", contents: "archive payload")
+        let target = try directory.folder("chosen")
+        let archive = try Archives.compress([original], fallbackFolder: directory.url)
+        let tab = BrowserTab(url: directory.url)
+        try await eventually { !tab.isLoading }
+        tab.selection = [archive]
+        tab.extractSelection(.folder(target, ownFolder: true))
+        let folder = target.appendingPathComponent("note.txt").normalizedFileURL
+        try await eventually(timeout: .seconds(10)) { tab.url == target.normalizedFileURL && tab.selection == [folder] && !tab.isLoading }
+        #expect(try String(contentsOf: folder.appendingPathComponent("note.txt"), encoding: .utf8) == "archive payload")
+        #expect(tab.canGoBack, "Back returns to the archive's folder")
+
+        tab.goBack()
+        try await eventually { tab.url == directory.url.normalizedFileURL && !tab.isLoading }
+        tab.selection = [archive]
+        tab.extractSelection(.folder(target, ownFolder: false))
+        // "note.txt" there is now the first extraction's folder, so the file keeps both.
+        try await eventually(timeout: .seconds(10)) { tab.url == target.normalizedFileURL && tab.selection.first?.lastPathComponent == "note (2).txt" && !tab.isLoading }
+        #expect(try String(contentsOf: target.appendingPathComponent("note (2).txt"), encoding: .utf8) == "archive payload")
+    }
+
     @Test func clipboardCopiesThenMovesRealFilesWithASeparatePasteboard() async throws {
         let directory = try TestDirectory()
         let copyTarget = try directory.folder("copied"), moveTarget = try directory.folder("moved")

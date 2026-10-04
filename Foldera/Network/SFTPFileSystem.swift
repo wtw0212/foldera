@@ -8,7 +8,7 @@ import NIOSSH
 /// How to sign in to an SFTP server.
 nonisolated enum SFTPCredentials: Sendable {
     case password(String)
-    /// An OpenSSH private key file (Ed25519 or RSA) and its passphrase, if it has one.
+    /// A private key file (see `SSHPrivateKey` for the formats) and its passphrase, if it has one.
     case privateKey(Data, path: String, passphrase: String?)
 }
 
@@ -18,6 +18,12 @@ nonisolated enum SFTPCredentials: Sendable {
 nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
     /// Reads are requested in chunks this size; OpenSSH's sftp-server serves up to 256 KB per request.
     static let chunkSize = 64 * 1024
+    /// Citadel splits writes at 32,000 bytes (swift-nio-ssh#99), so uploads send requests of that size.
+    static let writeSize = 32_000
+    /// Requests kept in flight, like OpenSSH's sftp: waiting for each reply limits a transfer to one chunk per round trip.
+    static let pipelineDepth = 32
+    /// The SSH channel window, which caps how much a download can have in flight. NIOSSH defaults to 128 KB.
+    static let windowSize = 1 << 22
 
     nonisolated(unsafe) private let client: SSHClient
     private let sftp: SFTPClient
@@ -35,16 +41,33 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         timeout: Duration = .seconds(15)
     ) async throws -> SFTPFileSystem {
         // Parse the key up front so a bad key or missing passphrase is reported before connecting.
-        _ = try authenticationMethod(for: endpoint.username, credentials)
-        let user = endpoint.username
+        let signIns = try signIns(for: endpoint.username, credentials)
+        // An RSA key has one sign-in per signature algorithm. Citadel gives a login a single try, so each
+        // one the server refuses is retried on a fresh connection with the next.
+        for (index, signIn) in signIns.enumerated() {
+            do {
+                return try await connect(to: endpoint, signIn: signIn, hostKey: hostKey, timeout: timeout)
+            } catch RemoteError.authenticationFailed where index < signIns.count - 1 {
+                continue
+            }
+        }
+        throw RemoteError.authenticationFailed(endpoint.displayName)
+    }
+
+    private static func connect(
+        to endpoint: RemoteEndpoint,
+        signIn: @escaping @Sendable () -> SSHAuthenticationMethod,
+        hostKey: SSHHostKeyValidator,
+        timeout: Duration
+    ) async throws -> SFTPFileSystem {
         var settings = SSHClientSettings(
             host: endpoint.host,
             port: endpoint.port,
-            // Citadel asks for a fresh method per attempt; parsing succeeded above, so this can't throw.
-            authenticationMethod: { try! authenticationMethod(for: user, credentials) },
+            authenticationMethod: signIn,
             hostKeyValidator: hostKey
         )
         settings.connectTimeout = .milliseconds(Int64(timeout.components.seconds * 1000))
+        settings.protocolOptions = [.maximumPacketSize(windowSize)]
         let client: SSHClient
         do {
             client = try await SSHClient.connect(to: settings)
@@ -75,39 +98,32 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         String(describing: error).localizedCaseInsensitiveContains("authentication")
     }
 
-    private static func authenticationMethod(for user: String, _ credentials: SFTPCredentials) throws -> SSHAuthenticationMethod {
+    /// The sign-ins to try, in order; each builds a fresh method, as Citadel asks for one per connection attempt.
+    private static func signIns(for user: String, _ credentials: SFTPCredentials) throws -> [@Sendable () -> SSHAuthenticationMethod] {
         switch credentials {
         case .password(let password):
-            return .passwordBased(username: user, password: password)
+            return [{ .passwordBased(username: user, password: password) }]
         case .privateKey(let data, let path, let passphrase):
             guard let text = String(data: data, encoding: .utf8) else { throw RemoteError.unsupportedKey(path) }
             let decryption = passphrase.flatMap { $0.isEmpty ? nil : Data($0.utf8) }
+            let keys: [NIOSSHPrivateKey]
             do {
-                switch try SSHKeyDetection.detectPrivateKeyType(from: text) {
-                case .ed25519:
-                    return .ed25519(username: user, privateKey: try Curve25519.Signing.PrivateKey(sshEd25519: text, decryptionKey: decryption))
-                case .rsa:
-                    return .rsa(username: user, privateKey: try Insecure.RSA.PrivateKey(sshRsa: text, decryptionKey: decryption))
-                default:
-                    throw RemoteError.unsupportedKey(path)
-                }
-            } catch let error as RemoteError {
+                keys = try SSHPrivateKey.privateKeys(text, passphrase: decryption)
+            } catch let error as KeyNeedsPassphrase {
                 throw error
             } catch {
-                throw passphrase == nil && Self.looksEncrypted(text) ? KeyNeedsPassphrase() : RemoteError.unsupportedKey(path)
+                // Includes a wrong passphrase, which shows up as an unreadable key.
+                throw RemoteError.unsupportedKey(path)
+            }
+            return keys.map { key in
+                nonisolated(unsafe) let key = key
+                return { SSHPrivateKey.authenticationMethod(username: user, key: key) }
             }
         }
     }
 
     /// The key is encrypted and no passphrase was given.
     struct KeyNeedsPassphrase: Error {}
-
-    private static func looksEncrypted(_ key: String) -> Bool {
-        // OpenSSH keys name their cipher in the base64 body; "none" means unencrypted.
-        let body = key.split(separator: "\n").filter { !$0.hasPrefix("-----") }.joined()
-        guard let data = Data(base64Encoded: body) else { return false }
-        return data.prefix(64).range(of: Data("none".utf8)) == nil
-    }
 
     // MARK: RemoteFileSystem
 
@@ -177,14 +193,33 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
             throw error // An occupied destination is not ours to remove.
         }
         defer { try? handle.close() }
+        var reads: [Task<ByteBuffer, Error>] = []
         do {
-            var offset: UInt64 = 0
+            let knownSize = try? await file.readAttributes().size
+            var next: UInt64 = 0, offset: UInt64 = 0, atEnd = false
             while true {
-                var chunk = try await translate(path) { try await file.read(from: offset, length: UInt32(Self.chunkSize)) }
-                guard chunk.readableBytes > 0, let bytes = chunk.readBytes(length: chunk.readableBytes) else { break }
+                // Ask ahead up to the known size; past it, one read at a time confirms the end.
+                while !atEnd, reads.count < (knownSize.map { next < $0 } ?? true ? Self.pipelineDepth : 1) {
+                    let start = next
+                    reads.append(Task { try await file.read(from: start, length: UInt32(Self.chunkSize)) })
+                    next += UInt64(Self.chunkSize)
+                }
+                guard !reads.isEmpty else { break }
+                let read = reads.removeFirst()
+                var chunk = try await translate(path) { try await read.value }
+                guard chunk.readableBytes > 0, let bytes = chunk.readBytes(length: chunk.readableBytes) else {
+                    atEnd = true
+                    continue
+                }
                 try handle.write(contentsOf: bytes)
                 offset += UInt64(bytes.count)
                 try written(bytes.count)
+                if bytes.count < Self.chunkSize, !atEnd {
+                    // A short read: drop what was asked after it and continue from here.
+                    for later in reads { _ = try? await later.value }
+                    reads.removeAll()
+                    next = offset
+                }
             }
             let attributes = try? await file.readAttributes()
             try? await file.close()
@@ -194,6 +229,8 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
                 _ = futimes(handle.fileDescriptor, &times)
             }
         } catch {
+            // Let reads already sent finish before the handle closes, as uploads do.
+            for read in reads { _ = try? await read.value }
             try? await file.close()
             var owned = stat(), current = stat()
             if fstat(handle.fileDescriptor, &owned) == 0, lstat(local.path, &current) == 0,
@@ -210,18 +247,32 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         nonisolated(unsafe) let file = try await translate(path) {
             try await self.sftp.openFile(filePath: path, flags: [.write, .create, .truncate])
         }
+        var writes: [(size: Int, task: Task<Void, Error>)] = []
         do {
             var offset: UInt64 = 0
-            while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty {
-                try await translate(path) { try await file.write(ByteBuffer(bytes: data), at: offset) }
-                offset += UInt64(data.count)
-                try written(data.count)
+            var finished = false
+            while !finished || !writes.isEmpty {
+                while !finished, writes.count < Self.pipelineDepth {
+                    guard let data = try handle.read(upToCount: Self.writeSize), !data.isEmpty else {
+                        finished = true
+                        break
+                    }
+                    let start = offset
+                    writes.append((data.count, Task { try await file.write(ByteBuffer(bytes: data), at: start) }))
+                    offset += UInt64(data.count)
+                }
+                guard !writes.isEmpty else { break }
+                let write = writes.removeFirst()
+                try await translate(path) { try await write.task.value }
+                try written(write.size)
             }
             if let modified = (try? local.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate {
                 try? await file.setAttributes(to: SFTPFileAttributes(accessModificationTime: .init(accessTime: modified, modificationTime: modified)))
             }
             try await translate(path) { try await file.close() }
         } catch {
+            // Let requests already sent finish before the handle closes.
+            for write in writes { _ = try? await write.task.value }
             try? await file.close()
             throw error
         }

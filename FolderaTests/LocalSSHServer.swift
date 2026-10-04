@@ -12,11 +12,12 @@ nonisolated final class LocalSSHServer: Sendable {
 
     var endpoint: RemoteEndpoint { RemoteEndpoint(host: "127.0.0.1", port: port, username: NSUserName()) }
 
-    init() throws {
+    /// `hostKeyType` is an ssh-keygen key type; `extraConfig` adds sshd_config lines (e.g. PubkeyAcceptedAlgorithms).
+    init(hostKeyType: String = "ed25519", extraConfig: String = "") throws {
         directory = try TestDirectory()
         let root = directory.url
-        for name in ["host", "client"] {
-            try Self.run("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "foldera-tests", "-f", root.appendingPathComponent(name).path])
+        for (name, type) in [("host", hostKeyType), ("client", "ed25519")] {
+            try Self.run("/usr/bin/ssh-keygen", ["-q", "-t", type, "-N", "", "-C", "foldera-tests", "-f", root.appendingPathComponent(name).path])
         }
         clientKey = root.appendingPathComponent("client")
         hostPublicKey = try String(contentsOf: root.appendingPathComponent("host.pub"), encoding: .utf8)
@@ -34,6 +35,7 @@ nonisolated final class LocalSSHServer: Sendable {
         UsePAM no
         StrictModes no
         Subsystem sftp /usr/libexec/sftp-server
+        \(extraConfig)
         """
         try config.write(to: root.appendingPathComponent("sshd_config"), atomically: true, encoding: .utf8)
         process = Process()
@@ -52,6 +54,17 @@ nonisolated final class LocalSSHServer: Sendable {
 
     var credentials: SFTPCredentials {
         get throws { .privateKey(try Data(contentsOf: clientKey), path: clientKey.path, passphrase: nil) }
+    }
+
+    /// Generates another client key with `ssh-keygen` options (type, format, passphrase) and lets it log in.
+    func authorizeKey(_ name: String, _ options: [String]) throws -> URL {
+        let key = directory.path(name)
+        try Self.run("/usr/bin/ssh-keygen", ["-q", "-C", "foldera-tests", "-f", key.path] + options)
+        let authorized = try FileHandle(forWritingTo: directory.path("authorized_keys"))
+        defer { try? authorized.close() }
+        try authorized.seekToEnd()
+        try authorized.write(contentsOf: Data(contentsOf: key.appendingPathExtension("pub")))
+        return key
     }
 
     func connect() async throws -> SFTPFileSystem {

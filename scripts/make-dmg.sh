@@ -38,7 +38,8 @@ fi
 # Re-link from cached object files: an incremental dSYM must not be regenerated
 # from the previous build's already-stripped executable.
 rm -f "$APP/Contents/MacOS/Foldera"
-xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' \
+# Packages come only from the committed Package.resolved, never a newer release.
+xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' -onlyUsePackageVersionsFromResolvedFile \
     -derivedDataPath build.noindex/release "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
     "FOLDERA_INSTALLER_ID=$FOLDERA_INSTALLER_ID" \
     ENABLE_CODE_COVERAGE=NO DEPLOYMENT_POSTPROCESSING=YES DEAD_CODE_STRIPPING=YES COMPILER_INDEX_STORE_ENABLE=NO \

@@ -130,10 +130,12 @@ final class RemoteConnections {
         }
     }
 
+    /// Closes the connection. Tabs showing the server leave it, so a click there doesn't sign in again.
     func disconnect(_ endpoint: RemoteEndpoint) async {
         let system = systems[endpoint]
         invalidate(endpoint)
         drop(endpoint)
+        NotificationCenter.default.post(name: .remoteServerDisconnected, object: self, userInfo: ["endpoint": endpoint])
         await system?.close()
     }
 

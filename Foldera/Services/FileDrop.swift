@@ -30,7 +30,7 @@ enum FileDrop {
         switch operation(for: urls, into: directory) {
         case .copy: .copy
         case .move: .move
-        case nil: []
+        case .compress, nil: []
         }
     }
 

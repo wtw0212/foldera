@@ -27,7 +27,17 @@ enum FileIcons {
         return image
     }()
 
-    static var network: NSImage { NSImage(named: NSImage.networkName) ?? folder }
+    /// The Fluent globe in the accent color, for the Network page and servers.
+    static let network: NSImage = {
+        guard let globe = NSImage(named: "Fluent/globe_regular") else { return NSImage(named: NSImage.networkName) ?? folder }
+        // Drawn when shown, so the dynamic accent follows light and dark mode.
+        return NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            globe.draw(in: rect)
+            Theme.accent.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+    }()
     static var recent: NSImage { NSImage(systemSymbolName: "clock", accessibilityDescription: nil) ?? folder }
 
     static func icon(for item: FileItem) -> NSImage {

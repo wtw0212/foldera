@@ -91,7 +91,7 @@ struct TransferRow: View {
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
-                .help(L10n.text("Cancel"))
+                .hint(L10n.text("Cancel"))
                 .disabled(transfer.isCancelled)
             }
             ProgressView(value: transfer.fraction)

@@ -184,7 +184,7 @@ SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote
 
 Sites sign in with a password or an Ed25519/RSA private key in OpenSSH format. Passwords and key passphrases are kept in the macOS Keychain, never in preferences. The first connection shows the server's SHA-256 key fingerprint to confirm; a changed key is reported before anything is sent. Server changes can't be undone, and Quick Look, thumbnails and archive commands are local-only.
 
-SFTP uses [Citadel](https://github.com/orlandos-nl/Citadel) 0.12.0 (MIT), pinned because 0.12.1 replaced its SSH dependency with an unvetted fork.
+SFTP uses [Citadel](https://github.com/orlandos-nl/Citadel) 0.12.0 (MIT), pinned because 0.12.1 replaced its SSH dependency with an unvetted fork. Its SSH layer, [swift-nio-ssh](https://github.com/Joannis/swift-nio-ssh) 0.3.5 (Apache 2.0), is vendored in `ThirdParty/swift-nio-ssh` with a small patch so RSA keys sign in with SHA-2 as RFC 8332 specifies (see `PATCHES.md` there).
 
 ## Roadmap
 

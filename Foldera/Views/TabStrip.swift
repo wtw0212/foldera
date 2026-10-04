@@ -43,7 +43,7 @@ struct TabStrip: View {
             .buttonStyle(SubtleButtonStyle())
             .padding(.leading, 4)
             .padding(.bottom, 2)
-            .help(L10n.text("Open new tab (⌘T)"))
+            .hint(L10n.text("Open new tab (⌘T)"))
             .accessibilityIdentifier("new-tab")
 
             WindowDragArea()
@@ -80,7 +80,7 @@ private struct TabItem: View {
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
             .opacity(isActive || isHovered ? 1 : 0)
-            .help(L10n.text("Close tab (⌘W)"))
+            .hint(L10n.text("Close tab (⌘W)"))
             .accessibilityIdentifier("close-tab")
         }
         .padding(.leading, 12)
@@ -96,7 +96,7 @@ private struct TabItem: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .onHover { isHovered = $0 }
-        .help(tab.url.path)
+        .hint(tab.url.path)
     }
 
     @ViewBuilder

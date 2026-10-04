@@ -63,7 +63,7 @@ struct ThisMacView: View {
                         .onMiddleClick { openInBackgroundTab(drive.url) }
                         .contextMenu { menu(drive) }
                         .folderDropTarget(drive.url)
-                        .help(drive.url.path)
+                        .hint(drive.url.path)
                 }
             }
         }
