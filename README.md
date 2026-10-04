@@ -2,6 +2,27 @@
 
 A native macOS file manager that looks and works like the Windows 11 File Explorer. Built with Swift, SwiftUI and AppKit only. Keyboard shortcuts follow Mac conventions (⌘).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <img alt="Foldera showing a Documents folder in Details view with tabs, the navigation pane and the Details pane previewing an image" src="docs/images/hero-light.png">
+</picture>
+
+## Tour
+
+**Tabs and breadcrumbs.** Click through folders, jump back with the breadcrumb, and middle-click a folder to open it in a background tab.
+
+![Opening folders, middle-clicking a folder into a background tab and switching tabs](docs/images/tabs-and-navigation.gif)
+
+**Layouts.** Eight layouts from Details to Extra large icons (⌥⌘1–8, or ⌘+ / ⌘−), remembered per folder, with thumbnails for images and videos and a Details pane that previews the selection.
+
+![Switching from Details through List and icon sizes to Extra large icons](docs/images/layouts.gif)
+
+![Large icons with image thumbnails and the Details pane previewing the selected picture](docs/images/icon-view.png)
+
+**Bulk rename.** Select several items and press F2 for Finder-style Replace / Add / Format renaming with a live preview.
+
+![The Rename 6 items sheet replacing IMG_2026 with Kyoto 2026- and previewing the new names](docs/images/bulk-rename.png)
+
 ## Build
 
 Requires Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
@@ -79,6 +100,8 @@ The navigation pane's **Recent** section, above Quick access, lists the last fol
 
 Settings ▸ General ▸ Language switches between **Follow System**, **English** and **繁體中文** immediately and remembers the selection. Unsupported system languages fall back to English. File names, paths and shortcuts are preserved; macOS-owned dialogs and file-type descriptions use the system language.
 
+![Foldera in Traditional Chinese](docs/images/traditional-chinese.png)
+
 Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`, `Localizable.stringsdict` for plurals, and `InfoPlist.strings` for privacy prompts). To add a language, copy those resources, translate them, add a case to `AppLanguage` and a region to `project.yml`, then regenerate the project.
 
 ## Keyboard
@@ -113,6 +136,8 @@ Translations live in `Foldera/Resources/<language>.lproj` (`Localizable.strings`
 
 The address bar takes more than paths:
 
+![Typing terminal in the address bar opens Terminal in the current folder, and git status runs there](docs/images/address-bar-commands.gif)
+
 | Type | Does |
 |---|---|
 | `terminal`, `zsh`, `bash` … | Opens the terminal (Settings ▸ General) in the current folder |
@@ -127,6 +152,8 @@ The address bar takes more than paths:
 
 Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**; right-click anything to **Compress to ZIP file** or **Compress to 7z file**. Extraction never overwrites existing items, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
 
+![Right-clicking a zip shows Extract here, Extract to and Compress commands; the Details pane lists the archive's contents](docs/images/archives.png)
+
 Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdParty/7-Zip`) and runs it as a separate process. tar archives use the system `tar`; single-item ZIPs use `ditto`, like Finder.
 
 ## Cloud drives
@@ -140,6 +167,10 @@ Drag a folder onto the edge of a Quick access pin, or onto the dividers around t
 **Network** (⇧⌘K, or the navigation pane) lists saved SFTP sites, mounted network drives and file servers advertised on the local network. **Connect to Server** (⌘K) mounts `smb://`, `afp://`, `nfs://` and WebDAV addresses with macOS's own sign-in, like Finder, and opens `sftp://user@host[:port]/path` in Foldera. The address bar accepts the same addresses.
 
 SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote layout:
+
+![Dual pane with a local project folder on the left and an SFTP server folder on the right](docs/images/dual-pane-sftp.png)
+
+![Dragging two videos from a local folder onto a server folder uploads them with a progress window](docs/images/sftp-upload.gif)
 
 - Browse, search the current folder, rename, delete (permanently, after confirming), and create folders and text files.
 - Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
