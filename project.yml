@@ -27,6 +27,12 @@ settings:
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Release:
+      ENABLE_CODE_COVERAGE: NO
+      DEPLOYMENT_POSTPROCESSING: YES
+      DEAD_CODE_STRIPPING: YES
+      COMPILER_INDEX_STORE_ENABLE: NO
 targets:
   Foldera:
     type: application
@@ -45,6 +51,14 @@ targets:
         attributes: [CodeSignOnCopy]
       - path: ThirdParty/7-Zip/7-Zip-License.txt
         buildPhase: resources
+    postBuildScripts:
+      - name: Optimize Release archive helper
+        script: bash "$SRCROOT/scripts/optimize-release-helper.sh"
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+        inputFiles:
+          - $(SRCROOT)/scripts/optimize-release-helper.sh
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/7zz
     dependencies:
       - package: Citadel
       - sdk: NetFS.framework

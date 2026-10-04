@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/make-dmg.sh
+      - scripts/optimize-release-helper.sh
       - project.yml
   workflow_dispatch:
 
@@ -76,17 +77,45 @@ jobs:
         run: |
           app=build.noindex/release/Build/Products/Release/Foldera.app
           test "$(lipo -archs "$app/Contents/MacOS/Foldera")" = arm64
-          [[ " $(lipo -archs "$app/Contents/MacOS/7zz") " == *" arm64 "* ]]
+          test "$(lipo -archs "$app/Contents/MacOS/7zz")" = arm64
           codesign --verify --deep --strict "$app"
+          if otool -l "$app/Contents/MacOS/Foldera" | grep -E 'segname __LLVM_COV|sectname __llvm_prf'; then
+            echo "Release contains coverage instrumentation" >&2
+            exit 1
+          fi
+          test "$(dwarfdump --uuid "$app/Contents/MacOS/Foldera" | awk '{print $2}')" = \
+            "$(dwarfdump --uuid "$app.dSYM" | awk '{print $2}')"
+          otool -l "$app.dSYM/Contents/Resources/DWARF/Foldera" | awk '
+            $1 == "sectname" { debug = ($2 == "__debug_info") }
+            debug && $1 == "size" && $2 !~ /^0x0*$/ { found = 1 }
+            END { exit !found }
+          '
+          unzip -t dist/Foldera-*.dSYM.zip
           test -f "$app/Contents/Resources/7-Zip-License.txt"
           for language in en zh-Hant; do
             test -f "$app/Contents/Resources/$language.lproj/Localizable.strings"
           done
           hdiutil verify dist/Foldera-*.dmg
 
+      - name: Smoke-test Release archive helper
+        run: |
+          helper="$GITHUB_WORKSPACE/build.noindex/release/Build/Products/Release/Foldera.app/Contents/MacOS/7zz"
+          archive_test=$(mktemp -d "$RUNNER_TEMP/foldera-archive.XXXXXX")
+          trap 'rm -rf "$archive_test"' EXIT
+          cd "$archive_test"
+          printf 'Foldera Release archive round-trip.\n' > payload.txt
+          "$helper" i > /dev/null
+          for format in zip 7z; do
+            "$helper" a "-t$format" "payload.$format" payload.txt -bso0 -bsp0
+            "$helper" t "payload.$format" -bso0 -bsp0
+            "$helper" x "payload.$format" "-oextracted-$format" -bso0 -bsp0
+            cmp payload.txt "extracted-$format/payload.txt"
+            echo "Verified Release helper $format round-trip"
+          done
+
       - name: Create checksum
         working-directory: dist
-        run: shasum -a 256 Foldera-*.dmg > SHA256SUMS.txt
+        run: shasum -a 256 Foldera-*.dmg Foldera-*.dSYM.zip > SHA256SUMS.txt
 
       - name: Save release files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -95,6 +124,7 @@ jobs:
           path: |
             dist/Foldera-*.dmg
             dist/SHA256SUMS.txt
+            dist/Foldera-*.dSYM.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -144,7 +174,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt dist/Foldera-*.dSYM.zip \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Foldera $GITHUB_REF_NAME" \
             --notes "DMG for Apple Silicon Macs running macOS 26 or later. This build is ad-hoc signed and is not notarized by Apple."

@@ -6,42 +6,24 @@ enum ViewMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    // Keep each layout's presentation in one exhaustive switch.
+    private var presentation: (title: String, symbol: String, iconSize: CGFloat) {
         switch self {
-        case .extraLargeIcons: L10n.text("Extra large icons")
-        case .largeIcons: L10n.text("Large icons")
-        case .mediumIcons: L10n.text("Medium icons")
-        case .smallIcons: L10n.text("Small icons")
-        case .list: L10n.text("List")
-        case .details: L10n.text("Details")
-        case .tiles: L10n.text("Tiles")
-        case .content: L10n.text("Content")
+        case .extraLargeIcons: ("Extra large icons", "photo", 256)
+        case .largeIcons: ("Large icons", "square.grid.2x2", 96)
+        case .mediumIcons: ("Medium icons", "square.grid.3x3", 48)
+        case .smallIcons: ("Small icons", "square.grid.4x3.fill", 16)
+        case .list: ("List", "list.bullet", 16)
+        case .details: ("Details", "list.bullet.rectangle", 16)
+        case .tiles: ("Tiles", "rectangle.grid.2x2", 48)
+        case .content: ("Content", "rectangle.grid.1x2", 48)
         }
     }
 
-    var symbol: String {
-        switch self {
-        case .extraLargeIcons: "photo"
-        case .largeIcons: "square.grid.2x2"
-        case .mediumIcons: "square.grid.3x3"
-        case .smallIcons: "square.grid.4x3.fill"
-        case .list: "list.bullet"
-        case .details: "list.bullet.rectangle"
-        case .tiles: "rectangle.grid.2x2"
-        case .content: "rectangle.grid.1x2"
-        }
-    }
-
+    var title: String { L10n.text(presentation.title) }
+    var symbol: String { presentation.symbol }
     /// Icon edge length in points.
-    var iconSize: CGFloat {
-        switch self {
-        case .extraLargeIcons: 256
-        case .largeIcons: 96
-        case .mediumIcons: 48
-        case .tiles, .content: 48
-        case .smallIcons, .list, .details: 16
-        }
-    }
+    var iconSize: CGFloat { presentation.iconSize }
 
     /// Modes that show image thumbnails instead of file type icons.
     var showsThumbnails: Bool { iconSize >= 48 }

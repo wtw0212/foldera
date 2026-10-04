@@ -176,13 +176,11 @@ struct FileListView: NSViewRepresentable {
 
         private var isSyncing = false
         private let renamer = InlineRenamer()
-        private var needsReloadAfterEdit = false
 
         override init() {
             super.init()
             renamer.onFinish = { [weak self] in
                 guard let self, let table = self.table else { return }
-                self.needsReloadAfterEdit = false
                 self.syncing { table.reloadData() }
                 table.window?.makeFirstResponder(table)
             }
@@ -197,10 +195,7 @@ struct FileListView: NSViewRepresentable {
         }
 
         func reloadPreservingEdits() {
-            if renamer.isEditing {
-                needsReloadAfterEdit = true
-                return
-            }
+            guard !renamer.isEditing else { return }
             syncing { table?.reloadData() }
         }
 
