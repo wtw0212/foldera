@@ -109,7 +109,6 @@ struct FileGridView: NSViewRepresentable {
 
         private var isSyncing = false
         private let renamer = InlineRenamer()
-        private var needsReloadAfterEdit = false
 
         private var tab: BrowserTab? { parent?.tab }
 
@@ -117,7 +116,6 @@ struct FileGridView: NSViewRepresentable {
             super.init()
             renamer.onFinish = { [weak self] in
                 guard let self, let grid = self.grid else { return }
-                self.needsReloadAfterEdit = false
                 self.reloadKeepingSelection()
                 grid.window?.makeFirstResponder(grid)
             }
@@ -130,10 +128,7 @@ struct FileGridView: NSViewRepresentable {
         }
 
         func reloadPreservingEdits() {
-            if renamer.isEditing {
-                needsReloadAfterEdit = true
-                return
-            }
+            guard !renamer.isEditing else { return }
             reloadKeepingSelection()
         }
 

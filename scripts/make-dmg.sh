@@ -22,6 +22,7 @@ if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
 fi
 mkdir -p dist
 DMG="dist/Foldera-${VERSION}.dmg"
+SYMBOLS="dist/Foldera-${VERSION}.dSYM.zip"
 APP="build.noindex/release/Build/Products/Release/Foldera.app"
 
 echo "▸ Building Foldera ${VERSION} (Release)"
@@ -34,10 +35,18 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
         SIGN_ARGS+=(OTHER_CODE_SIGN_FLAGS=--timestamp)
     fi
 fi
+# Re-link from cached object files: an incremental dSYM must not be regenerated
+# from the previous build's already-stripped executable.
+rm -f "$APP/Contents/MacOS/Foldera"
 xcodebuild -project Foldera.xcodeproj -scheme Foldera -configuration Release -destination 'generic/platform=macOS' \
     -derivedDataPath build.noindex/release "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
     "FOLDERA_INSTALLER_ID=$FOLDERA_INSTALLER_ID" \
+    ENABLE_CODE_COVERAGE=NO DEPLOYMENT_POSTPROCESSING=YES DEAD_CODE_STRIPPING=YES COMPILER_INDEX_STORE_ENABLE=NO \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=NO ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build -quiet
+
+echo "▸ Saving external debug symbols"
+rm -f "$SYMBOLS"
+ditto -c -k --keepParent "$APP.dSYM" "$SYMBOLS"
 
 echo "▸ Staging DMG contents"
 rm -rf build.noindex/dmg
@@ -48,7 +57,7 @@ python3 scripts/installer-receipt.py
 
 echo "▸ Creating ${DMG}"
 rm -f "$DMG"
-hdiutil create -volname "Foldera ${VERSION}" -srcfolder build.noindex/dmg -ov -format UDZO "$DMG" >/dev/null 2>&1
+hdiutil create -volname "Foldera ${VERSION}" -srcfolder build.noindex/dmg -ov -format ULMO "$DMG" >/dev/null 2>&1
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     if [[ "$SIGN_IDENTITY" == "-" ]]; then
