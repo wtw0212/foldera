@@ -183,7 +183,8 @@ struct RecentItemsTests {
         defer { withExtendedLifetime(directory) { FinderInfoWindows.close(for: file) } }
         tab.showProperties()
         tab.openInTerminal()
-        #expect(tab.renameRequest == nil && errors.errors.isEmpty)
+        #expect(tab.renameRequest == nil)
+        #expect(errors.errors.isEmpty, "Finder properties errors: \(errors.errors)")
         try await eventually { FinderInfoWindows.isOpen(for: file) }
         FinderInfoWindows.close(for: file)
         try await eventually { !FinderInfoWindows.isOpen(for: file) }

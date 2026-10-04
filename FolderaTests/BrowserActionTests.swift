@@ -145,10 +145,14 @@ enum FinderInfoWindows {
     on closeWindow(fileURL)
         set testFile to fileURL as alias
         tell application "Finder"
-            -- Finder can close the window without replying; don't wait for its 120-second timeout.
-            ignoring application responses
-                close information window of testFile
-            end ignoring
+            with timeout of 5 seconds
+                if exists information window of testFile then
+                    -- Finder can close the window without replying; don't wait for its 120-second timeout.
+                    ignoring application responses
+                        close information window of testFile
+                    end ignoring
+                end if
+            end timeout
         end tell
     end closeWindow
     """)
@@ -165,6 +169,10 @@ enum FinderInfoWindows {
         )
         event.setParam(NSAppleEventDescriptor(string: handler), forKeyword: AEKeyword(keyASSubroutineName))
         event.setParam(arguments, forKeyword: AEKeyword(keyDirectObject))
-        return script?.executeAppleEvent(event, error: nil)
+        var error: NSDictionary?
+        let reply = script?.executeAppleEvent(event, error: &error)
+        #expect(error == nil, "Finder \(handler) failed: \(String(describing: error))")
+        if handler == "isOpen" { #expect(reply != nil, "Finder window query returned no reply") }
+        return reply
     }
 }
