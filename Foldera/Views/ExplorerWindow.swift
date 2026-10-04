@@ -141,7 +141,7 @@ struct ExplorerWindow: View {
             .overlay(alignment: .top) {
                 Rectangle().fill(isFocused ? Theme.accent.swiftUI : .clear).frame(height: 2)
             }
-            .help(tab.url.path)
+            .hint(tab.url.path)
             Rectangle().fill(Theme.divider.swiftUI).frame(height: 1)
             fileList(tab, pane: pane)
         }
@@ -250,6 +250,7 @@ struct VolumeEjectionBar: View {
                     }
                     .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
                     .accessibilityLabel(L10n.text("Dismiss"))
+                    .hint(L10n.text("Dismiss"))
                 }
             }
         }
@@ -282,7 +283,7 @@ private struct FullDiskAccessBar: View {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)))
-            .help(L10n.text("Don't show again"))
+            .hint(L10n.text("Don't show again"))
         }
         .font(Theme.font)
         .padding(.horizontal, 12)
@@ -336,7 +337,7 @@ private struct StatusBar: View {
         }
         .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 4)))
         .background(RoundedRectangle(cornerRadius: 4).fill(tab.viewMode == mode ? Theme.selection.swiftUI : .clear))
-        .help(mode.title)
+        .hint(mode.title)
     }
 
     private var separator: some View {

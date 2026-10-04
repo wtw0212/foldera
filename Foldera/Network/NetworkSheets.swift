@@ -60,7 +60,7 @@ struct SiteEditorSheet: View {
                             Button(L10n.text("Choose…"), action: chooseKey)
                         }
                     }
-                    Text(L10n.text("Ed25519 or RSA keys in OpenSSH format. Foldera asks for the passphrase if the key has one."))
+                    Text(L10n.text("Ed25519, ECDSA or RSA keys in OpenSSH or PEM format. Foldera asks for the passphrase if the key has one."))
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.secondaryText.swiftUI)
                 }

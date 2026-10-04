@@ -87,7 +87,7 @@ struct NavigationPane: View {
                         indent: 1,
                         action: { tab.openRecent(item) }
                     )
-                    .help(item.url.isRemote ? BrowserTab.editableAddress(of: item.url) : item.url.path)
+                    .hint(item.url.isRemote ? BrowserTab.editableAddress(of: item.url) : item.url.path)
                     .onMiddleClick { if item.isFolder { model.newTab(url: item.url, activate: false) } }
                     .contextMenu { recentMenu(item) }
                 }
@@ -142,9 +142,10 @@ struct NavigationPane: View {
                     isSelected: tab.url.remoteEndpoint == site.endpoint,
                     indent: 1,
                     trailingSymbol: connections.connected.contains(site.endpoint) ? "link_regular" : nil,
+                    trailingHint: L10n.text("Connected"),
                     action: { model.openSite(site, in: tab) }
                 )
-                .help(site.endpoint.displayName)
+                .hint(site.endpoint.displayName)
                 .onMiddleClick { model.openSiteInNewTab(site, activate: false) }
                 .contextMenu {
                     Button(L10n.text("Open")) { model.openSite(site, in: tab) }
@@ -204,9 +205,10 @@ struct NavigationPane: View {
             indent: indent,
             expansion: expansion(key: key, url: location.url),
             trailingSymbol: pinned ? "pin_regular" : nil,
+            trailingHint: L10n.text("Pinned to Quick access"),
             action: { open(location.url) }
         )
-        .help(location.url.path)
+        .hint(location.url.path)
         .onMiddleClick { model.newTab(url: location.url, activate: false) }
         .contextMenu { folderMenu(location.url, ejectable: ejectable ? location : nil, cloud: cloud) }
 
@@ -229,7 +231,7 @@ struct NavigationPane: View {
                 expansion: expansion(key: row.key, url: row.url),
                 action: { open(row.url) }
             )
-            .help(row.url.path)
+            .hint(row.url.path)
             .folderDropTarget(row.url)
             .onMiddleClick { model.newTab(url: row.url, activate: false) }
             .contextMenu { folderMenu(row.url) }
@@ -364,7 +366,7 @@ private struct PinDropDelegate: DropDelegate {
             switch FileDrop.operation(for: urls, into: into) {
             case .copy: return DropProposal(operation: .copy)
             case .move: return DropProposal(operation: .move)
-            case nil: return DropProposal(operation: .forbidden)
+            case .compress, nil: return DropProposal(operation: .forbidden)
             }
         case nil:
             return DropProposal(operation: .forbidden)
@@ -388,6 +390,7 @@ private struct NavigationRow: View {
     var dimmed = false
     var expansion: Binding<Bool>? = nil
     var trailingSymbol: String? = nil
+    var trailingHint: String? = nil
     let action: () -> Void
 
     @State private var isHovered = false
@@ -418,6 +421,7 @@ private struct NavigationRow: View {
             if let trailingSymbol {
                 AppIcon(name: trailingSymbol, size: 13)
                     .foregroundStyle(Theme.tertiaryText.swiftUI)
+                    .hint(trailingHint ?? "")
             }
         }
         .padding(.horizontal, 6)

@@ -130,7 +130,7 @@ struct BulkRenameSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(problems[index].map(L10n.text) ?? newName)
+                        .hint(problems[index].map(L10n.text) ?? newName)
                 }
                 .font(Theme.font)
             }

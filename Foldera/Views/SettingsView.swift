@@ -81,7 +81,7 @@ struct CloudSettings: View {
                                 Button(L10n.text("Remove")) { cloud.remove(location.url) }
                             }
                         }
-                        .help(location.url.path)
+                        .hint(location.url.path)
                     }
                     Button(L10n.text("Add Folder…")) { cloud.chooseFolder() }
                 }

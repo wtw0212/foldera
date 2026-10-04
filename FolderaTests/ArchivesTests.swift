@@ -47,6 +47,34 @@ struct ArchivesTests {
         #expect(try String(contentsOf: root.appendingPathComponent("b.txt"), encoding: .utf8) == "world")
     }
 
+    @Test(arguments: [(Archives.Format.zip, 1), (.zip, 2), (.sevenZip, 2)])
+    func compressingReportsProgress(format: Archives.Format, itemCount: Int) throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var items: [URL] = []
+        for index in 0..<itemCount {
+            let folder = root.appendingPathComponent("folder \(index)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            for file in 0..<3 { try Data(repeating: UInt8(file), count: 200_000).write(to: folder.appendingPathComponent("\(file).bin")) }
+            items.append(folder)
+        }
+        let progress = TransferProgress()
+        let archive = try Archives.compress(items, format: format, fallbackFolder: root, progress: progress)
+        #expect(FileManager.default.fileExists(atPath: archive.path))
+        #expect(progress.completedBytes == Int64(itemCount * 600_000), "progress reaches the full size")
+    }
+
+    @Test func cancellingCompressionRemovesThePartialArchive() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("big.bin")
+        try Data(repeating: 7, count: 1_000_000).write(to: file)
+        let progress = TransferProgress()
+        progress.cancel()
+        #expect(throws: CopyEngine.Cancelled.self) { try Archives.compress([file], fallbackFolder: root, progress: progress) }
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("big.bin.zip").path))
+    }
+
     @Test func sevenZipIsBundled() {
         #expect(Archives.sevenZip != nil)
         #expect(Bundle.main.url(forResource: "7-Zip-License", withExtension: "txt") != nil)

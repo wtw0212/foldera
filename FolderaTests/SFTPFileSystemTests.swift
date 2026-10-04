@@ -103,6 +103,60 @@ struct SFTPFileSystemTests {
         await sftp.close()
     }
 
+    @Test func pipelinedTransfersKeepEveryByteInOrder() async throws {
+        let server = try LocalSSHServer(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let size = 5 * 1024 * 1024 + 12_345
+        let source = local.path("source.bin")
+        try Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 2_654_435_761 >> 13) }).write(to: source)
+        let remote = RemotePath.join(local.url.path, "remote.bin"), back = local.path("back.bin")
+        try await sftp.upload(source, to: remote) { _ in }
+        try await sftp.download(remote, to: back) { _ in }
+        #expect(try Data(contentsOf: back) == Data(contentsOf: source))
+        await sftp.close()
+    }
+
+    @Test(arguments: [
+        ("rsa-pkcs1", ["-t", "rsa", "-m", "PEM"], "-----BEGIN RSA PRIVATE KEY-----"),
+        ("rsa-pkcs8", ["-t", "rsa", "-m", "PKCS8"], "-----BEGIN PRIVATE KEY-----"),
+        ("ecdsa-sec1", ["-t", "ecdsa", "-b", "256", "-m", "PEM"], "-----BEGIN EC PRIVATE KEY-----"),
+        ("ecdsa-pkcs8", ["-t", "ecdsa", "-b", "384", "-m", "PKCS8"], "-----BEGIN PRIVATE KEY-----"),
+        ("ecdsa-openssh", ["-t", "ecdsa", "-b", "521"], "-----BEGIN OPENSSH PRIVATE KEY-----"),
+        ("rsa-openssh", ["-t", "rsa"], "-----BEGIN OPENSSH PRIVATE KEY-----"),
+    ])
+    func signsInWithUnencryptedKeysInEachFormat(name: String, options: [String], armor: String) async throws {
+        let server = try LocalSSHServer()
+        let key = try server.authorizeKey(name, options + ["-N", ""])
+        // Saved with Windows line endings, as keys downloaded through a browser sometimes are.
+        let text = try String(contentsOf: key, encoding: .utf8).replacingOccurrences(of: "\n", with: "\r\n")
+        #expect(text.hasPrefix(armor))
+        let sftp = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(Data(text.utf8), path: key.path, passphrase: nil), hostKey: .acceptAnything())
+        #expect(await sftp.isConnected)
+        await sftp.close()
+    }
+
+    @Test func onlyEncryptedKeysAskForAPassphrase() async throws {
+        let server = try LocalSSHServer()
+        let encrypted = try server.authorizeKey("encrypted", ["-t", "ed25519", "-N", "secret"])
+        let data = try Data(contentsOf: encrypted)
+        await #expect(throws: SFTPFileSystem.KeyNeedsPassphrase.self) {
+            _ = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(data, path: encrypted.path, passphrase: nil), hostKey: .acceptAnything())
+        }
+        let sftp = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(data, path: encrypted.path, passphrase: "secret"), hostKey: .acceptAnything())
+        await sftp.close()
+        await #expect(throws: RemoteError.unsupportedKey(encrypted.path), "a wrong passphrase") {
+            _ = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(data, path: encrypted.path, passphrase: "wrong"), hostKey: .acceptAnything())
+        }
+        let rsa = try server.authorizeKey("encrypted-rsa", ["-t", "rsa", "-N", "secret"])
+        let rsaSFTP = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(try Data(contentsOf: rsa), path: rsa.path, passphrase: "secret"), hostKey: .acceptAnything())
+        await rsaSFTP.close()
+        // Citadel can't decrypt PEM keys, so asking for their passphrase would only fail later.
+        let pem = try server.authorizeKey("encrypted-pem", ["-t", "rsa", "-m", "PEM", "-N", "secret"])
+        await #expect(throws: RemoteError.unsupportedKey(pem.path)) {
+            _ = try await SFTPFileSystem.connect(to: server.endpoint, credentials: .privateKey(try Data(contentsOf: pem), path: pem.path, passphrase: nil), hostKey: .acceptAnything())
+        }
+    }
+
     @Test func rejectsUnknownKeysAndUntrustedHosts() async throws {
         let server = try LocalSSHServer()
         let wrong = try TestDirectory()

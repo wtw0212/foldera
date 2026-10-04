@@ -58,6 +58,7 @@
 "Drives" = "Drives";
 "Dual Pane" = "Dual Pane";
 "Dual pane" = "Dual pane";
+"Dual pane (⌥⌘D)" = "Dual pane (⌥⌘D)";
 "Duplicate Tab" = "Duplicate Tab";
 "Eject" = "Eject";
 "Ejecting…" = "Ejecting…";
@@ -268,7 +269,7 @@
 "Connect to an SMB, AFP, NFS or WebDAV server to see its shares here." = "Connect to an SMB, AFP, NFS or WebDAV server to see its shares here.";
 "Disconnect" = "Disconnect";
 "Do you trust %@?" = "Do you trust %@?";
-"Ed25519 or RSA keys in OpenSSH format. Foldera asks for the passphrase if the key has one." = "Ed25519 or RSA keys in OpenSSH format. Foldera asks for the passphrase if the key has one.";
+"Ed25519, ECDSA or RSA keys in OpenSSH or PEM format. Foldera asks for the passphrase if the key has one." = "Ed25519, ECDSA or RSA keys in OpenSSH or PEM format. Foldera asks for the passphrase if the key has one.";
 "Edit “%@”" = "Edit “%@”";
 "Edit…" = "Edit…";
 "Enter the passphrase for “%@”" = "Enter the passphrase for “%@”";
@@ -328,7 +329,7 @@
 "User name:" = "User name:";
 "You don’t have permission to access “%@” on the server." = "You don’t have permission to access “%@” on the server.";
 "“%@” isn’t a server address Foldera can connect to." = "“%@” isn’t a server address Foldera can connect to.";
-"“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format." = "“%@” isn’t a supported private key. Use an Ed25519 or RSA key in OpenSSH format.";
+"“%@” isn’t a supported private key. Use an Ed25519, ECDSA or RSA key in OpenSSH or PEM format. PEM keys can’t have a passphrase." = "“%@” isn’t a supported private key. Use an Ed25519, ECDSA or RSA key in OpenSSH or PEM format. PEM keys can’t have a passphrase.";
 "“%@” no longer exists on the server." = "“%@” no longer exists on the server.";
 
 /* Zoom and Recent */
@@ -362,3 +363,13 @@
 "Show Server Files" = "Show Server Files";
 
 "If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera." = "If you quit now, these changes are kept in Server Files for recovery and won’t reach the server. Use Resume Recovered Edits after reopening Foldera.";
+"Clear search" = "Clear search";
+"Connected" = "Connected";
+"Pinned to Quick access" = "Pinned to Quick access";
+"Show folders in “%@”" = "Show folders in “%@”";
+"Show the rest of the path" = "Show the rest of the path";
+"Choose where to extract “%@”." = "Choose where to extract “%@”.";
+"Choose where to extract %lld archives." = "Choose where to extract %lld archives.";
+"Extract into a new folder “%@”" = "Extract into a new folder “%@”";
+"Extract each into a new folder named after it" = "Extract each into a new folder named after it";
+"Extract the selected archive to a folder you choose" = "Extract the selected archive to a folder you choose";

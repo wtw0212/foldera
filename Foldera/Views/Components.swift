@@ -51,7 +51,7 @@ struct IconButton: View {
                 .frame(width: 18, height: 18)
         }
         .buttonStyle(SubtleButtonStyle())
-        .help(help)
+        .hint(help)
         .accessibilityLabel(Text(help.replacingOccurrences(of: #"\s*[（(][^）)]*[）)]$"#, with: "", options: .regularExpression)))
     }
 }
@@ -93,7 +93,7 @@ struct MenuButton<Label: View>: View {
             label()
         }
         .buttonStyle(SubtleButtonStyle())
-        .help(help)
+        .hint(help)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
     }
 }
@@ -231,5 +231,32 @@ enum TextFieldClickAway {
             }
             return event
         }
+    }
+}
+
+extension View {
+    /// A hover tooltip. SwiftUI's `.help` silently shows nothing on some views (buttons with a background,
+    /// disabled buttons, rows with hover tracking), so this registers an AppKit tooltip over the view instead.
+    func hint(_ text: String) -> some View {
+        overlay(ToolTipArea(text: text)).accessibilityHint(Text(text))
+    }
+}
+
+/// A transparent view that only carries `toolTip`; it ignores clicks, so the view below still gets them.
+private struct ToolTipArea: NSViewRepresentable {
+    let text: String
+
+    final class View: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> View {
+        let view = View()
+        view.toolTip = text
+        return view
+    }
+
+    func updateNSView(_ view: View, context: Context) {
+        if view.toolTip != text { view.toolTip = text }
     }
 }

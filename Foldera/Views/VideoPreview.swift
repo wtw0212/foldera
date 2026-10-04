@@ -114,6 +114,7 @@ struct VideoPreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture { playback.toggle() }
+        .hint(L10n.text(playback.isPlaying ? "Pause video" : "Play video"))
         .accessibilityElement()
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(L10n.text(playback.isPlaying ? "Pause video" : "Play video"))

@@ -69,9 +69,9 @@ nonisolated enum Archives {
 
     // MARK: Extract
 
-    /// Extracts into a new folder named after the archive, next to it. Returns that folder.
-    static func extractToFolder(_ archive: URL, password: String? = nil) throws -> URL {
-        let folder = FileOperations.uniqueURL(named: baseName(of: archive), in: archive.deletingLastPathComponent())
+    /// Extracts into a new folder named after the archive, in `parent` (next to the archive by default). Returns that folder.
+    static func extractToFolder(_ archive: URL, in parent: URL? = nil, password: String? = nil) throws -> URL {
+        let folder = FileOperations.uniqueURL(named: baseName(of: archive), in: parent ?? archive.deletingLastPathComponent())
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
             try extract(archive, into: folder, password: password)
@@ -118,21 +118,42 @@ nonisolated enum Archives {
 
     // MARK: Compress
 
-    /// Compresses `items` like Finder: one item becomes "<name>.zip" (or .7z), several become "Archive.zip".
-    /// The archive goes next to the items, or into `fallbackFolder` when they're in different folders.
-    static func compress(_ items: [URL], format: Format = .zip, fallbackFolder: URL) throws -> URL {
+    /// Where Finder-style Compress puts the archive: "<name>.zip" (or .7z) for one item, "Archive.zip" for several,
+    /// next to the items, or in `fallbackFolder` when they're in different folders.
+    static func archiveURL(for items: [URL], format: Format = .zip, fallbackFolder: URL) -> URL? {
+        guard let first = items.first else { return nil }
+        let parent = first.deletingLastPathComponent()
+        let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
+        let ext = format == .zip ? "zip" : "7z"
+        return FileOperations.uniqueURL(named: items.count == 1 ? "\(first.lastPathComponent).\(ext)" : "Archive.\(ext)",
+                                        in: sameParent ? parent : fallbackFolder)
+    }
+
+    /// Compresses `items` like Finder. See `archiveURL(for:format:fallbackFolder:)` for where the archive goes.
+    static func compress(_ items: [URL], format: Format = .zip, fallbackFolder: URL, progress: TransferProgress? = nil) throws -> URL {
+        guard let archive = archiveURL(for: items, format: format, fallbackFolder: fallbackFolder) else { throw Failure(message: "Nothing to compress.") }
+        try compress(items, format: format, to: archive, progress: progress)
+        return archive
+    }
+
+    /// Compresses `items` into `archive`, which must not exist. `progress` gets bytes read from the items.
+    static func compress(_ items: [URL], format: Format = .zip, to archive: URL, progress: TransferProgress? = nil) throws {
         guard let first = items.first else { throw Failure(message: "Nothing to compress.") }
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
-        let folder = sameParent ? parent : fallbackFolder
-        let ext = format == .zip ? "zip" : "7z"
-        let archive = FileOperations.uniqueURL(named: items.count == 1 ? "\(first.lastPathComponent).\(ext)" : "Archive.\(ext)", in: folder)
+        let meter = progress.map { CompressionMeter(progress: $0, archive: archive, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }) }
         do {
             switch format {
             case .sevenZip:
                 guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
                 // Given full paths, 7-Zip stores each item under its own name (no parent folders).
-                try run(sevenZip, ["a", "-t7z", "-mx=5", "-y", "-bso0", "-bsp0", "-xr!.DS_Store", "--", archive.path] + items.map(\.path))
+                try run(sevenZip, ["a", "-t7z", "-mx=5", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path] + items.map(\.path),
+                        meter: meter) { line in
+                    // "-bsp1" redraws "  42% 12 + name" in place.
+                    guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
+                    meter?.reached(percent: percent)
+                    return true
+                }
             case .zip where items.count == 1:
                 // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does.
                 // For a file, --keepParent includes its containing directory instead of just the file.
@@ -140,12 +161,21 @@ nonisolated enum Archives {
                 if try first.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
                     arguments.append("--keepParent")
                 }
-                try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [first.path, archive.path])
+                if meter != nil { arguments.append("-V") }
+                try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [first.path, archive.path], meter: meter) { line in
+                    // -V prints "copying file ./x ... " before and "1234 bytes for ./x" after each file.
+                    if let match = line.firstMatch(of: #/^(\d+) bytes for /#), let bytes = Int64(match.1) {
+                        meter?.finished(bytes: bytes)
+                        return true
+                    }
+                    return line.hasPrefix(">>> Copying ") || line.hasPrefix("copying file ")
+                }
             case .zip where sameParent:
-                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y", "-q", archive.path] + items.map(\.lastPathComponent) + ["-x", "*.DS_Store"], in: parent)
+                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + items.map(\.lastPathComponent) + ["-x", "*.DS_Store"],
+                        in: parent, meter: meter) { zipLine($0, in: parent, meter: meter) }
             case .zip:
                 // Search results from several folders: store each item under its own name.
-                let staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
+                let staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: archive.deletingLastPathComponent(), create: true)
                 defer { try? FileManager.default.removeItem(at: staging) }
                 var names: [String] = []
                 for item in items {
@@ -154,18 +184,89 @@ nonisolated enum Archives {
                     names.append(link.lastPathComponent)
                 }
                 // Without -y, zip follows the links and stores the real files.
-                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-q", archive.path] + names + ["-x", "*.DS_Store"], in: staging)
+                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r"] + (meter == nil ? ["-q"] : []) + [archive.path] + names + ["-x", "*.DS_Store"],
+                        in: staging, meter: meter) { zipLine($0, in: staging, meter: meter) }
             }
         } catch {
             try? FileManager.default.removeItem(at: archive) // a partial archive under our new, unique name
             throw error
         }
-        return archive
+        meter?.complete() // 7-Zip skips its last percentages when it finishes quickly
+    }
+
+    /// zip prints "  adding: name (deflated 12%)" once a file is in the archive.
+    private static func zipLine(_ line: String, in directory: URL, meter: CompressionMeter?) -> Bool {
+        guard let start = line.range(of: "adding: "), let end = line.range(of: " (", options: .backwards), start.upperBound <= end.lowerBound else {
+            return false
+        }
+        let name = String(line[start.upperBound..<end.lowerBound])
+        let item = directory.appendingPathComponent(name)
+        let values = try? item.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+        meter?.finished(bytes: values?.isDirectory == true ? 0 : Int64(values?.fileSize ?? 0))
+        return true
+    }
+
+    /// Turns a compressor's output into byte progress. Between files it counts the archive's growth,
+    /// up to what is left, so a single large file still moves the bar.
+    private final class CompressionMeter: @unchecked Sendable {
+        private let lock = NSLock()
+        private let progress: TransferProgress
+        private let archive: URL
+        private let total: Int64
+        private var completed: Int64 = 0
+        private var archiveAtLastFile: Int64 = 0
+        private var byPercent = false
+
+        init(progress: TransferProgress, archive: URL, total: Int64) {
+            self.progress = progress
+            self.archive = archive
+            self.total = total
+            progress.setCurrentName(archive.lastPathComponent)
+        }
+
+        var isCancelled: Bool { progress.isCancelled }
+
+        func finished(bytes: Int64) {
+            let size = archiveSize
+            lock.withLock {
+                completed = min(total, completed + bytes)
+                archiveAtLastFile = size
+            }
+            update()
+        }
+
+        func reached(percent: Int) {
+            lock.withLock {
+                byPercent = true
+                completed = max(completed, total * Int64(min(100, percent)) / 100)
+            }
+            update()
+        }
+
+        func complete() {
+            lock.withLock { completed = total; byPercent = true }
+            update()
+        }
+
+        func update() {
+            let size = archiveSize
+            let value = lock.withLock {
+                byPercent ? completed : completed + min(total - completed, max(0, size - archiveAtLastFile))
+            }
+            progress.setCompleted(value)
+        }
+
+        private var archiveSize: Int64 {
+            Int64((try? archive.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
     }
 
     // MARK: Process
 
-    private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil) throws {
+    /// Runs a tool and waits. With a `meter`, `handleLine` sees each output line (split at "\n", "\r" and
+    /// backspaces) and returns true for progress lines, which stay out of error messages; cancelling stops the tool.
+    private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil,
+                            meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws {
         let process = Process()
         process.executableURL = tool
         process.arguments = arguments
@@ -180,10 +281,36 @@ nonisolated enum Archives {
             try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
             try? stdin.fileHandleForWriting.close()
         }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        if let meter {
+            // Output can pause for a long time on a large file, so cancelling and the growth estimate run on their own.
+            nonisolated(unsafe) let running = process
+            Thread.detachNewThread {
+                while running.isRunning {
+                    if meter.isCancelled { running.terminate() }
+                    meter.update()
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+        }
+        var kept = Data(), pending = Data()
+        let separators: Set<UInt8> = [0x0A, 0x0D, 0x08]
+        while true {
+            let chunk = output.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            guard meter != nil else { kept.append(chunk); continue }
+            pending.append(chunk)
+            while let index = pending.firstIndex(where: separators.contains) {
+                let line = pending[pending.startIndex..<index]
+                pending = Data(pending[(index + 1)...])
+                let text = String(decoding: line, as: UTF8.self)
+                if !text.trimmingCharacters(in: .whitespaces).isEmpty, !handleLine(text) { kept.append(line + [0x0A]) }
+            }
+        }
+        kept.append(pending)
         process.waitUntilExit()
+        if meter?.isCancelled == true { throw CopyEngine.Cancelled() }
         guard process.terminationStatus == 0 else {
-            let message = String(data: data, encoding: .utf8)?
+            let message = String(data: kept, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "tar: ", with: "")
             throw Failure(message: message?.isEmpty == false ? message! : "\(tool.lastPathComponent) failed (\(process.terminationStatus)).")

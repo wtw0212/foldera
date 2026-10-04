@@ -70,7 +70,7 @@ struct NetworkView: View {
                                             .disabled(volumes.isEjecting(drive))
                                     }
                                     .folderDropTarget(drive.url)
-                                    .help(drive.url.path)
+                                    .hint(drive.url.path)
                             }
                         }
                     }

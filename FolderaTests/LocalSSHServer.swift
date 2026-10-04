@@ -54,6 +54,17 @@ nonisolated final class LocalSSHServer: Sendable {
         get throws { .privateKey(try Data(contentsOf: clientKey), path: clientKey.path, passphrase: nil) }
     }
 
+    /// Generates another client key with `ssh-keygen` options (type, format, passphrase) and lets it log in.
+    func authorizeKey(_ name: String, _ options: [String]) throws -> URL {
+        let key = directory.path(name)
+        try Self.run("/usr/bin/ssh-keygen", ["-q", "-C", "foldera-tests", "-f", key.path] + options)
+        let authorized = try FileHandle(forWritingTo: directory.path("authorized_keys"))
+        defer { try? authorized.close() }
+        try authorized.seekToEnd()
+        try authorized.write(contentsOf: Data(contentsOf: key.appendingPathExtension("pub")))
+        return key
+    }
+
     func connect() async throws -> SFTPFileSystem {
         try await SFTPFileSystem.connect(to: endpoint, credentials: credentials, hostKey: .acceptAnything())
     }
