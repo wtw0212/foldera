@@ -129,13 +129,13 @@ final class ExplorerUITests: XCTestCase {
                 app.menuBars.menuBarItems.element(boundBy: 1).click()
                 let submenu = app.menuItems[menu]
                 XCTAssertTrue(submenu.waitForExistence(timeout: 5))
-                submenu.click()
+                submenu.hover()
                 for title in [finish, resume, show] {
                     let command = app.menuItems[title]
-                    XCTAssertTrue(command.exists)
+                    XCTAssertTrue(command.waitForExistence(timeout: 5))
                     XCTAssertFalse(command.isEnabled)
                 }
-                app.typeKey(.escape, modifierFlags: [])
+                app.menuBars.firstMatch.typeKey(.escape, modifierFlags: [])
             }
         }
     }

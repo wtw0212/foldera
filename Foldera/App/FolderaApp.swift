@@ -33,6 +33,10 @@ final class FolderaAppDelegate: NSObject, NSApplicationDelegate {
     /// Answers a `.terminateLater`. Replaced in tests.
     var reply: @MainActor (Bool) -> Void = { NSApplication.shared.reply(toApplicationShouldTerminate: $0) }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await InstallerDisk.ejectAfterInstall() }
+    }
+
     /// Waits for current uploads, then warns when saved edits still need recovery after quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !editing.pendingFiles.isEmpty || editing.isUploading else { return .terminateNow }

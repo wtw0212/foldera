@@ -75,7 +75,7 @@ For folders protected by macOS privacy controls (Mail, Safari and so on), grant 
 ./scripts/make-dmg.sh
 ```
 
-builds a Release app and writes `dist/Foldera-<version>.dmg`. Open it and drag Foldera to Applications.
+builds a Release app and writes `dist/Foldera-<version>.dmg`. Open it and drag Foldera to Applications. When you launch the installed copy from Applications, Foldera automatically ejects its matching installer image if it is not in use. Installers from earlier releases can be ejected manually in Finder.
 
 Then grant Full Disk Access once: Foldera ▸ Settings ▸ Access ▸ **Open Privacy & Security Settings**, and drag Foldera (shown in Finder) into the Full Disk Access list, or click **+** and pick `/Applications/Foldera.app`. macOS never adds apps to that list by itself.
 
