@@ -119,6 +119,8 @@ struct BrowserActionTests {
         // Finder opens the windows asynchronously.
         try await eventually { urls.allSatisfy(FinderInfoWindows.isOpen) }
         #expect(!FileManager.default.fileExists(atPath: directory.path("pwned").path))
+        urls.forEach(FinderInfoWindows.close)
+        try await eventually { urls.allSatisfy { !FinderInfoWindows.isOpen(for: $0) } }
     }
 
     @Test func propertiesRejectsNonFileURLs() throws {
@@ -136,12 +138,17 @@ enum FinderInfoWindows {
     private static let script = NSAppleScript(source: """
     on isOpen(fileURL)
         set testFile to fileURL as alias
-        tell application "Finder" to return exists information window of testFile
+        with timeout of 5 seconds
+            tell application "Finder" to return exists information window of testFile
+        end timeout
     end isOpen
     on closeWindow(fileURL)
         set testFile to fileURL as alias
         tell application "Finder"
-            if exists information window of testFile then close information window of testFile
+            -- Finder can close the window without replying; don't wait for its 120-second timeout.
+            ignoring application responses
+                close information window of testFile
+            end ignoring
         end tell
     end closeWindow
     """)
