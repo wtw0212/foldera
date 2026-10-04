@@ -158,7 +158,7 @@ Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdPar
 
 ## Removable drives
 
-Right-click a drive in This Mac or the navigation pane and choose **Eject**. Foldera stays responsive and shows progress while macOS finishes ejecting it. A persistent **You can safely remove the device** notice appears in the window after success; close it with the × button. If the device is busy, Foldera reports the error so you can close files on it and try again.
+Right-click a drive in This Mac or the navigation pane and choose **Eject**. Foldera stays responsive and shows progress while macOS finishes ejecting it. A **You can safely remove the device** notice appears in the window after success and stays until dismissed with × or another drive is mounted. If the device is busy, Foldera reports the error so you can close files on it and try again.
 
 ## Cloud drives
 

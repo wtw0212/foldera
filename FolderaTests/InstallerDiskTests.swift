@@ -36,9 +36,10 @@ struct InstallerDiskTests {
         try fm.copyItem(at: installed, to: packaged)
         try fm.createSymbolicLink(atPath: contents.appendingPathComponent("Applications").path, withDestinationPath: "/Applications")
         let marker = contents.appendingPathComponent(".foldera-installer.plist")
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/installer-receipt.py")
+        // Build-time resources avoid runtime reads of the checkout in a protected Documents folder.
+        let script = try #require(Bundle(for: InstallerDiskTestResources.self).url(forResource: "installer-receipt", withExtension: "py"))
         let fixtureScript = try directory.folder("scripts").appendingPathComponent("installer-receipt.py")
-        try await run("/bin/cp", [script.path, fixtureScript.path])
+        try fm.copyItem(at: script, to: fixtureScript)
         try await run("/usr/bin/env", ["python3", fixtureScript.path])
         switch kind {
         case "missingReceipt": try fm.removeItem(at: marker)
@@ -148,3 +149,5 @@ struct InstallerDiskTests {
         #expect(InstallerDisk.readOnlyImages(from: Data("invalid plist".utf8)).isEmpty)
     }
 }
+
+private final class InstallerDiskTestResources {}

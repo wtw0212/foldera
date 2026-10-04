@@ -59,6 +59,14 @@ struct VolumeEjectionTests {
             #expect(try texts(VolumeEjectionBar(volumes: volumes)).contains(expected))
         }
     }
+
+    @Test func mountingADriveClearsThePreviousSafeRemovalNotice() async throws {
+        let volumes = VolumeMonitor(ejectDevice: { _ in })
+        volumes.eject(drive)
+        try await eventually { volumes.lastEjectedName != nil }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didMountNotification, object: nil)
+        #expect(volumes.lastEjectedName == nil)
+    }
 }
 
 nonisolated private final class EjectGate: @unchecked Sendable {

@@ -66,7 +66,10 @@ final class VolumeMonitor {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                MainActor.assumeIsolated {
+                    if name == NSWorkspace.didMountNotification { self?.dismissEjectionNotice() }
+                    self?.refresh()
+                }
             })
         }
     }
