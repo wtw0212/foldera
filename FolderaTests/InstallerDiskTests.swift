@@ -7,7 +7,8 @@ import Testing
 @Suite(.serialized)
 struct InstallerDiskTests {
     /// AppKit must keep processing volume notifications while a disk tool waits for them.
-    private func run(_ executable: String, _ arguments: [String]) async throws {
+    @discardableResult
+    private func run(_ executable: String, _ arguments: [String]) async throws -> Data {
         try await Task.detached {
             let process = Process(), output = Pipe()
             process.executableURL = URL(fileURLWithPath: executable)
@@ -20,6 +21,7 @@ struct InstallerDiskTests {
             guard process.terminationStatus == 0 else {
                 throw NSError(domain: "InstallerDiskTests", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: String(decoding: data, as: UTF8.self)])
             }
+            return data
         }.value
     }
 
@@ -55,9 +57,20 @@ struct InstallerDiskTests {
         try await run("/usr/bin/hdiutil", ["attach", image.path, "-nobrowse", "-readonly", "-mountpoint", mount.path])
         var failure: Error?
         do { try await perform(installed, mount, directory.url) } catch { failure = error }
-        if fm.fileExists(atPath: mount.appendingPathComponent("Foldera.app").path) {
-            try? await run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
-        }
+        // Native eject can unmount the APFS volume while leaving its backing image attached.
+        // Resolve the current device from this fixture's image path before disposing of it.
+        do {
+            let data = try await run("/usr/bin/hdiutil", ["info", "-plist"])
+            let info = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+            let images = try #require(info["images"] as? [[String: Any]])
+            for attached in images where attached["owner-uid"] as? Int == Int(getuid()) {
+                guard let path = attached["image-path"] as? String,
+                      URL(fileURLWithPath: path).resolvingSymlinksInPath() == image.resolvingSymlinksInPath() else { continue }
+                let entities = try #require(attached["system-entities"] as? [[String: Any]])
+                let device = try #require(entities.first?["dev-entry"] as? String)
+                try await run("/usr/bin/hdiutil", ["detach", device, "-force"])
+            }
+        } catch { if failure == nil { failure = error } }
         if let failure { throw failure }
     }
 

@@ -39,7 +39,7 @@ fi
 
 STATUS=0
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" \
-    -destination 'platform=macOS' -derivedDataPath build.noindex/tests/DerivedData \
+    -destination 'platform=macOS' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
     -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" \
     -parallel-testing-enabled NO COMPILER_INDEX_STORE_ENABLE=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
