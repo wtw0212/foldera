@@ -71,7 +71,8 @@ jobs:
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
         # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: compiled-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             build.noindex/tests/DerivedData
@@ -84,6 +85,16 @@ jobs:
 
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
+
+      - name: Save compiled packages for test retries
+        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
+          path: |
+            build.noindex/tests/DerivedData
+            !build.noindex/tests/DerivedData/Logs
+            !build.noindex/tests/DerivedData/Index.noindex
 
       - name: Save results and coverage
         if: always()
@@ -113,7 +124,8 @@ jobs:
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
         # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: compiled-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             build.noindex/tests/DerivedData
@@ -126,6 +138,16 @@ jobs:
 
       - name: Run native UI tests
         run: bash scripts/test.sh ui
+
+      - name: Save compiled packages for test retries
+        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
+          path: |
+            build.noindex/tests/DerivedData
+            !build.noindex/tests/DerivedData/Logs
+            !build.noindex/tests/DerivedData/Index.noindex
 
       - name: Save UI results and screenshots
         if: always()

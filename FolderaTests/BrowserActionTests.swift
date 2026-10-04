@@ -131,42 +131,34 @@ struct BrowserActionTests {
     }
 }
 
-/// Checks Finder's open windows by their item, independently of `propertiesEvent`'s file specifier.
-/// Looking up a closed file's `information window` can time out on macOS 26. The file is passed as data.
+/// Checks Finder through AppleScript's alias resolution, independently of `propertiesEvent`'s specifier.
+/// The file is passed as data, and each call owns its AppleScript execution context.
 @MainActor
 enum FinderInfoWindows {
-    private static let script = NSAppleScript(source: """
-    on windowID(fileURL)
+    private static var script: NSAppleScript? { NSAppleScript(source: """
+    on isOpen(fileURL)
         set testFile to fileURL as alias
-        with timeout of 5 seconds
+        with timeout of 10 seconds
             tell application "Finder"
-                repeat with candidate in (get every window)
-                    if class of candidate is information window then
-                        if (item of candidate as alias) is testFile then return id of candidate
-                    end if
-                end repeat
+                if exists information window of testFile then return visible of information window of testFile
+                return false
             end tell
         end timeout
-        return 0
-    end windowID
-    on isOpen(fileURL)
-        return (my windowID(fileURL)) is not 0
     end isOpen
     on closeWindow(fileURL)
-        set targetID to my windowID(fileURL)
-        if targetID is not 0 then
-            set testFile to fileURL as alias
-            -- Finder can close an info window without replying. Bound the wait; callers verify closure.
-            try
-                with timeout of 2 seconds
-                    tell application "Finder" to close information window of testFile
-                end timeout
-            on error number -1712
-                return
-            end try
-        end if
+        set testFile to fileURL as alias
+        -- Finder can close an info window without replying. Bound the wait; callers verify closure.
+        try
+            with timeout of 2 seconds
+                tell application "Finder"
+                    if exists information window of testFile then close information window of testFile
+                end tell
+            end timeout
+        on error number -1712
+            return
+        end try
     end closeWindow
-    """)
+    """) }
 
     static func isOpen(for url: URL) -> Bool { call("isOpen", url)?.booleanValue == true }
     static func close(for url: URL) { _ = call("closeWindow", url) }
