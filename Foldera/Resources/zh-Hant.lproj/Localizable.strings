@@ -390,9 +390,9 @@
 "Confirm:" = "確認密碼：";
 "Show password" = "顯示密碼";
 "Encryption:" = "加密方式：";
-"Secure, but opening it needs an app such as 7-Zip, Keka or The Unarchiver." = "安全性高，但需要 7-Zip、Keka 或 The Unarchiver 等 App 才能開啟。";
-"Opens in most apps, including Windows File Explorer, but is easy to break." = "大多數 App（包括 Windows 檔案總管）都能開啟，但容易被破解。";
 "Encrypt file names" = "加密檔案名稱";
 "Enter a valid archive name." = "請輸入有效的壓縮檔名稱。";
 "ZIP passwords can only use English letters, digits and symbols." = "ZIP 密碼只能使用英文字母、數字和符號。";
 "The passwords don’t match." = "兩次輸入的密碼不相符。";
+"Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it." = "安全性高。可在 Mac 及 7-Zip 開啟，但 Windows 檔案總管可能無法開啟。";
+"Opens almost anywhere, including Windows File Explorer, but is easy to break." = "幾乎所有 App（包括 Windows 檔案總管）都能開啟，但容易被破解。";

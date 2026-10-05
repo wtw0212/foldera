@@ -29,6 +29,20 @@ struct BrowserArchiveTests {
         #expect(try String(contentsOf: try #require(tab.selection.first), encoding: .utf8) == "archive payload")
     }
 
+    @Test func openingAnArchiveExtractsItIntoAFolderNamedAfterIt() async throws {
+        let directory = try TestDirectory()
+        let original = try directory.file("note.txt", contents: "archive payload")
+        let archive = try Archives.compress([original], format: .sevenZip, fallbackFolder: directory.url)
+        let tab = BrowserTab(url: directory.url)
+        try await eventually { !tab.isLoading }
+        tab.selection = [archive]
+        tab.openSelection()
+        try await eventually(timeout: .seconds(10)) { tab.selection.first?.lastPathComponent == "note (2).txt" && !tab.isLoading }
+        let folder = try #require(tab.selection.first)
+        #expect(try String(contentsOf: folder.appendingPathComponent("note.txt"), encoding: .utf8) == "archive payload")
+        #expect(tab.url == directory.url.normalizedFileURL || tab.url == directory.url)
+    }
+
     @Test func extractingToAChosenFolderOpensItAndSelectsTheResult() async throws {
         let directory = try TestDirectory()
         let original = try directory.file("note.txt", contents: "archive payload")

@@ -390,9 +390,9 @@
 "Confirm:" = "Confirm:";
 "Show password" = "Show password";
 "Encryption:" = "Encryption:";
-"Secure, but opening it needs an app such as 7-Zip, Keka or The Unarchiver." = "Secure, but opening it needs an app such as 7-Zip, Keka or The Unarchiver.";
-"Opens in most apps, including Windows File Explorer, but is easy to break." = "Opens in most apps, including Windows File Explorer, but is easy to break.";
 "Encrypt file names" = "Encrypt file names";
 "Enter a valid archive name." = "Enter a valid archive name.";
 "ZIP passwords can only use English letters, digits and symbols." = "ZIP passwords can only use English letters, digits and symbols.";
 "The passwords don’t match." = "The passwords don’t match.";
+"Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it." = "Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it.";
+"Opens almost anywhere, including Windows File Explorer, but is easy to break." = "Opens almost anywhere, including Windows File Explorer, but is easy to break.";

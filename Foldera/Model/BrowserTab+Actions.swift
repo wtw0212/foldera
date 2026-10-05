@@ -28,11 +28,15 @@ extension BrowserTab {
     }
 
     /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
+    /// Archives Foldera can read are extracted into a folder named after them instead, like Explorer's
+    /// built-in zip support: Archive Utility can't open encrypted 7z, rar and several other formats.
     private func openFile(_ url: URL) {
         recents.record(url, isFolder: false)
         if isRecent { reload() }
         if url.isRemote {
             remoteOpen(url)
+        } else if Archives.isArchive(url) {
+            extract([url], .ownFolder)
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -146,7 +150,10 @@ extension BrowserTab {
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
     /// Encrypted archives ask for their password (again if it was wrong).
     func extractSelection(_ destination: ExtractDestination) {
-        let archives = selectedArchives
+        extract(selectedArchives, destination)
+    }
+
+    private func extract(_ archives: [URL], _ destination: ExtractDestination) {
         guard !archives.isEmpty else { return }
         Task {
             var created: [URL] = []

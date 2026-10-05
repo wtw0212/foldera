@@ -150,6 +150,9 @@ struct SwiftUIViewTests {
         #expect(try isBlocked(name: "bad/name"))
         #expect(try isBlocked(password: "secret", confirmation: "secrex"))
         #expect(try !isBlocked(password: "secret", confirmation: "secret"))
+        // The encryption choice is there before a password is typed, but only usable with one.
+        let encryption = try view.inspect().find(ViewType.Picker.self) { try $0.labelView().text().string() == L10n.text("Encryption:") }
+        #expect(encryption.isDisabled())
     }
 
     @Test func detailsPaneDescribesEmptySingleFolderAndMultipleFileSelections() async throws {

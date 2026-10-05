@@ -138,7 +138,8 @@ struct CompressSheet: View {
         }
         .accessibilityIdentifier("compress-password")
         Toggle(L10n.text("Show password"), isOn: $showsPassword)
-        if !password.isEmpty {
+        // Shown before a password is typed, so the sheet doesn't grow under the pointer; they apply only with one.
+        Group {
             switch effectiveFormat {
             case .zip:
                 Picker(L10n.text("Encryption:"), selection: $zipEncryption) {
@@ -146,14 +147,15 @@ struct CompressSheet: View {
                     Text("ZipCrypto").tag(Archives.ZipEncryption.zipCrypto)
                 }
                 Text(zipEncryption == .aes256
-                     ? L10n.text("Secure, but opening it needs an app such as 7-Zip, Keka or The Unarchiver.")
-                     : L10n.text("Opens in most apps, including Windows File Explorer, but is easy to break."))
+                     ? L10n.text("Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it.")
+                     : L10n.text("Opens almost anywhere, including Windows File Explorer, but is easy to break."))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondaryText.swiftUI)
             case .sevenZip:
                 Toggle(L10n.text("Encrypt file names"), isOn: $encryptNames)
             }
         }
+        .disabled(password.isEmpty)
     }
 
     private func chooseFolder() {
