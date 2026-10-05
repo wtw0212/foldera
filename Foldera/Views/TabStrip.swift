@@ -8,7 +8,9 @@ struct TabStrip: View {
     private let leadingInset: CGFloat = 78
 
     var body: some View {
-        HStack(spacing: 0) {
+        // Bottom-aligned so the active tab sits on the toolbar: the drag area fills the strip's full
+        // height, which would otherwise center the shorter tabs and leave a gap under them.
+        HStack(alignment: .bottom, spacing: 0) {
             Color.clear.frame(width: leadingInset)
             ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
                 let isActive = tab.id == model.activeTabID
