@@ -75,6 +75,55 @@ struct ArchivesTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("big.bin.zip").path))
     }
 
+    /// Paths stored in `archive`, as 7-Zip lists them (macOS metadata left out).
+    private func entries(of archive: URL) throws -> [String] {
+        let list = Process(), pipe = Pipe()
+        list.executableURL = try #require(Archives.sevenZip)
+        list.arguments = ["l", "-slt", "-ba", archive.path]
+        list.standardOutput = pipe
+        try list.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        list.waitUntilExit()
+        return output.split(separator: "\n").compactMap { line in
+            line.hasPrefix("Path = ") ? String(line.dropFirst(7)) : nil
+        }.filter { !$0.hasPrefix("__MACOSX") }.sorted()
+    }
+
+    /// Selected links and links inside selected folders are archived as links: their targets (here outside the
+    /// selection) never end up in the archive, whichever way it is made.
+    @Test(arguments: [Archives.Format.zip, .sevenZip], ["link", "folder", "same parent", "several folders"])
+    func compressingStoresSymbolicLinksAsLinks(format: Archives.Format, selection: String) throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("private"), withIntermediateDirectories: false)
+        try "SECRET".write(to: root.appendingPathComponent("private/secret.txt"), atomically: true, encoding: .utf8)
+        for folder in ["a/docs", "b/docs"] {
+            try fm.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+            try "doc".write(to: root.appendingPathComponent("\(folder)/note.txt"), atomically: true, encoding: .utf8)
+        }
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("a/docs/inner").path, withDestinationPath: "../../private")
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("a/top").path, withDestinationPath: "../private")
+        let a = root.appendingPathComponent("a"), b = root.appendingPathComponent("b")
+        let items: [URL] = switch selection {
+        case "link": [a.appendingPathComponent("top")]
+        case "folder": [a.appendingPathComponent("docs")]
+        case "same parent": [a.appendingPathComponent("docs"), a.appendingPathComponent("top")]
+        default: [a.appendingPathComponent("docs"), b.appendingPathComponent("docs"), a.appendingPathComponent("top")]
+        }
+
+        let archive = try Archives.compress(items, format: format, fallbackFolder: root)
+        let stored = try entries(of: archive)
+        #expect(!stored.contains { $0.hasSuffix("secret.txt") }, "a link's target is never archived: \(stored)")
+        if selection != "folder" { #expect(stored.contains("top")) }
+        if selection != "link" { #expect(stored.contains("docs/inner") && stored.contains("docs/note.txt")) }
+        if selection == "several folders" {
+            #expect(stored.filter { $0.hasSuffix("/note.txt") }.count == 2, "same-named items from different folders are both kept")
+        }
+        // Compressing several folders' items never touches the originals.
+        #expect(try fm.destinationOfSymbolicLink(atPath: a.appendingPathComponent("top").path) == "../private")
+    }
+
     @Test func sevenZipIsBundled() {
         #expect(Archives.sevenZip != nil)
         #expect(Bundle.main.url(forResource: "7-Zip-License", withExtension: "txt") != nil)
