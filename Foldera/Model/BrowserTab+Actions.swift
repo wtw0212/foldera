@@ -324,9 +324,10 @@ extension BrowserTab {
     func finishArchiveJob(name: String, created: [URL], error: Error?) {
         if !created.isEmpty {
             FileUndo.shared.record(.created(created), name: name)
-            // Inside an archive the new items are elsewhere; in a folder they're selected where they appeared.
+            // Select only results in this folder; extracting elsewhere keeps the current selection.
             if !isInsideArchive {
-                selection = Set(created.map(\.normalizedFileURL))
+                let local = created.filter { $0.deletingLastPathComponent().normalizedFileURL == url }
+                if !local.isEmpty { selection = Set(local.map(\.normalizedFileURL)) }
                 reload()
             }
         }

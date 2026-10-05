@@ -192,6 +192,7 @@ struct BrowserArchiveTests {
         try await eventually(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: target.appendingPathComponent("note (2).txt").path) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(tab.url == directory.url.normalizedFileURL)
+        #expect(tab.selection == [archive])
         try FileManager.default.removeItem(at: target.appendingPathComponent("note (2).txt"))
         tab.selection = [archive]
         tab.extractSelection(.folder(target, ownFolder: false))
@@ -420,5 +421,7 @@ struct BrowserArchiveTests {
         let model = ExplorerWindowModel(url: ArchiveLocation(archive: archive).url)
         model.activeTab.openInNewTab?(target, [target.appendingPathComponent("a.txt").normalizedFileURL])
         #expect(model.tabs.count == 2 && model.activeTab.url == target.normalizedFileURL)
+        try await eventually { !model.activeTab.isLoading }
+        #expect(model.activeTab.selection == [target.appendingPathComponent("a.txt").normalizedFileURL])
     }
 }
