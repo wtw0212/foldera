@@ -402,3 +402,4 @@
 "Extract the selected items to a folder you choose" = "將所選項目解壓縮到你選擇的資料夾";
 "Extract everything in this archive to a folder you choose" = "將此壓縮檔的所有內容解壓縮到你選擇的資料夾";
 "%@ (archive)" = "%@（壓縮檔）";
+"Open the extracted folder when done" = "完成後開啟解壓縮的資料夾";

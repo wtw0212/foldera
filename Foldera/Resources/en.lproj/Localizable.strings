@@ -402,3 +402,4 @@
 "Extract the selected items to a folder you choose" = "Extract the selected items to a folder you choose";
 "Extract everything in this archive to a folder you choose" = "Extract everything in this archive to a folder you choose";
 "%@ (archive)" = "%@ (archive)";
+"Open the extracted folder when done" = "Open the extracted folder when done";

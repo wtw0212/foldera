@@ -63,6 +63,8 @@ final class BrowserTab: Identifiable {
     var renameRequest: RenameRequest?
     /// Items for the "Rename N items" sheet, set when renaming a multiple selection.
     var bulkRenameItems: [FileItem]?
+    /// Opens a folder in a new tab of this window, selecting items in it; set by the window.
+    @ObservationIgnored var openInNewTab: ((URL, Set<URL>) -> Void)?
     /// Items for the "Compress to…" sheet.
     var compressItems: [URL]?
     /// Bumped to move keyboard focus to the file list.

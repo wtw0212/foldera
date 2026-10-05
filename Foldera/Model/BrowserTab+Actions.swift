@@ -147,7 +147,21 @@ extension BrowserTab {
         /// The archive's own folder, or a new folder named after the archive next to it.
         case here, ownFolder
         /// A chosen folder; `ownFolder` puts each archive in a new folder named after it there.
-        case folder(URL, ownFolder: Bool)
+        /// `opens`: show the result when done (see `revealExtracted`).
+        case folder(URL, ownFolder: Bool, opens: Bool = true)
+    }
+
+    /// The Extract dialogs' "Open the extracted folder when done", remembered between extractions.
+    static var opensExtractedFolder: Bool {
+        get { UserDefaults.standard.object(forKey: "extract.openWhenDone") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "extract.openWhenDone") }
+    }
+
+    /// The checkbox for `opensExtractedFolder`, for an Extract dialog's accessory view.
+    static func openWhenDoneCheckbox() -> NSButton {
+        let checkbox = NSButton(checkboxWithTitle: L10n.text("Open the extracted folder when done"), target: nil, action: nil)
+        checkbox.state = opensExtractedFolder ? .on : .off
+        return checkbox
     }
 
     var selectedArchives: [URL] { isRemote || isRecent || isInsideArchive ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
@@ -166,7 +180,7 @@ extension BrowserTab {
             for archive in archives {
                 let folder: URL = switch destination {
                 case .here, .ownFolder: archive.deletingLastPathComponent()
-                case .folder(let folder, _): folder
+                case .folder(let folder, _, _): folder
                 }
                 do {
                     let total = await ArchiveExtraction.size(of: [], in: archive)
@@ -175,9 +189,9 @@ extension BrowserTab {
                                                                 totalBytes: total, action: L10n.text("Extract")) { progress in
                         let password = ArchiveCatalog.shared.password(for: archive)
                         return switch destination {
-                        case .here, .folder(_, ownFolder: false):
+                        case .here, .folder(_, ownFolder: false, _):
                             try Archives.extractHere(archive, into: folder, password: password, progress: progress, totalBytes: total)
-                        case .ownFolder, .folder(_, ownFolder: true):
+                        case .ownFolder, .folder(_, ownFolder: true, _):
                             [try Archives.extractToFolder(archive, in: folder, password: password, progress: progress, totalBytes: total)]
                         }
                     }
@@ -186,9 +200,11 @@ extension BrowserTab {
                     failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                 }
             }
-            // Only an Extract to a chosen folder opens it; the others may finish after the user moved on.
-            if case .folder = destination {
-                finishArchiveJob(name: "Extract", created: created, error: failure, revealing: true)
+            // Only an Extract to a chosen folder opens the result, when asked to; the others may finish
+            // after the user moved on.
+            if case .folder(_, let ownFolder, opens: true) = destination {
+                finishArchiveJob(name: "Extract", created: created, error: failure)
+                revealExtracted(created, insideNewFolder: ownFolder)
             } else {
                 finishArchiveJob(name: "Extract", created: created, error: failure)
             }
@@ -218,10 +234,45 @@ extension BrowserTab {
             ? L10n.format("Extract into a new folder “%@”", Archives.baseName(of: first))
             : L10n.text("Extract each into a new folder named after it"), target: nil, action: nil)
         ownFolder.state = .on
-        panel.accessoryView = ownFolder
+        let opens = Self.openWhenDoneCheckbox()
+        panel.accessoryView = Self.checkboxStack([ownFolder, opens])
         panel.isAccessoryViewDisclosed = true
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        extract(archives, .folder(folder, ownFolder: ownFolder.state == .on))
+        Self.opensExtractedFolder = opens.state == .on
+        extract(archives, .folder(folder, ownFolder: ownFolder.state == .on, opens: opens.state == .on))
+    }
+
+    /// Checkboxes stacked for an open panel's accessory view.
+    static func checkboxStack(_ checkboxes: [NSButton]) -> NSView {
+        let stack = NSStackView(views: checkboxes)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        stack.frame.size = stack.fittingSize
+        return stack
+    }
+
+    /// Like Explorer's "Show extracted files when complete": a single new folder named after the archive
+    /// opens itself; otherwise the folder the items went to opens with them selected. Inside an archive
+    /// it opens in a new tab, so the archive stays open.
+    func revealExtracted(_ created: [URL], insideNewFolder: Bool) {
+        guard !created.isEmpty else { return }
+        let target: (folder: URL, selecting: Set<URL>)
+        if insideNewFolder, created.count == 1 {
+            target = (created[0].normalizedFileURL, [])
+        } else {
+            let folders = Set(created.map { $0.deletingLastPathComponent().normalizedFileURL })
+            guard folders.count == 1, let folder = folders.first else { return }
+            target = (folder, Set(created.map(\.normalizedFileURL)))
+        }
+        if isInsideArchive, let openInNewTab {
+            openInNewTab(target.folder, target.selecting)
+        } else if target.folder != url {
+            navigate(to: target.folder, selecting: target.selecting)
+        } else {
+            selection = target.selecting
+        }
     }
 
     var canCompressSelection: Bool { hasSelection && !isRemote && !isRecent && !isInsideArchive }
@@ -270,16 +321,12 @@ extension BrowserTab {
     }
 
     /// Records undo and selects what was created.
-    func finishArchiveJob(name: String, created: [URL], error: Error?, revealing: Bool = false) {
+    func finishArchiveJob(name: String, created: [URL], error: Error?) {
         if !created.isEmpty {
             FileUndo.shared.record(.created(created), name: name)
-            let selected = Set(created.map(\.normalizedFileURL))
-            let folders = Set(created.map { $0.deletingLastPathComponent().normalizedFileURL })
-            if revealing, folders.count == 1, let folder = folders.first, folder != url {
-                // Extracted somewhere else: go there, like Explorer's "Show extracted files".
-                navigate(to: folder, selecting: selected)
-            } else {
-                selection = selected
+            // Inside an archive the new items are elsewhere; in a folder they're selected where they appeared.
+            if !isInsideArchive {
+                selection = Set(created.map(\.normalizedFileURL))
                 reload()
             }
         }

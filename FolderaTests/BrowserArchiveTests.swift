@@ -100,7 +100,7 @@ struct BrowserArchiveTests {
         // Extract to a folder keeps both copies when names clash and shows the result.
         let target = try directory.folder("target")
         try "existing".write(to: target.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
-        tab.extract([try #require(file.url.archiveLocation)], from: archive, into: target)
+        tab.extract([try #require(file.url.archiveLocation)], from: archive, into: target, opens: true)
         try await eventually(timeout: .seconds(10)) { tab.url == target.normalizedFileURL && tab.selection.first?.lastPathComponent == "a (2).txt" }
         #expect(try String(contentsOf: target.appendingPathComponent("a (2).txt"), encoding: .utf8) == "first")
 
@@ -178,13 +178,21 @@ struct BrowserArchiveTests {
         try await eventually { !tab.isLoading }
         tab.selection = [archive]
         tab.extractSelection(.folder(target, ownFolder: true))
+        // The new folder named after the archive opens itself.
         let folder = target.appendingPathComponent("note.txt").normalizedFileURL
-        try await eventually(timeout: .seconds(10)) { tab.url == target.normalizedFileURL && tab.selection == [folder] && !tab.isLoading }
+        try await eventually(timeout: .seconds(10)) { tab.url == folder && !tab.isLoading }
         #expect(try String(contentsOf: folder.appendingPathComponent("note.txt"), encoding: .utf8) == "archive payload")
         #expect(tab.canGoBack, "Back returns to the archive's folder")
 
         tab.goBack()
         try await eventually { tab.url == directory.url.normalizedFileURL && !tab.isLoading }
+        tab.selection = [archive]
+        tab.extractSelection(.folder(target, ownFolder: false, opens: false))
+        // Not opened: this tab stays, with the archive still selected.
+        try await eventually(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: target.appendingPathComponent("note (2).txt").path) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(tab.url == directory.url.normalizedFileURL)
+        try FileManager.default.removeItem(at: target.appendingPathComponent("note (2).txt"))
         tab.selection = [archive]
         tab.extractSelection(.folder(target, ownFolder: false))
         // "note.txt" there is now the first extraction's folder, so the file keeps both.
@@ -386,5 +394,31 @@ struct BrowserArchiveTests {
         #expect(ArchiveLocation.resolve(directory.url.path + "/missing/file") == nil)
         let plain = try directory.file("plain.txt", contents: "x")
         #expect(ArchiveLocation.resolve(plain.path + "/inside") == nil)
+    }
+
+    @Test func extractingFromAnArchiveWindowOpensTheResultInANewTab() async throws {
+        let directory = try TestDirectory()
+        let archive = try makeNotesArchive(in: directory)
+        let target = try directory.folder("target")
+        let tab = BrowserTab(url: ArchiveLocation(archive: archive, path: "Notes").url)
+        try await eventually(timeout: .seconds(10)) { tab.items.count == 3 }
+        var opened: [(URL, Set<URL>)] = []
+        tab.openInNewTab = { opened.append(($0, $1)) }
+        let note = try #require(tab.items.first { $0.name == "a.txt" }?.url.archiveLocation)
+
+        tab.extract([note], from: archive, into: target, opens: false)
+        try await eventually(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: target.appendingPathComponent("a.txt").path) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(opened.isEmpty)
+
+        tab.extract([note], from: archive, into: target, opens: true)
+        try await eventually(timeout: .seconds(10)) { !opened.isEmpty }
+        #expect(opened[0].0 == target.normalizedFileURL && opened[0].1 == [target.appendingPathComponent("a (2).txt").normalizedFileURL])
+        #expect(tab.isInsideArchive, "The archive stays open in its own tab")
+
+        // The window's hook opens a real tab with the items selected.
+        let model = ExplorerWindowModel(url: ArchiveLocation(archive: archive).url)
+        model.activeTab.openInNewTab?(target, [target.appendingPathComponent("a.txt").normalizedFileURL])
+        #expect(model.tabs.count == 2 && model.activeTab.url == target.normalizedFileURL)
     }
 }

@@ -125,16 +125,21 @@ extension BrowserTab {
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = location.archive.deletingLastPathComponent()
+        let opens = Self.openWhenDoneCheckbox()
+        panel.accessoryView = Self.checkboxStack([opens])
+        panel.isAccessoryViewDisclosed = true
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        extract(chosen, from: location.archive, into: folder)
+        Self.opensExtractedFolder = opens.state == .on
+        extract(chosen, from: location.archive, into: folder, opens: opens.state == .on)
     }
 
-    /// Extracts items from an archive into `folder`, keeping both when names clash, then shows them there.
-    func extract(_ locations: [ArchiveLocation], from archive: URL, into folder: URL) {
+    /// Extracts items from an archive into `folder`, keeping both when names clash; `opens` then shows them there.
+    func extract(_ locations: [ArchiveLocation], from archive: URL, into folder: URL, opens: Bool = false) {
         Task {
             do {
-                let created = try await ArchiveExtraction.items(locations, from: archive, into: folder)
-                finishArchiveJob(name: "Extract", created: created ?? [], error: nil, revealing: true)
+                let created = try await ArchiveExtraction.items(locations, from: archive, into: folder) ?? []
+                finishArchiveJob(name: "Extract", created: created, error: nil)
+                if opens { revealExtracted(created, insideNewFolder: false) }
             } catch {
                 finishArchiveJob(name: "Extract", created: [], error: error)
             }
