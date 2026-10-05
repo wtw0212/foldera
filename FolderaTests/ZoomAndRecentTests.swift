@@ -102,27 +102,6 @@ private final class TabCommands: FileViewCommands {
 
 @MainActor
 struct RecentItemsTests {
-    private func closeInformationWindow(for file: URL) {
-        let script = NSAppleScript(source: """
-        on closeTestInfoWindow(fileURL)
-            set testFile to fileURL as alias
-            tell application "Finder"
-                if exists information window of testFile then close information window of testFile
-            end tell
-        end closeTestInfoWindow
-        """)
-        // Pass the URL as data, never as AppleScript source.
-        let arguments = NSAppleEventDescriptor.list()
-        arguments.insert(NSAppleEventDescriptor(fileURL: file), at: 1)
-        let event = NSAppleEventDescriptor(
-            eventClass: AEEventClass(kASAppleScriptSuite), eventID: AEEventID(kASSubroutineEvent),
-            targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID)
-        )
-        event.setParam(NSAppleEventDescriptor(string: "closeTestInfoWindow"), forKeyword: AEKeyword(keyASSubroutineName))
-        event.setParam(arguments, forKeyword: AEKeyword(keyDirectObject))
-        script?.executeAppleEvent(event, error: nil)
-    }
-
     @Test func recentItemsAreNewestFirstDedupedCappedAndPersisted() throws {
         let preferences = try TestPreferences(), directory = try TestDirectory()
         let recents = RecentItems(defaults: preferences.defaults)
@@ -201,10 +180,11 @@ struct RecentItemsTests {
         #expect(ContextMenus.backgroundMenu(tab: tab).items.map(\.title).contains(L10n.text("Clear Recent Items")))
         tab.beginRename()
         tab.newFolder()
-        defer { withExtendedLifetime(directory) { closeInformationWindow(for: file) } }
+        defer { withExtendedLifetime(directory) { FinderInfoWindows.close(for: file) } }
         tab.showProperties()
         tab.openInTerminal()
-        #expect(tab.renameRequest == nil && errors.errors.isEmpty)
+        #expect(tab.renameRequest == nil)
+        #expect(errors.errors.isEmpty, "Finder properties errors: \(errors.errors)")
 
         tab.trashSelection()
         #expect(FileManager.default.fileExists(atPath: file.path), "Delete on Recent only forgets the item")

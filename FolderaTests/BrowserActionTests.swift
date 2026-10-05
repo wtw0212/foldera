@@ -129,22 +129,31 @@ struct BrowserActionTests {
     }
 }
 
-/// Asks Finder about information windows through AppleScript's own `alias` resolution, so a test can check
-/// what `propertiesEvent` opened without reusing its object specifier. The file is passed as data.
+/// Checks Finder through AppleScript's alias resolution, independently of `propertiesEvent`'s specifier.
+/// The file is passed as data, and each call owns its AppleScript execution context.
 @MainActor
 enum FinderInfoWindows {
-    private static let script = NSAppleScript(source: """
+    private static var script: NSAppleScript? { NSAppleScript(source: """
     on isOpen(fileURL)
         set testFile to fileURL as alias
-        tell application "Finder" to return exists information window of testFile
+        with timeout of 10 seconds
+            tell application "Finder" to return exists information window of testFile
+        end timeout
     end isOpen
     on closeWindow(fileURL)
         set testFile to fileURL as alias
-        tell application "Finder"
-            if exists information window of testFile then close information window of testFile
-        end tell
+        -- Finder can close an info window without replying. Bound best-effort fixture cleanup.
+        try
+            with timeout of 2 seconds
+                tell application "Finder"
+                    if exists information window of testFile then close information window of testFile
+                end tell
+            end timeout
+        on error number -1712
+            return
+        end try
     end closeWindow
-    """)
+    """) }
 
     static func isOpen(for url: URL) -> Bool { call("isOpen", url)?.booleanValue == true }
     static func close(for url: URL) { _ = call("closeWindow", url) }
@@ -158,6 +167,10 @@ enum FinderInfoWindows {
         )
         event.setParam(NSAppleEventDescriptor(string: handler), forKeyword: AEKeyword(keyASSubroutineName))
         event.setParam(arguments, forKeyword: AEKeyword(keyDirectObject))
-        return script?.executeAppleEvent(event, error: nil)
+        var error: NSDictionary?
+        let reply = script?.executeAppleEvent(event, error: &error)
+        #expect(error == nil, "Finder \(handler) failed: \(String(describing: error))")
+        if handler == "isOpen" { #expect(reply != nil, "Finder window query returned no reply") }
+        return reply
     }
 }

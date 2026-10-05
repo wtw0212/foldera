@@ -1,4 +1,24 @@
+import AppKit
 import XCTest
+
+private extension XCUIElement {
+    /// Avoid XCTest's polling wait when the element is already present.
+    func waitForAppearance(timeout: TimeInterval) -> Bool {
+        exists || waitForExistence(timeout: timeout)
+    }
+}
+
+@MainActor
+private func enter(_ text: String, into field: XCUIElement) {
+    // Hosted CI has a disposable clipboard; local runs keep typing without changing it.
+    guard ProcessInfo.processInfo.environment["FOLDERA_CI"] == "true" else {
+        field.typeText(text)
+        return
+    }
+    NSPasteboard.general.clearContents()
+    XCTAssertTrue(NSPasteboard.general.setString(text, forType: .string))
+    field.typeKey("v", modifierFlags: .command)
+}
 
 @MainActor
 final class ExplorerUITests: XCTestCase {
@@ -25,16 +45,16 @@ final class ExplorerUITests: XCTestCase {
             "-showExtensions", "YES",
         ]
         app.launch()
-        XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
+        XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
         try test(app, root)
     }
 
     private func navigate(_ app: XCUIApplication, to path: String) {
         app.typeKey("l", modifierFlags: .command)
         let address = app.textFields["address-field"]
-        XCTAssertTrue(address.waitForExistence(timeout: 5))
-        address.typeText(path)
+        XCTAssertTrue(address.waitForAppearance(timeout: 5))
+        enter(path, into: address)
         address.typeKey(.return, modifierFlags: [])
     }
 
@@ -43,13 +63,13 @@ final class ExplorerUITests: XCTestCase {
             let back = app.buttons["navigate-back"], forward = app.buttons["navigate-forward"]
             XCTAssertFalse(back.isEnabled)
             navigate(app, to: root.appendingPathComponent("nested").path)
-            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForAppearance(timeout: 5))
             XCTAssertTrue(back.isEnabled)
             back.click()
-            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
             XCTAssertTrue(forward.isEnabled)
             forward.click()
-            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForAppearance(timeout: 5))
         }
     }
 
@@ -58,10 +78,10 @@ final class ExplorerUITests: XCTestCase {
             app.typeKey("f", modifierFlags: .command)
             let search = app.textFields["search-field"]
             search.typeText("report")
-            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForAppearance(timeout: 5))
             XCTAssertFalse(app.tables["file-list"].staticTexts["note.txt"].exists)
             search.typeKey(.escape, modifierFlags: [])
-            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
         }
     }
 
@@ -73,7 +93,7 @@ final class ExplorerUITests: XCTestCase {
             expectation(for: twoTabs, evaluatedWith: app)
             waitForExpectations(timeout: 5)
             navigate(app, to: root.path)
-            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
             app.typeKey("w", modifierFlags: .command)
             let oneTab = NSPredicate { _, _ in app.staticTexts.matching(identifier: "tab-title").count == 1 }
             expectation(for: oneTab, evaluatedWith: app)
@@ -98,8 +118,7 @@ final class ExplorerUITests: XCTestCase {
     }
 
     func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
-        try withApp { app, root in
-            navigate(app, to: root.path)
+        try withApp { app, _ in
             app.typeKey("=", modifierFlags: .command)
             app.typeKey("=", modifierFlags: .command)
             let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
@@ -107,7 +126,7 @@ final class ExplorerUITests: XCTestCase {
             waitForExpectations(timeout: 5)
             app.typeKey("-", modifierFlags: .command)
             app.typeKey("-", modifierFlags: .command)
-            XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 5))
         }
     }
 
@@ -115,7 +134,7 @@ final class ExplorerUITests: XCTestCase {
         try withApp(language: "zh-Hant") { app, root in
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "2 個項目")
             navigate(app, to: root.appendingPathComponent("nested").path)
-            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForAppearance(timeout: 5))
             XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 個項目")
         }
     }
@@ -128,11 +147,11 @@ final class ExplorerUITests: XCTestCase {
             try withApp(language: language) { app, _ in
                 app.menuBars.menuBarItems.element(boundBy: 1).click()
                 let submenu = app.menuItems[menu]
-                XCTAssertTrue(submenu.waitForExistence(timeout: 5))
+                XCTAssertTrue(submenu.waitForAppearance(timeout: 5))
                 submenu.hover()
                 for title in [finish, resume, show] {
                     let command = app.menuItems[title]
-                    XCTAssertTrue(command.waitForExistence(timeout: 5))
+                    XCTAssertTrue(command.waitForAppearance(timeout: 5))
                     XCTAssertFalse(command.isEnabled)
                 }
                 app.menuBars.firstMatch.typeKey(.escape, modifierFlags: [])
@@ -169,28 +188,28 @@ final class NetworkUITests: XCTestCase {
             "-sftpSites", "<>", "-sftpHostKeys", "{}",
         ]
         app.launch()
-        XCTAssertTrue(app.tables["file-list"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
 
         app.typeKey("k", modifierFlags: .command)
         let address = app.textFields["server-address"]
-        XCTAssertTrue(address.waitForExistence(timeout: 5))
-        address.typeText("sftp://\(NSUserName())@127.0.0.1:\(port)\(served)")
+        XCTAssertTrue(address.waitForAppearance(timeout: 5))
+        enter("sftp://\(NSUserName())@127.0.0.1:\(port)\(served)", into: address)
         address.typeKey(.return, modifierFlags: [])
 
         let host = app.textFields["site-host"]
-        XCTAssertTrue(host.waitForExistence(timeout: 5))
+        XCTAssertTrue(host.waitForAppearance(timeout: 5))
         XCTAssertEqual(host.value as? String, "127.0.0.1")
         app.radioButtons["Private key"].click()
         let keyField = app.textFields["site-key"]
-        XCTAssertTrue(keyField.waitForExistence(timeout: 5))
+        XCTAssertTrue(keyField.waitForAppearance(timeout: 5))
         keyField.click()
-        keyField.typeText(key)
+        enter(key, into: keyField)
         app.buttons["Save and Connect"].click()
 
         let trust = app.buttons["Trust and Connect"].firstMatch
-        XCTAssertTrue(trust.waitForExistence(timeout: 15))
+        XCTAssertTrue(trust.waitForAppearance(timeout: 15))
         trust.click()
-        XCTAssertTrue(app.tables["file-list"].staticTexts["remote.txt"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.tables["file-list"].staticTexts["remote.txt"].waitForAppearance(timeout: 15))
         XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 item")
     }
 }
