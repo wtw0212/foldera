@@ -82,10 +82,15 @@ final class ExplorerWindowModel {
 
     /// F5 / F6: copy or move the focused pane's selection into the other pane's folder.
     func transferToOtherPane(_ kind: FileTransfer.Kind) {
-        guard let target = otherTab else { return }
+        guard let target = otherTab, target.acceptsItems else { return }
         let source = activeTab
         let urls = source.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        if let archive = source.url.archiveLocation?.archive {
+            // Archives are read-only: F5 extracts the items into the other pane, F6 does nothing.
+            if kind == .copy { source.extract(urls.compactMap(\.archiveLocation), from: archive, into: target.url) }
+            return
+        }
         let destination = target.url
         Task {
             let result = await FileTransfers.shared.run(kind, urls, into: destination)

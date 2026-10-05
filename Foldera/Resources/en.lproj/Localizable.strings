@@ -396,3 +396,9 @@
 "The passwords don’t match." = "The passwords don’t match.";
 "Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it." = "Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it.";
 "Opens almost anywhere, including Windows File Explorer, but is easy to break." = "Opens almost anywhere, including Windows File Explorer, but is easy to break.";
+"Extract all…" = "Extract all…";
+"Extract to…" = "Extract to…";
+"Choose where to extract %lld items." = "Choose where to extract %lld items.";
+"Extract the selected items to a folder you choose" = "Extract the selected items to a folder you choose";
+"Extract everything in this archive to a folder you choose" = "Extract everything in this archive to a folder you choose";
+"%@ (archive)" = "%@ (archive)";

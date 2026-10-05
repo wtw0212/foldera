@@ -291,6 +291,66 @@ struct ArchivesTests {
         }
     }
 
+    @Test func listingReadsEntriesAndImpliedFolders() throws {
+        let output = """
+        Path = docs/a b.txt
+        Folder = -
+        Size = 12
+        Modified = 2026-10-05 18:21:56.5
+        Attributes =  -rw-r--r--
+
+        Path = docs/link
+        Size = 5
+        Attributes =  lrwxr-xr-x
+
+        Path = ../escape.txt
+        Size = 1
+
+        Path = top
+        Attributes = D drwxr-xr-x
+        """
+        let entries = Archives.parseListing(output)
+        #expect(entries.map(\.path) == ["docs/a b.txt", "docs/link", "top"])
+        #expect(entries[0].size == 12 && entries[0].modified != nil && !entries[0].isDirectory)
+        #expect(entries[1].isSymlink && entries[2].isDirectory && entries[2].size == nil)
+
+        let location = ArchiveLocation(archive: URL(fileURLWithPath: "/tmp/My #1 100%.7z"), path: "/docs//中文/./")
+        #expect(location.path == "docs/中文" && location.name == "中文")
+        #expect(location.url.archiveLocation == location && location.url.isInArchive && !location.url.isFileURL)
+        #expect(location.parent == ArchiveLocation(archive: location.archive, path: "docs"))
+        #expect(location.ancestors.map(\.name) == ["My #1 100%.7z", "docs", "中文"])
+        #expect(ArchiveLocation(archive: location.archive).parent == nil)
+        #expect(FileKind.of(ArchiveLocation(archive: location.archive, path: "x/photo.png").url, type: nil) == .image)
+    }
+
+    @Test func catalogListsFoldersOfARealArchive() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try "a".write(to: folder.appendingPathComponent("sub/a.txt"), atomically: true, encoding: .utf8)
+        // zip -D leaves folders out, so "docs" and "docs/sub" exist only in the files' paths.
+        let archive = root.appendingPathComponent("docs.zip")
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-q", "-r", "-D", archive.path, "docs"]
+        zip.currentDirectoryURL = root
+        try zip.run()
+        zip.waitUntilExit()
+
+        let catalog = ArchiveCatalog()
+        let top = try catalog.children(of: ArchiveLocation(archive: archive))
+        #expect(top.map(\.name) == ["docs"] && top[0].isDirectory)
+        #expect(try catalog.children(of: ArchiveLocation(archive: archive, path: "docs")).map(\.name) == ["sub"])
+        #expect(try catalog.children(of: ArchiveLocation(archive: archive, path: "docs/sub")).map(\.name) == ["a.txt"])
+        #expect(throws: CocoaError.self) { try catalog.children(of: ArchiveLocation(archive: archive, path: "nope")) }
+        let out = root.appendingPathComponent("out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        try ArchiveDirectory.extract([ArchiveLocation(archive: archive, path: "docs/sub")], from: archive, into: out, catalog: catalog)
+        #expect(try String(contentsOf: out.appendingPathComponent("docs/sub/a.txt"), encoding: .utf8) == "a")
+        #expect(Archives.isBrowsable(archive) && !Archives.isBrowsable(root.appendingPathComponent("x.tar.gz")))
+    }
+
     @Test func brokenArchiveReportsErrorAndLeavesNoFolder() throws {
         let root = try makeFolder()
         defer { try? FileManager.default.removeItem(at: root) }

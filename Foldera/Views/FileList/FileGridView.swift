@@ -178,7 +178,8 @@ struct FileGridView: NSViewRepresentable {
         }
 
         func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {
-            ItemPasteboard.writer(for: items[indexPath.item].url)
+            // Items inside archives can't be dragged out yet: use Copy or Extract.
+            items[indexPath.item].url.isInArchive ? nil : ItemPasteboard.writer(for: items[indexPath.item].url)
         }
 
         // MARK: Selection

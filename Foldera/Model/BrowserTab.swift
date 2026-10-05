@@ -108,7 +108,11 @@ final class BrowserTab: Identifiable {
 
     // MARK: Derived state
 
-    var title: String { Self.displayName(of: url) }
+    /// Tab and window title; folders inside an archive say so, so its window can't be mistaken for a folder's.
+    var title: String {
+        guard let location = url.archiveLocation else { return Self.displayName(of: url) }
+        return L10n.format("%@ (archive)", location.name)
+    }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var isThisMac: Bool { url == Self.thisMacURL }
@@ -116,14 +120,19 @@ final class BrowserTab: Identifiable {
     /// This Mac or Network: pages that aren't folders, so folder commands don't apply.
     var isPage: Bool { isThisMac || isNetwork }
     var isRecent: Bool { url == Self.recentURL }
-    /// A real folder: new items, paste and drops can go here (not This Mac, Network or Recent).
-    var acceptsItems: Bool { !isPage && !isRecent }
+    /// A real folder: new items, paste and drops can go here (not This Mac, Network, Recent or inside an archive).
+    var acceptsItems: Bool { !isPage && !isRecent && !isInsideArchive }
     var isRemote: Bool { url.isRemote }
+    /// A folder inside an archive: read-only, browsed without extracting it.
+    var isInsideArchive: Bool { url.isInArchive }
     var canGoUp: Bool { parentURL != nil }
 
     /// The enclosing folder; a drive's root goes up to This Mac, a server's root to Network.
     var parentURL: URL? {
         if isPage || isRecent { return nil }
+        if let location = url.archiveLocation {
+            return location.parent?.url ?? location.archive.deletingLastPathComponent()
+        }
         if let endpoint = url.remoteEndpoint {
             return url.remotePath == "/" ? Self.networkURL : endpoint.url(path: RemotePath.parent(of: url.remotePath))
         }
@@ -190,7 +199,7 @@ final class BrowserTab: Identifiable {
     func goBack() {
         guard let previous = backStack.popLast() else { return }
         forwardStack.append(url)
-        move(to: previous, selecting: [url])
+        move(to: previous, selecting: [Self.itemURL(for: url)])
     }
 
     func goForward() {
@@ -219,7 +228,13 @@ final class BrowserTab: Identifiable {
 
     func goUp() {
         guard let parentURL else { return }
-        navigate(to: parentURL, selecting: [url])
+        navigate(to: parentURL, selecting: [Self.itemURL(for: url)])
+    }
+
+    /// How a folder appears in its parent's listing: the top of an archive is the archive file.
+    private static func itemURL(for folder: URL) -> URL {
+        guard let location = folder.archiveLocation, location.isRoot else { return folder }
+        return location.archive
     }
 
     func reload() {
@@ -239,8 +254,9 @@ final class BrowserTab: Identifiable {
             itemsVersion += 1
             return
         }
-        if isRemote || isRecent {
-            // Searching a server recursively would be slow and costly, and Recent isn't a folder: filter the listing instead.
+        if isRemote || isRecent || isInsideArchive {
+            // Searching a server recursively would be slow and costly, and Recent and archives aren't folders on disk:
+            // filter the listing instead.
             searchResults = items.filter { $0.name.localizedStandardContains(query) }
             itemsVersion += 1
             isSearching = false
@@ -305,8 +321,8 @@ final class BrowserTab: Identifiable {
             apply(Self.recentItems(settings.recents))
             return
         }
-        if target.isRemote {
-            // Servers can't be watched; Refresh and Foldera's own changes reload them.
+        if target.isRemote || target.isInArchive {
+            // Servers can't be watched, and archive listings are read-only; Refresh reloads them.
             watcher = nil
             watcherURL = nil
         } else if watcher == nil || watcherURL != target {
@@ -317,9 +333,22 @@ final class BrowserTab: Identifiable {
         isLoading = true
         loadTask = Task { [weak self] in
             do {
-                let loaded = target.isRemote ? try await RemoteDirectory.load(target) : try await DirectoryLoader.load(target)
+                let loaded = target.isRemote ? try await RemoteDirectory.load(target)
+                    : target.isInArchive ? try await ArchiveDirectory.load(target)
+                    : try await DirectoryLoader.load(target)
                 guard let self, !Task.isCancelled, self.url == target else { return }
                 self.apply(loaded)
+            } catch let needed as Archives.PasswordRequired {
+                guard let self, !Task.isCancelled, self.url == target else { return }
+                // The names are encrypted: ask, then list again. Cancelling goes back where the user came from.
+                if let password = Self.askPassword(for: needed.archive, wasWrong: needed.wasWrong, action: L10n.text("Open")) {
+                    ArchiveCatalog.shared.setPassword(password, for: needed.archive)
+                    self.load(selecting: selecting)
+                } else if self.canGoBack {
+                    self.goBack()
+                } else {
+                    self.navigate(to: needed.archive.deletingLastPathComponent(), selecting: [needed.archive])
+                }
             } catch {
                 guard let self, !Task.isCancelled, self.url == target else { return }
                 self.items = []
@@ -339,7 +368,7 @@ final class BrowserTab: Identifiable {
             items = loaded
             itemsVersion += 1
         }
-        if isRemote && isSearchActive { scheduleSearch() }
+        if (isRemote || isInsideArchive) && isSearchActive { scheduleSearch() }
         let present = Set(loaded.map(\.url))
         let wanted = selectAfterLoad.isEmpty ? selection : selectAfterLoad
         selection = wanted.intersection(present)
@@ -366,6 +395,7 @@ final class BrowserTab: Identifiable {
             let port = endpoint.port == RemoteEndpoint.defaultPort ? "" : ":\(endpoint.port)"
             return "sftp://\(endpoint.username)@\(endpoint.host)\(port)\(url.remotePath)"
         }
+        if let location = url.archiveLocation { return location.displayPath }
         return url.path
     }
 
@@ -375,6 +405,7 @@ final class BrowserTab: Identifiable {
         if url == networkURL { return "Network" }
         if url == recentURL { return "Recent" }
         if url.isRemote { return RemoteDirectory.name(of: url) }
+        if let location = url.archiveLocation { return location.name }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "/"
         }
@@ -386,6 +417,7 @@ final class BrowserTab: Identifiable {
         if url == networkURL { return L10n.text("Network") }
         if url == recentURL { return L10n.text("Recent") }
         if url.isRemote { return RemoteDirectory.name(of: url) }
+        if let location = url.archiveLocation { return location.name }
         if url.path == "/" {
             return (try? url.resourceValues(forKeys: [.volumeLocalizedNameKey]).volumeLocalizedName) ?? "Macintosh HD"
         }

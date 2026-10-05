@@ -29,7 +29,7 @@ struct CommandBar: View {
             VerticalSeparator()
 
             IconButton(symbol: "cut_regular", help: L10n.text("Cut (⌘X)")) { tab.cutSelection() }
-                .disabled(!tab.hasSelection)
+                .disabled(!tab.hasSelection || tab.isInsideArchive)
             IconButton(symbol: "copy_regular", help: L10n.text("Copy (⌘C)")) { tab.copySelection() }
                 .disabled(!tab.hasSelection)
             IconButton(symbol: "clipboard_paste_regular", help: L10n.text("Paste (⌘V)")) { tab.paste() }
@@ -37,11 +37,11 @@ struct CommandBar: View {
             IconButton(symbol: "rename_regular", help: tab.selection.count > 1 ? L10n.format("rename.items.help", tab.selection.count) : L10n.text("Rename (F2)")) {
                 tab.beginRename()
             }
-            .disabled(!tab.hasSelection)
+            .disabled(!tab.hasSelection || tab.isInsideArchive)
             ShareButton(urls: tab.selectedItems.map(\.url))
-                .disabled(!tab.hasSelection)
+                .disabled(!tab.hasSelection || tab.isInsideArchive)
             IconButton(symbol: "delete_regular", help: L10n.text("Delete (⌘⌫)")) { tab.trashSelection() }
-                .disabled(!tab.hasSelection)
+                .disabled(!tab.hasSelection || tab.isInsideArchive)
 
             if model.isDualPane {
                 VerticalSeparator()
@@ -52,7 +52,7 @@ struct CommandBar: View {
                 IconButton(symbol: "arrow.right.square", help: L10n.text("Move to other pane (F6)")) {
                     model.transferToOtherPane(.move)
                 }
-                .disabled(!tab.hasSelection)
+                .disabled(!tab.hasSelection || tab.isInsideArchive)
             }
 
             VerticalSeparator()
@@ -71,7 +71,17 @@ struct CommandBar: View {
 
             VerticalSeparator()
 
-            if !tab.selectedArchives.isEmpty {
+            if tab.isInsideArchive {
+                Button {
+                    tab.extractFromArchiveChoosingDestination()
+                } label: {
+                    labeled(L10n.text("Extract"), symbol: "folder_zip_regular")
+                }
+                .buttonStyle(SubtleButtonStyle())
+                .hint(tab.hasSelection ? L10n.text("Extract the selected items to a folder you choose")
+                                       : L10n.text("Extract everything in this archive to a folder you choose"))
+                .accessibilityIdentifier("extract-archive")
+            } else if !tab.selectedArchives.isEmpty {
                 Button {
                     tab.extractSelectionChoosingDestination()
                 } label: {

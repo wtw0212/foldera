@@ -70,7 +70,7 @@ private struct ItemDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if item.isNavigable || item.url.isRemote {
+            if item.isNavigable || !item.url.isFileURL {
                 Image(nsImage: FileIcons.icon(for: item))
                     .resizable()
                     .aspectRatio(contentMode: .fit)

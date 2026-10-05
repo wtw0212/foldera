@@ -20,6 +20,8 @@ enum FileKind: CaseIterable {
 
     /// Extension lists catch formats whose UTType the system doesn't know (7z, rar, tsx…).
     static func of(_ url: URL, type: UTType?) -> FileKind {
+        // An item inside an archive is known by its own name, not the archive's.
+        let url = url.archiveLocation.map { $0.isRoot ? $0.archive : URL(fileURLWithPath: "/" + $0.path) } ?? url
         let ext = url.pathExtension.lowercased()
         let type = type ?? UTType(filenameExtension: ext)
         func conforms(_ other: UTType) -> Bool { type?.conforms(to: other) == true }

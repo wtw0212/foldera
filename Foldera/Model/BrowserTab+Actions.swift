@@ -3,7 +3,7 @@ import Carbon
 
 /// Commands shared by the command bar, context menu, keyboard shortcuts and the menu bar.
 extension BrowserTab {
-    private var clipboard: FileClipboard { .shared }
+    var clipboard: FileClipboard { .shared }
     var recents: RecentItems { settings.recents }
 
     var hasSelection: Bool { !selection.isEmpty }
@@ -28,13 +28,17 @@ extension BrowserTab {
     }
 
     /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
-    /// Archives Foldera can read are extracted into a folder named after them instead, like Explorer's
-    /// built-in zip support: Archive Utility can't open encrypted 7z, rar and several other formats.
+    /// Archives open as folders, like Explorer's built-in zip support (Archive Utility can't open encrypted
+    /// 7z, rar and several other formats); tar.gz and the like, which can't be browsed, are extracted instead.
     private func openFile(_ url: URL) {
         recents.record(url, isFolder: false)
         if isRecent { reload() }
         if url.isRemote {
             remoteOpen(url)
+        } else if url.isInArchive {
+            openArchiveItem(url)
+        } else if Archives.isBrowsable(url) {
+            openArchiveWindow(url)
         } else if Archives.isArchive(url) {
             extract([url], .ownFolder)
         } else {
@@ -77,7 +81,7 @@ extension BrowserTab {
 
     /// Inline rename for one item; the bulk rename sheet when several are selected (like Finder).
     func beginRename(_ url: URL? = nil) {
-        guard !isRecent else { return }
+        guard !isRecent, !isInsideArchive else { return }
         if url == nil, selection.count > 1 {
             bulkRenameItems = selectedItems
             return
@@ -99,12 +103,13 @@ extension BrowserTab {
     }
 
     func cutSelection() {
-        guard hasSelection else { return }
+        guard hasSelection, !isInsideArchive else { return }
         clipboard.cut(selectedItems.map(\.url))
     }
 
     func copySelection() {
         guard hasSelection else { return }
+        if isInsideArchive { return copyArchiveSelection() }
         clipboard.copy(selectedItems.map(\.url))
     }
 
@@ -145,7 +150,7 @@ extension BrowserTab {
         case folder(URL, ownFolder: Bool)
     }
 
-    var selectedArchives: [URL] { isRemote || isRecent ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
+    var selectedArchives: [URL] { isRemote || isRecent || isInsideArchive ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
 
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
     /// Encrypted archives ask for their password (again if it was wrong).
@@ -159,7 +164,8 @@ extension BrowserTab {
             var created: [URL] = []
             var failure: Error?
             for archive in archives {
-                var password: String?
+                // A password typed while browsing the archive is tried first.
+                var password = ArchiveCatalog.shared.password(for: archive)
                 while true {
                     do {
                         created += try await Task.detached(priority: .userInitiated) { [password] in
@@ -171,8 +177,11 @@ extension BrowserTab {
                             }
                         }.value
                     } catch let needed as Archives.PasswordRequired {
-                        password = Self.askPassword(for: archive, wasWrong: needed.wasWrong)
-                        if password != nil { continue }
+                        password = Self.askPassword(for: archive, wasWrong: needed.wasWrong, action: L10n.text("Extract"))
+                        if password != nil {
+                            ArchiveCatalog.shared.setPassword(password, for: archive)
+                            continue
+                        }
                     } catch {
                         failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                     }
@@ -191,7 +200,10 @@ extension BrowserTab {
     /// The command bar's Extract: asks where to put the selected archives, starting in their folder,
     /// and by default gives each a new folder named after it.
     func extractSelectionChoosingDestination() {
-        let archives = selectedArchives
+        extractChoosingDestination(selectedArchives)
+    }
+
+    func extractChoosingDestination(_ archives: [URL]) {
         guard let first = archives.first else { return }
         let panel = NSOpenPanel()
         panel.title = L10n.text("Extract")
@@ -211,10 +223,10 @@ extension BrowserTab {
         panel.accessoryView = ownFolder
         panel.isAccessoryViewDisclosed = true
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        extractSelection(.folder(folder, ownFolder: ownFolder.state == .on))
+        extract(archives, .folder(folder, ownFolder: ownFolder.state == .on))
     }
 
-    var canCompressSelection: Bool { hasSelection && !isRemote && !isRecent }
+    var canCompressSelection: Bool { hasSelection && !isRemote && !isRecent && !isInsideArchive }
 
     /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
     func compressSelection(_ format: Archives.Format = .zip) {
@@ -262,7 +274,7 @@ extension BrowserTab {
     }
 
     /// Records undo and selects what was created.
-    private func finishArchiveJob(name: String, created: [URL], error: Error?, revealing: Bool = false) {
+    func finishArchiveJob(name: String, created: [URL], error: Error?, revealing: Bool = false) {
         if !created.isEmpty {
             FileUndo.shared.record(.created(created), name: name)
             let selected = Set(created.map(\.normalizedFileURL))
@@ -278,15 +290,16 @@ extension BrowserTab {
         if let error { Self.present(error) }
     }
 
-    /// Asks for an archive's password. Nil when cancelled.
-    private static func askPassword(for archive: URL, wasWrong: Bool) -> String? {
+    /// Asks for an archive's password; `action` names the button. Nil when cancelled.
+    static func askPassword(for archive: URL, wasWrong: Bool, action: String) -> String? {
+        if let passwordPrompt { return passwordPrompt(archive, wasWrong) }
         let alert = NSAlert()
         alert.messageText = L10n.format("Enter the password for “%@”", archive.lastPathComponent)
         alert.informativeText = wasWrong ? L10n.text("The password is incorrect. Try again.") : L10n.text("This archive is protected with a password.")
         alert.alertStyle = wasWrong ? .warning : .informational
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         alert.accessoryView = field
-        alert.addButton(withTitle: L10n.text("Extract"))
+        alert.addButton(withTitle: action)
         alert.addButton(withTitle: L10n.text("Cancel"))
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
@@ -294,12 +307,13 @@ extension BrowserTab {
     }
 
     func copyPathOfSelection() {
-        let paths = (hasSelection ? selectedItems.map(\.url) : [url]).map(\.path)
+        let paths = (hasSelection ? selectedItems.map(\.url) : [url]).map { $0.archiveLocation?.displayPath ?? $0.path }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
     }
 
     func showInFinder() {
+        if let location = url.archiveLocation { return NSWorkspace.shared.activateFileViewerSelecting([location.archive]) }
         guard !isRemote, !isPage, hasSelection || !isRecent else { return }
         if hasSelection {
             NSWorkspace.shared.activateFileViewerSelecting(selectedItems.map(\.url).filter(\.isFileURL))
@@ -317,6 +331,7 @@ extension BrowserTab {
     /// Opens the Finder "Get Info" window, the closest macOS equivalent of Explorer's Properties.
     func showProperties() {
         if isRemote { return remoteShowProperties() }
+        if isInsideArchive { return archiveShowProperties() }
         guard !isPage, hasSelection || !isRecent else { return }
         let targets = (hasSelection ? selectedItems.map(\.url) : [url]).filter(\.isFileURL)
         guard !targets.isEmpty else { return }
@@ -385,6 +400,8 @@ extension BrowserTab {
 
     /// Replaces the error alert (tests).
     static var errorPresenter: ((Error) -> Void)?
+    /// Replaces the archive password prompt (tests): archive and whether the last password was wrong.
+    static var passwordPrompt: ((URL, Bool) -> String?)?
 
     static func present(_ error: Error) {
         if let errorPresenter { return errorPresenter(error) }

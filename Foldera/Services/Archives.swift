@@ -125,9 +125,10 @@ nonisolated enum Archives {
         return added
     }
 
-    static func extract(_ archive: URL, into directory: URL, password: String? = nil) throws {
+    /// Extracts the whole archive, or only `entries` (paths inside it, as `list` gives them, with their folders).
+    static func extract(_ archive: URL, into directory: URL, password: String? = nil, entries: [String] = []) throws {
         let useTar = suffix(of: archive).map(tarSuffixes.contains) ?? false
-        guard !useTar, let sevenZip else {
+        guard !useTar || !entries.isEmpty, let sevenZip else {
             // __MACOSX holds Finder metadata copies that only clutter the result.
             try run(URL(fileURLWithPath: "/usr/bin/tar"), ["-x", "-f", archive.path, "-C", directory.path, "--exclude", "__MACOSX"])
             return
@@ -135,12 +136,76 @@ nonisolated enum Archives {
         do {
             // The password goes in on stdin, so it never shows up in the process list. Without one,
             // 7-Zip reads an empty line and reports a wrong password for encrypted archives.
-            try run(sevenZip, ["x", "-y", "-bso0", "-bsp0", "-xr!__MACOSX", "-o" + directory.path, "--", archive.path],
+            // -spd: entry names are matched literally, so "*" or "?" in a name isn't a wildcard.
+            let selection = entries.isEmpty ? ["-xr!__MACOSX"] : ["-spd"]
+            try run(sevenZip, ["x", "-y", "-bso0", "-bsp0"] + selection + ["-o" + directory.path, "--", archive.path] + entries,
                     input: (password ?? "") + "\n")
-        } catch let failure as Failure where failure.message.localizedCaseInsensitiveContains("wrong password")
-            || failure.message.localizedCaseInsensitiveContains("encrypted") {
+        } catch let failure as Failure where isPasswordFailure(failure) {
             throw PasswordRequired(archive: archive, wasWrong: password != nil)
         }
+    }
+
+    private static func isPasswordFailure(_ failure: Failure) -> Bool {
+        failure.message.localizedCaseInsensitiveContains("wrong password") || failure.message.localizedCaseInsensitiveContains("encrypted")
+    }
+
+    // MARK: Browse
+
+    /// True for archives whose folders Foldera can show without extracting them first. tar.gz and the like
+    /// are two layers (7-Zip would only show the .tar inside), so they're extracted instead.
+    static func isBrowsable(_ url: URL) -> Bool {
+        guard sevenZip != nil, isArchive(url), let suffix = suffix(of: url) else { return false }
+        return suffix == "tar" || !tarSuffixes.contains(suffix)
+    }
+
+    /// Every item in the archive, read from its directory without extracting anything. An archive whose
+    /// names are encrypted needs its password for this; one with only encrypted contents doesn't.
+    static func list(_ archive: URL, password: String? = nil) throws -> [ArchiveEntry] {
+        guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
+        let output: String
+        do {
+            output = try run(sevenZip, ["l", "-slt", "-ba", "--", archive.path], input: (password ?? "") + "\n")
+        } catch let failure as Failure where isPasswordFailure(failure) {
+            throw PasswordRequired(archive: archive, wasWrong: password != nil)
+        }
+        return parseListing(output)
+    }
+
+    /// Reads `7zz l -slt` blocks ("Path = …", "Size = …", one blank line between items).
+    static func parseListing(_ output: String) -> [ArchiveEntry] {
+        var entries: [ArchiveEntry] = []
+        var fields: [String: String] = [:]
+        func flush() {
+            defer { fields = [:] }
+            guard let raw = fields["Path"], let path = ArchiveEntry.cleanPath(raw) else { return }
+            let attributes = fields["Attributes"] ?? ""
+            let isDirectory = fields["Folder"] == "+" || attributes.hasPrefix("D")
+            entries.append(ArchiveEntry(rawPath: raw, path: path, isDirectory: isDirectory,
+                                        isSymlink: attributes.contains(" l"), size: isDirectory ? nil : fields["Size"].flatMap { Int64($0) },
+                                        modified: fields["Modified"].flatMap(parseDate)))
+        }
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.isEmpty { flush(); continue }
+            guard let separator = line.range(of: " = ") else { continue }
+            let key = String(line[..<separator.lowerBound])
+            // Path is first in each block; a second one starts the next item even without a blank line.
+            if key == "Path", fields["Path"] != nil { flush() }
+            fields[key] = String(line[separator.upperBound...])
+        }
+        flush()
+        return entries
+    }
+
+    /// "2026-10-05 18:21:56.9865070", in local time.
+    private static func parseDate(_ text: String) -> Date? {
+        let parts = text.split(separator: ".", maxSplits: 1)
+        guard let first = parts.first else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        guard let date = formatter.date(from: String(first)) else { return nil }
+        let fraction = parts.count > 1 ? Double("0." + parts[1]) ?? 0 : 0
+        return date.addingTimeInterval(fraction)
     }
 
     // MARK: Compress
@@ -338,8 +403,10 @@ nonisolated enum Archives {
 
     /// Runs a tool and waits. With a `meter`, `handleLine` sees each output line (split at "\n", "\r" and
     /// backspaces) and returns true for progress lines, which stay out of error messages; cancelling stops the tool.
+    /// Returns the tool's output, apart from progress lines.
+    @discardableResult
     private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil,
-                            meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws {
+                            meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws -> String {
         if meter?.isCancelled == true { throw CopyEngine.Cancelled() }
         let process = Process()
         process.executableURL = tool
@@ -389,5 +456,6 @@ nonisolated enum Archives {
                 .replacingOccurrences(of: "tar: ", with: "")
             throw Failure(message: message?.isEmpty == false ? message! : "\(tool.lastPathComponent) failed (\(process.terminationStatus)).")
         }
+        return String(decoding: kept, as: UTF8.self)
     }
 }

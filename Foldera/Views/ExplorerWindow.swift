@@ -8,6 +8,7 @@ struct ExplorerWindow: View {
     @State private var diskAccess = DiskAccess.shared
     @State private var volumes = VolumeMonitor.shared
     @State private var swipe = SwipeFeedback()
+    @Environment(\.openWindow) private var openWindow
 
     init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared, swipe: SwipeFeedback = SwipeFeedback()) {
         _model = State(initialValue: model)
@@ -70,6 +71,7 @@ struct ExplorerWindow: View {
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
         .onAppear {
+            ArchiveWindows.opener = { openWindow(id: ArchiveWindows.id, value: $0) }
             TextFieldClickAway.install()
             model.offerWelcomeIfNeeded()
         }

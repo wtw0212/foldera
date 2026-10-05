@@ -396,3 +396,9 @@
 "The passwords don’t match." = "兩次輸入的密碼不相符。";
 "Secure. Opens on a Mac and in 7-Zip; Windows File Explorer may not open it." = "安全性高。可在 Mac 及 7-Zip 開啟，但 Windows 檔案總管可能無法開啟。";
 "Opens almost anywhere, including Windows File Explorer, but is easy to break." = "幾乎所有 App（包括 Windows 檔案總管）都能開啟，但容易被破解。";
+"Extract all…" = "全部解壓縮…";
+"Extract to…" = "解壓縮至…";
+"Choose where to extract %lld items." = "選擇要將 %lld 個項目解壓縮到哪裡。";
+"Extract the selected items to a folder you choose" = "將所選項目解壓縮到你選擇的資料夾";
+"Extract everything in this archive to a folder you choose" = "將此壓縮檔的所有內容解壓縮到你選擇的資料夾";
+"%@ (archive)" = "%@（壓縮檔）";

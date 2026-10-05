@@ -60,6 +60,7 @@ nonisolated extension URL {
     /// (directory listings add a trailing slash to folders; URLs we build do not).
     var normalizedFileURL: URL {
         if isRemote, let endpoint = remoteEndpoint { return endpoint.url(path: remotePath) }
+        if let archiveLocation { return archiveLocation.url }
         guard isFileURL else { return self } // e.g. the "This Mac" page
         return URL(fileURLWithPath: standardizedFileURL.path, isDirectory: false)
     }

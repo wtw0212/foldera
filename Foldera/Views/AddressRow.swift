@@ -194,6 +194,10 @@ struct Breadcrumbs: View {
     /// The location's folders from This Mac down, e.g. This Mac › Macintosh HD › Users › me › Documents.
     static func segments(for url: URL) -> [URL] {
         guard url != BrowserTab.thisMacURL, url != BrowserTab.networkURL, url != BrowserTab.recentURL else { return [url] }
+        if let location = url.archiveLocation {
+            // The archive's folders on disk, then the archive and the folders inside it.
+            return segments(for: location.archive.deletingLastPathComponent()) + location.ancestors.map(\.url)
+        }
         if let endpoint = url.remoteEndpoint {
             var result = [endpoint.root]
             var path = ""
@@ -308,6 +312,21 @@ enum SubfolderMenu {
 
     static func make(for url: URL, tab: BrowserTab) -> NSMenu {
         let menu = NSMenu()
+        if let location = url.archiveLocation {
+            let folders = ((try? ArchiveCatalog.shared.children(of: location)) ?? [])
+                .filter(\.isDirectory)
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            for folder in folders {
+                let target = location.child(folder).url
+                menu.addItem(ClosureMenuItem(folder.name, image: FileIcons.folder) { tab.navigate(to: target) })
+            }
+            if folders.isEmpty {
+                let empty = NSMenuItem(title: L10n.text("No subfolders"), action: nil, keyEquivalent: "")
+                empty.isEnabled = false
+                menu.addItem(empty)
+            }
+            return menu
+        }
         if url == BrowserTab.thisMacURL {
             for volume in VolumeMonitor.shared.volumes {
                 let icon = FileIcons.icon(forPath: volume.url).copy() as? NSImage

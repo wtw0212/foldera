@@ -19,6 +19,14 @@ struct FolderaApp: App {
             FolderaCommands()
         }
 
+        // Double-clicked archives open in their own window, so browsing one never replaces a folder's tab.
+        WindowGroup(id: ArchiveWindows.id, for: URL.self) { $url in
+            ExplorerWindow(model: ExplorerWindowModel(url: url ?? ExplorerWindowModel.defaultURL))
+                .environment(\.locale, L10n.locale)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 980, height: 620)
+
         Settings {
             SettingsView()
                 .environment(\.locale, L10n.locale)
