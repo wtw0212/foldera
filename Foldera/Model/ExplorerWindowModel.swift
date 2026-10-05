@@ -44,6 +44,16 @@ final class ExplorerWindowModel {
         let tab = BrowserTab(url: url, settings: settings)
         tabs = [tab]
         activeTabID = tab.id
+        connect(tab)
+    }
+
+    /// Lets a tab open folders in new tabs of this window (extracting from an archive shows the result there).
+    private func connect(_ tab: BrowserTab) {
+        tab.openInNewTab = { [weak self] url, selecting in
+            guard let self else { return }
+            let opened = self.newTab(url: url)
+            opened.selection = selecting
+        }
     }
 
     enum Pane { case primary, secondary }
@@ -75,6 +85,7 @@ final class ExplorerWindowModel {
     func toggleDualPane() {
         if !isDualPane, secondaryTab == nil {
             secondaryTab = BrowserTab(url: primaryTab.url, settings: settings)
+            secondaryTab.map(connect)
         }
         isDualPane.toggle()
         focusedPane = .primary
@@ -82,10 +93,15 @@ final class ExplorerWindowModel {
 
     /// F5 / F6: copy or move the focused pane's selection into the other pane's folder.
     func transferToOtherPane(_ kind: FileTransfer.Kind) {
-        guard let target = otherTab else { return }
+        guard let target = otherTab, target.acceptsItems else { return }
         let source = activeTab
         let urls = source.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        if let archive = source.url.archiveLocation?.archive {
+            // Archives are read-only: F5 extracts the items into the other pane, F6 does nothing.
+            if kind == .copy { source.extract(urls.compactMap(\.archiveLocation), from: archive, into: target.url) }
+            return
+        }
         let destination = target.url
         Task {
             let result = await FileTransfers.shared.run(kind, urls, into: destination)
@@ -100,6 +116,7 @@ final class ExplorerWindowModel {
     func newTab(url: URL? = nil, activate: Bool = true) -> BrowserTab {
         if let url { settings.recents.record(url, isFolder: true) }
         let tab = BrowserTab(url: url ?? settings.startLocation.url, settings: settings)
+        connect(tab)
         let anchor = activate ? nil : lastBackgroundTabID.flatMap { id in tabs.firstIndex { $0.id == id } }
         let index = (anchor ?? tabs.firstIndex { $0.id == activeTabID }).map { $0 + 1 } ?? tabs.endIndex
         tabs.insert(tab, at: index)

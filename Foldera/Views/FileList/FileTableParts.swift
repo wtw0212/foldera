@@ -200,6 +200,7 @@ enum FileFormat {
     /// Parent folder path for search results, with the home folder shortened to "~".
     static func location(of url: URL) -> String {
         if let endpoint = url.remoteEndpoint { return "\(endpoint.displayName):\(RemotePath.parent(of: url.remotePath))" }
+        if let location = url.archiveLocation, let parent = location.parent { return (parent.displayPath as NSString).abbreviatingWithTildeInPath }
         return (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
     }
 

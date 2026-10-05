@@ -56,6 +56,9 @@ enum FileIcons {
         if url == BrowserTab.networkURL || (url.isRemote && url.remotePath == "/") { return network }
         if url == BrowserTab.recentURL { return recent }
         if url.isRemote { return folder }
+        if let location = url.archiveLocation {
+            return location.isRoot ? FileKind.of(location.archive, type: nil).icon : folder
+        }
         return cached(key: "file:" + url.path) { NSWorkspace.shared.icon(forFile: url.path) }
     }
 

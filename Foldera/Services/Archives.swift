@@ -26,7 +26,34 @@ nonisolated enum Archives {
         let wasWrong: Bool
     }
 
-    enum Format { case zip, sevenZip }
+    enum Format: String, CaseIterable, Sendable { case zip, sevenZip
+
+        var fileExtension: String { self == .zip ? "zip" : "7z" }
+    }
+
+    /// 7-Zip's compression levels (-mx).
+    enum Level: Int, CaseIterable, Sendable { case store = 0, fastest = 1, normal = 5, maximum = 7, ultra = 9 }
+
+    /// How a password-protected zip is encrypted: AES-256 is strong; ZipCrypto is weak but opens almost anywhere.
+    enum ZipEncryption: String, CaseIterable, Sendable { case aes256, zipCrypto }
+
+    /// The "Compress to…" choices. The defaults are what the plain Compress commands do.
+    struct Options: Sendable {
+        var format: Format = .zip
+        var level: Level = .normal
+        /// Nil or empty: no encryption.
+        var password: String?
+        var zipEncryption: ZipEncryption = .aes256
+        /// 7z only: also hides the names of the items inside until the password is given.
+        var encryptNames = true
+
+        var hasPassword: Bool { password?.isEmpty == false }
+
+        /// Zip passwords are bytes without a declared encoding, so 7-Zip only takes printable ASCII for them.
+        static func isValidPassword(_ password: String, for format: Format) -> Bool {
+            format == .sevenZip || password.unicodeScalars.allSatisfy { (0x20...0x7E).contains($0.value) }
+        }
+    }
 
     /// The bundled 7-Zip console program, in Foldera.app/Contents/MacOS.
     static var sevenZip: URL? { Bundle.main.url(forAuxiliaryExecutable: "7zz") }
@@ -70,11 +97,11 @@ nonisolated enum Archives {
     // MARK: Extract
 
     /// Extracts into a new folder named after the archive, in `parent` (next to the archive by default). Returns that folder.
-    static func extractToFolder(_ archive: URL, in parent: URL? = nil, password: String? = nil) throws -> URL {
+    static func extractToFolder(_ archive: URL, in parent: URL? = nil, password: String? = nil, progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> URL {
         let folder = FileOperations.uniqueURL(named: baseName(of: archive), in: parent ?? archive.deletingLastPathComponent())
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
-            try extract(archive, into: folder, password: password)
+            try extract(archive, into: folder, password: password, progress: progress, totalBytes: totalBytes)
         } catch {
             try? FileManager.default.removeItem(at: folder) // ours, created above
             throw error
@@ -84,11 +111,11 @@ nonisolated enum Archives {
 
     /// Extracts the archive's contents into `folder` itself, keeping both when names clash.
     /// Returns the items that were added.
-    static func extractHere(_ archive: URL, into folder: URL, password: String? = nil) throws -> [URL] {
+    static func extractHere(_ archive: URL, into folder: URL, password: String? = nil, progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> [URL] {
         let fm = FileManager.default
         let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
         defer { try? fm.removeItem(at: staging) }
-        try extract(archive, into: staging, password: password)
+        try extract(archive, into: staging, password: password, progress: progress, totalBytes: totalBytes)
         var added: [URL] = []
         for item in try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil) {
             let destination = FileOperations.uniqueURL(named: item.lastPathComponent, in: folder)
@@ -98,22 +125,102 @@ nonisolated enum Archives {
         return added
     }
 
-    static func extract(_ archive: URL, into directory: URL, password: String? = nil) throws {
+    /// Extracts the whole archive, or only `entries` (paths inside it, as `list` gives them, with their folders).
+    /// `progress` gets 7-Zip's percentage of `totalBytes`, and cancelling it stops the extraction.
+    static func extract(_ archive: URL, into directory: URL, password: String? = nil, entries: [String] = [],
+                        progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws {
         let useTar = suffix(of: archive).map(tarSuffixes.contains) ?? false
-        guard !useTar, let sevenZip else {
+        // Progress is reported as a share of what 7-Zip unpacks, so the archive's growth isn't measured.
+        let meter = progress.map { CompressionMeter(progress: $0, archive: directory, total: totalBytes, name: archive.lastPathComponent) }
+        guard !useTar || !entries.isEmpty, let sevenZip else {
             // __MACOSX holds Finder metadata copies that only clutter the result.
-            try run(URL(fileURLWithPath: "/usr/bin/tar"), ["-x", "-f", archive.path, "-C", directory.path, "--exclude", "__MACOSX"])
+            try run(URL(fileURLWithPath: "/usr/bin/tar"), ["-x", "-f", archive.path, "-C", directory.path, "--exclude", "__MACOSX"], meter: meter)
+            meter?.complete()
             return
         }
         do {
             // The password goes in on stdin, so it never shows up in the process list. Without one,
             // 7-Zip reads an empty line and reports a wrong password for encrypted archives.
-            try run(sevenZip, ["x", "-y", "-bso0", "-bsp0", "-xr!__MACOSX", "-o" + directory.path, "--", archive.path],
-                    input: (password ?? "") + "\n")
-        } catch let failure as Failure where failure.message.localizedCaseInsensitiveContains("wrong password")
-            || failure.message.localizedCaseInsensitiveContains("encrypted") {
+            // -spd: entry names are matched literally, so "*" or "?" in a name isn't a wildcard.
+            let selection = entries.isEmpty ? ["-xr!__MACOSX"] : ["-spd"]
+            try run(sevenZip, ["x", "-y", "-spod", "-bso0", meter == nil ? "-bsp0" : "-bsp1"] + selection + ["-o" + directory.path, "--", archive.path] + entries,
+                    input: (password ?? "") + "\n", meter: meter, handleLine: percentLine(meter))
+        } catch let failure as Failure where isPasswordFailure(failure) {
             throw PasswordRequired(archive: archive, wasWrong: password != nil)
         }
+        meter?.complete()
+    }
+
+    /// "-bsp1" redraws "  42% 12 - name" in place.
+    private static func percentLine(_ meter: CompressionMeter?) -> (String) -> Bool {
+        { line in
+            guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
+            meter?.reached(percent: percent)
+            return true
+        }
+    }
+
+    private static func isPasswordFailure(_ failure: Failure) -> Bool {
+        failure.message.localizedCaseInsensitiveContains("wrong password") || failure.message.localizedCaseInsensitiveContains("encrypted")
+    }
+
+    // MARK: Browse
+
+    /// True for archives whose folders Foldera can show without extracting them first. tar.gz and the like
+    /// are two layers (7-Zip would only show the .tar inside), so they're extracted instead.
+    static func isBrowsable(_ url: URL) -> Bool {
+        guard sevenZip != nil, isArchive(url), let suffix = suffix(of: url) else { return false }
+        return suffix == "tar" || !tarSuffixes.contains(suffix)
+    }
+
+    /// Every item in the archive, read from its directory without extracting anything. An archive whose
+    /// names are encrypted needs its password for this; one with only encrypted contents doesn't.
+    static func list(_ archive: URL, password: String? = nil) throws -> [ArchiveEntry] {
+        guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
+        let output: String
+        do {
+            output = try run(sevenZip, ["l", "-slt", "-ba", "--", archive.path], input: (password ?? "") + "\n")
+        } catch let failure as Failure where isPasswordFailure(failure) {
+            throw PasswordRequired(archive: archive, wasWrong: password != nil)
+        }
+        return parseListing(output)
+    }
+
+    /// Reads `7zz l -slt` blocks ("Path = …", "Size = …", one blank line between items).
+    static func parseListing(_ output: String) -> [ArchiveEntry] {
+        var entries: [ArchiveEntry] = []
+        var fields: [String: String] = [:]
+        func flush() {
+            defer { fields = [:] }
+            guard let raw = fields["Path"], let path = ArchiveEntry.cleanPath(raw) else { return }
+            let attributes = fields["Attributes"] ?? ""
+            let isDirectory = fields["Folder"] == "+" || attributes.hasPrefix("D")
+            entries.append(ArchiveEntry(rawPath: raw, path: path, isDirectory: isDirectory,
+                                        isSymlink: attributes.contains(" l"), size: isDirectory ? nil : fields["Size"].flatMap { Int64($0) },
+                                        modified: fields["Modified"].flatMap(parseDate)))
+        }
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.isEmpty { flush(); continue }
+            guard let separator = line.range(of: " = ") else { continue }
+            let key = String(line[..<separator.lowerBound])
+            // Path is first in each block; a second one starts the next item even without a blank line.
+            if key == "Path", fields["Path"] != nil { flush() }
+            fields[key] = String(line[separator.upperBound...])
+        }
+        flush()
+        return entries
+    }
+
+    /// "2026-10-05 18:21:56.9865070", in local time.
+    private static func parseDate(_ text: String) -> Date? {
+        let parts = text.split(separator: ".", maxSplits: 1)
+        guard let first = parts.first else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        guard let date = formatter.date(from: String(first)) else { return nil }
+        let fraction = parts.count > 1 ? Double("0." + parts[1]) ?? 0 : 0
+        return date.addingTimeInterval(fraction)
     }
 
     // MARK: Compress
@@ -124,64 +231,115 @@ nonisolated enum Archives {
         guard let first = items.first else { return nil }
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
-        let ext = format == .zip ? "zip" : "7z"
-        return FileOperations.uniqueURL(named: items.count == 1 ? "\(first.lastPathComponent).\(ext)" : "Archive.\(ext)",
-                                        in: sameParent ? parent : fallbackFolder)
+        return FileOperations.uniqueURL(named: "\(defaultName(for: items)).\(format.fileExtension)", in: sameParent ? parent : fallbackFolder)
+    }
+
+    /// The archive's name without its extension: the item's own name for one item, "Archive" for several.
+    static func defaultName(for items: [URL]) -> String {
+        items.count == 1 ? items[0].lastPathComponent : "Archive"
+    }
+
+    /// "Report" → "Report.zip". A name that already ends in the format's extension keeps it as typed.
+    static func fileName(_ name: String, format: Format) -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.lowercased().hasSuffix("." + format.fileExtension) ? name : "\(name).\(format.fileExtension)"
     }
 
     /// Compresses `items` like Finder. See `archiveURL(for:format:fallbackFolder:)` for where the archive goes.
     static func compress(_ items: [URL], format: Format = .zip, fallbackFolder: URL, progress: TransferProgress? = nil) throws -> URL {
         guard let archive = archiveURL(for: items, format: format, fallbackFolder: fallbackFolder) else { throw Failure(message: "Nothing to compress.") }
-        try compress(items, format: format, to: archive, progress: progress)
-        return archive
+        return try compress(items, options: Options(format: format), named: "\(defaultName(for: items)).\(format.fileExtension)",
+                            in: archive.deletingLastPathComponent(), progress: progress)
+    }
+
+    /// Keeps both archives, including when another job takes the chosen name before publication.
+    static func compress(_ items: [URL], options: Options, named name: String, in folder: URL, progress: TransferProgress? = nil) throws -> URL {
+        try createArchive(items, options: options, to: folder.appendingPathComponent(fileName(name, format: options.format)),
+                          keepingBoth: true, progress: progress)
     }
 
     /// Compresses `items` into `archive`, which must not exist. `progress` gets bytes read from the items.
     /// Symbolic links are stored as links and never followed, so an archive holds only what was selected.
     static func compress(_ items: [URL], format: Format = .zip, to archive: URL, progress: TransferProgress? = nil) throws {
+        try compress(items, options: Options(format: format), to: archive, progress: progress)
+    }
+
+    /// Compresses `items` into `archive` with the "Compress to…" choices; see `compress(_:format:to:progress:)`.
+    static func compress(_ items: [URL], options: Options, to archive: URL, progress: TransferProgress? = nil) throws {
+        _ = try createArchive(items, options: options, to: archive, keepingBoth: false, progress: progress)
+    }
+
+    /// Compress privately, then publish without replacing an existing item. Only private staging is cleaned up.
+    private static func createArchive(_ items: [URL], options: Options, to archive: URL, keepingBoth: Bool, progress: TransferProgress?) throws -> URL {
+        if options.hasPassword, !Options.isValidPassword(options.password!, for: options.format) {
+            throw Failure(message: L10n.text("ZIP passwords can only use English letters, digits and symbols.", language: .saved))
+        }
         guard let first = items.first else { throw Failure(message: "Nothing to compress.") }
+        // An archive inside a folder it compresses would end up holding part of itself.
+        for item in items { try FileOperations.rejectCopyIntoSource(item, to: archive) }
         if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
+        if !keepingBoth, FileOperations.exists(archive) { throw CocoaError(.fileWriteFileExists) }
+        let fm = FileManager.default
+        // Keep staging beside the destination, outside every selected directory, even when archiving the system temp folder.
+        let staging = archive.deletingLastPathComponent().appendingPathComponent(".foldera-compress-\(UUID().uuidString)", isDirectory: true)
+        guard mkdir(staging.path, 0o700) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { try? fm.removeItem(at: staging) }
+        let output = staging.appendingPathComponent("archive." + options.format.fileExtension)
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
-        let meter = progress.map { CompressionMeter(progress: $0, archive: archive, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }) }
-        do {
-            if sameParent {
-                try compress(items.map(\.lastPathComponent), in: parent, format: format, to: archive, meter: meter)
-            } else {
-                // Search results from several folders: each item is copied (cloned on APFS, links kept as links)
-                // into a staging folder under its own unique name, and archived from there.
-                let staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: archive.deletingLastPathComponent(), create: true)
-                defer { try? FileManager.default.removeItem(at: staging) }
-                var names: [String] = []
-                for item in items {
-                    let copy = FileOperations.uniqueURL(named: item.lastPathComponent, in: staging)
-                    try CopyEngine.copy(item, to: copy, progress: TransferProgress(cancellationSource: progress), baseBytes: 0)
-                    names.append(copy.lastPathComponent)
-                }
-                try compress(names, in: staging, format: format, to: archive, meter: meter)
+        let meter = progress.map { CompressionMeter(progress: $0, archive: output, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }, name: archive.lastPathComponent) }
+        if sameParent {
+            try compress(items.map(\.lastPathComponent), in: parent, options: options, to: output, meter: meter)
+        } else {
+            // Search results from several folders: each item is copied (cloned on APFS, links kept as links)
+            // into a staging folder under its own unique name, and archived from there.
+            let sources = staging.appendingPathComponent("Items", isDirectory: true)
+            try fm.createDirectory(at: sources, withIntermediateDirectories: false)
+            var names: [String] = []
+            for item in items {
+                let copy = FileOperations.uniqueURL(named: item.lastPathComponent, in: sources)
+                try CopyEngine.copy(item, to: copy, progress: TransferProgress(cancellationSource: progress), baseBytes: 0)
+                names.append(copy.lastPathComponent)
             }
-        } catch {
-            try? FileManager.default.removeItem(at: archive) // a partial archive under our new, unique name
-            throw error
+            try compress(names, in: sources, options: options, to: output, meter: meter)
         }
-        meter?.complete() // 7-Zip skips its last percentages when it finishes quickly
+        while true {
+            if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
+            let destination = keepingBoth ? FileOperations.uniqueURL(named: archive.lastPathComponent, in: archive.deletingLastPathComponent()) : archive
+            do {
+                if try !FileOperations.renameExclusively(output, to: destination) {
+                    try CopyEngine.copy(output, to: destination, progress: TransferProgress(cancellationSource: progress), baseBytes: 0)
+                }
+                meter?.complete() // 7-Zip skips its last percentages when it finishes quickly
+                progress?.setCurrentName(destination.lastPathComponent)
+                return destination
+            } catch where keepingBoth && ((error as? POSIXError)?.code == .EEXIST || (error as? CocoaError)?.code == .fileWriteFileExists) {
+                continue
+            }
+        }
     }
 
     /// Archives the items `names` in `directory`, each under its own name.
-    private static func compress(_ names: [String], in directory: URL, format: Format, to archive: URL, meter: CompressionMeter?) throws {
+    private static func compress(_ names: [String], in directory: URL, options: Options, to archive: URL, meter: CompressionMeter?) throws {
         let items = names.map { directory.appendingPathComponent($0) }
-        switch format {
-        case .sevenZip:
+        // A plain zip goes through ditto or zip, like Finder; anything else needs 7-Zip.
+        let plainZip = options.format == .zip && options.level == .normal && !options.hasPassword
+        if !plainZip {
             guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
-            // Given full paths, 7-Zip stores each item under its own name (no parent folders). -snl keeps links.
-            try run(sevenZip, ["a", "-t7z", "-mx=5", "-snl", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path] + items.map(\.path),
-                    meter: meter) { line in
-                // "-bsp1" redraws "  42% 12 + name" in place.
-                guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
-                meter?.reached(percent: percent)
-                return true
+            var arguments = ["a", options.format == .zip ? "-tzip" : "-t7z", "-mx=\(options.level.rawValue)"]
+            if options.hasPassword {
+                // A bare -p reads the password from stdin, so it never shows up in the process list.
+                arguments.append("-p")
+                switch options.format {
+                case .zip: arguments.append(options.zipEncryption == .aes256 ? "-mem=AES256" : "-mem=ZipCrypto")
+                case .sevenZip: if options.encryptNames { arguments.append("-mhe=on") }
+                }
             }
-        case .zip where items.count == 1 && !isSymbolicLink(items[0]):
+            // Given full paths, 7-Zip stores each item under its own name (no parent folders). -snl keeps links.
+            arguments += ["-spd", "-snl", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path]
+            try run(sevenZip, arguments + items.map(\.path), input: options.hasPassword ? options.password! + "\n" : nil,
+                    meter: meter, handleLine: percentLine(meter))
+        } else if items.count == 1 && !isSymbolicLink(items[0]) {
             // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does. It follows
             // a link given as its source, so a selected link goes to zip below; links inside a folder stay links.
             // For a file, --keepParent includes its containing directory instead of just the file.
@@ -198,7 +356,7 @@ nonisolated enum Archives {
                 }
                 return line.hasPrefix(">>> Copying ") || line.hasPrefix("copying file ")
             }
-        case .zip:
+        } else {
             // -y stores links as links.
             // Relative operands start with ./ so names beginning with '-' cannot become zip options.
             try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + names.map { "./" + $0 } + ["-x", "*.DS_Store"],
@@ -234,11 +392,11 @@ nonisolated enum Archives {
         private var archiveAtLastFile: Int64 = 0
         private var byPercent = false
 
-        init(progress: TransferProgress, archive: URL, total: Int64) {
+        init(progress: TransferProgress, archive: URL, total: Int64, name: String? = nil) {
             self.progress = progress
             self.archive = archive
             self.total = total
-            progress.setCurrentName(archive.lastPathComponent)
+            progress.setCurrentName(name ?? archive.lastPathComponent)
         }
 
         var isCancelled: Bool { progress.isCancelled }
@@ -282,8 +440,10 @@ nonisolated enum Archives {
 
     /// Runs a tool and waits. With a `meter`, `handleLine` sees each output line (split at "\n", "\r" and
     /// backspaces) and returns true for progress lines, which stay out of error messages; cancelling stops the tool.
+    /// Returns the tool's output, apart from progress lines.
+    @discardableResult
     private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil,
-                            meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws {
+                            meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws -> String {
         if meter?.isCancelled == true { throw CopyEngine.Cancelled() }
         let process = Process()
         process.executableURL = tool
@@ -333,5 +493,6 @@ nonisolated enum Archives {
                 .replacingOccurrences(of: "tar: ", with: "")
             throw Failure(message: message?.isEmpty == false ? message! : "\(tool.lastPathComponent) failed (\(process.terminationStatus)).")
         }
+        return String(decoding: kept, as: UTF8.self)
     }
 }

@@ -150,9 +150,17 @@ The address bar takes more than paths:
 
 ## Archives
 
-Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**; right-click anything to **Compress to ZIP file** or **Compress to 7z file**. Extraction never overwrites existing items, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
+Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**, or use **Extract** in the command bar to pick a folder, with options to extract into a new folder and to open the result when done. Extraction never overwrites existing items, shows progress with Cancel, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
 
-![Right-clicking a zip shows Extract here, Extract to and Compress commands; the Details pane lists the archive's contents](docs/images/archives.png)
+![Right-clicking an archive shows Extract here, Extract to and the Compress commands](docs/images/archives.png)
+
+**Browse archives without extracting them.** Double-click a zip, 7z, rar, iso, cab or tar to open it in its own window, titled “(archive)”. Folders open like any other; files open from a temporary copy; pictures, PDFs and videos get thumbnails, Details previews and Quick Look. Copy, drag out (to Finder or another Foldera window) or **Extract** takes items out; nothing inside can be changed. You can also type a path through an archive into the address bar, e.g. `~/Downloads/Trip Photos.7z/Trip Photos`. Archives whose file names are encrypted ask for the password before opening. (tar.gz and similar two-layer archives are extracted instead.)
+
+![An archive window browsing the photos inside Trip Photos.7z with thumbnails and the Details pane previewing one](docs/images/archive-browsing.png)
+
+Right-click anything to **Compress to ZIP file** or **Compress to 7z file**, or **Compress to…** to choose the name, folder, format, compression level and an optional password: AES-256 or ZipCrypto for zip, and 7z can also encrypt file names. Passwords are passed to 7-Zip privately and never saved.
+
+<img alt="The Compress to sheet with name, folder, ZIP or 7z, compression level, password and Encrypt file names" src="docs/images/compress-to.png" width="490">
 
 Foldera bundles the unmodified 7-Zip console program (`7zz`, LGPL; see `ThirdParty/7-Zip`) and runs it as a separate process. tar archives use the system `tar`; single-item ZIPs use `ditto`, like Finder.
 

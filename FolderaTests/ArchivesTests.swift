@@ -76,6 +76,67 @@ struct ArchivesTests {
     }
 
     @Test(arguments: [Archives.Format.zip, .sevenZip])
+    func concurrentCompressionsKeepSeparateArchives(format: Archives.Format) async throws {
+        let directory = try TestDirectory()
+        let sources = try (0..<4).map { try directory.file("\($0).txt", contents: String(repeating: "\($0)", count: 1_000_000)) }
+        let jobs = sources.map { source in
+            Task.detached {
+                try Archives.compress([source], options: Archives.Options(format: format), named: "Archive", in: directory.url)
+            }
+        }
+        var archives: [URL] = []
+        for job in jobs { archives.append(try await job.value) }
+        #expect(Set(archives).count == sources.count)
+        for (source, archive) in zip(sources, archives) {
+            #expect(try entries(of: archive) == [source.lastPathComponent])
+            let extracted = try Archives.extractToFolder(archive)
+            #expect(try Data(contentsOf: extracted.appendingPathComponent(source.lastPathComponent)) == Data(contentsOf: source))
+        }
+    }
+
+    @Test(arguments: ["file", "directory", "symlink", "dangling symlink"])
+    func compressionNeverChangesAnExistingDestination(kind: String) throws {
+        let directory = try TestDirectory()
+        let source = try directory.file("note.txt", contents: "new")
+        let target = try directory.file("target", contents: "KEEP")
+        let archive = directory.path("existing.7z")
+        switch kind {
+        case "file": try Data("KEEP".utf8).write(to: archive)
+        case "directory": try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: false)
+        default: try FileManager.default.createSymbolicLink(atPath: archive.path, withDestinationPath: kind == "symlink" ? target.path : directory.path("missing").path)
+        }
+        #expect(throws: CocoaError.self) { try Archives.compress([source], format: .sevenZip, to: archive) }
+        #expect(FileOperations.exists(archive))
+        if kind == "file" { #expect(try String(contentsOf: archive, encoding: .utf8) == "KEEP") }
+        if kind.contains("symlink") { #expect(try FileManager.default.destinationOfSymbolicLink(atPath: archive.path) == (kind == "symlink" ? target.path : directory.path("missing").path)) }
+        #expect(try String(contentsOf: target, encoding: .utf8) == "KEEP")
+        // A failed job under the same name must also leave the existing item alone.
+        #expect(throws: (any Error).self) { try Archives.compress([directory.path("missing-source")], format: .sevenZip, to: archive) }
+        #expect(FileOperations.exists(archive))
+        let failed = directory.path("failed.7z")
+        #expect(throws: (any Error).self) { try Archives.compress([directory.path("missing-source")], format: .sevenZip, to: failed) }
+        #expect(!FileOperations.exists(failed))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).allSatisfy { !$0.hasPrefix(".foldera-compress-") })
+    }
+
+    @Test(arguments: [Archives.Format.zip, .sevenZip])
+    func compressionAndExtractionTreatWildcardCharactersLiterally(format: Archives.Format) throws {
+        let directory = try TestDirectory()
+        let selected = try directory.file("a?.txt", contents: "selected")
+        _ = try directory.file("ab.txt", contents: "unselected")
+        var options = Archives.Options(format: format, level: .fastest)
+        options.password = UUID().uuidString
+        options.encryptNames = false
+        let archive = directory.path("selection." + format.fileExtension)
+        try Archives.compress([selected], options: options, to: archive)
+        #expect(try entries(of: archive) == ["a?.txt"])
+        let output = try directory.folder("Extract * Here")
+        try Archives.extract(archive, into: output, password: options.password)
+        #expect(try String(contentsOf: output.appendingPathComponent("a?.txt"), encoding: .utf8) == "selected")
+        #expect(!FileOperations.exists(directory.path("Extract selection Here")))
+    }
+
+    @Test(arguments: [Archives.Format.zip, .sevenZip])
     func cancellingMultiFolderCompressionStopsBeforeCopying(format: Archives.Format) throws {
         let directory = try TestDirectory()
         let first = try directory.file("a/first.txt", contents: "KEEP")
@@ -224,6 +285,131 @@ struct ArchivesTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("locked").path))
         let out = try Archives.extractToFolder(archive, password: "letmein")
         #expect(try String(contentsOf: out.appendingPathComponent("secret.txt"), encoding: .utf8) == "s3cret")
+    }
+
+    /// Which characters a throwaway passphrase uses; it is generated per run, never written in the source.
+    enum Phrase { case none, ascii, unicode }
+
+    @Test(arguments: [
+        (Archives.Options(format: .zip, level: .maximum, zipEncryption: .aes256), Phrase.ascii),
+        (Archives.Options(format: .zip, level: .store, zipEncryption: .zipCrypto), .ascii),
+        (Archives.Options(format: .zip, level: .fastest), .none),
+        (Archives.Options(format: .sevenZip, level: .ultra, encryptNames: true), .unicode),
+        (Archives.Options(format: .sevenZip, level: .store, encryptNames: false), .ascii),
+    ])
+    func compressingWithOptionsRoundTrips(options: Archives.Options, phrase: Phrase) throws {
+        var options = options
+        switch phrase {
+        case .none: break
+        case .ascii: options.password = UUID().uuidString + " !~"
+        case .unicode: options.password = UUID().uuidString + " äö 中文"
+        }
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        try "hello".write(to: folder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("link").path, withDestinationPath: "a.txt")
+
+        let archive = root.appendingPathComponent(Archives.fileName("My Docs", format: options.format))
+        try Archives.compress([folder], options: options, to: archive, progress: TransferProgress())
+
+        if options.hasPassword {
+            do {
+                _ = try Archives.extractToFolder(archive)
+                Issue.record("expected a password request")
+            } catch let needed as Archives.PasswordRequired {
+                #expect(!needed.wasWrong)
+            }
+            #expect(throws: Archives.PasswordRequired.self) { try Archives.extractToFolder(archive, password: "nope") }
+        }
+        let out = try Archives.extractToFolder(archive, password: options.password)
+        #expect(out.lastPathComponent == "My Docs")
+        #expect(try String(contentsOf: out.appendingPathComponent("docs/a.txt"), encoding: .utf8) == "hello")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: out.appendingPathComponent("docs/link").path) == "a.txt")
+    }
+
+    @Test func compressOptionsValidateNamesPasswordsAndDestinations() throws {
+        #expect(Archives.fileName("Report", format: .zip) == "Report.zip")
+        #expect(Archives.fileName(" Report.ZIP ", format: .zip) == "Report.ZIP")
+        #expect(Archives.fileName("Report.zip", format: .sevenZip) == "Report.zip.7z")
+        #expect(Archives.Options.isValidPassword("Ab1 !~", for: .zip))
+        #expect(!Archives.Options.isValidPassword("密碼", for: .zip))
+        #expect(Archives.Options.isValidPassword("密碼", for: .sevenZip))
+
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("a.txt")
+        try "a".write(to: file, atomically: true, encoding: .utf8)
+        let zip = root.appendingPathComponent("a.zip")
+        #expect(throws: Archives.Failure.self) {
+            try Archives.compress([file], options: Archives.Options(format: .zip, password: "密碼"), to: zip)
+        }
+        #expect(!FileManager.default.fileExists(atPath: zip.path))
+        // An archive inside a folder it compresses would contain itself.
+        #expect(throws: FileOperations.OperationError.self) {
+            try Archives.compress([root], options: Archives.Options(format: .sevenZip), to: root.appendingPathComponent("self.7z"))
+        }
+    }
+
+    @Test func listingReadsEntriesAndImpliedFolders() throws {
+        let output = """
+        Path = docs/a b.txt
+        Folder = -
+        Size = 12
+        Modified = 2026-10-05 18:21:56.5
+        Attributes =  -rw-r--r--
+
+        Path = docs/link
+        Size = 5
+        Attributes =  lrwxr-xr-x
+
+        Path = ../escape.txt
+        Size = 1
+
+        Path = top
+        Attributes = D drwxr-xr-x
+        """
+        let entries = Archives.parseListing(output)
+        #expect(entries.map(\.path) == ["docs/a b.txt", "docs/link", "top"])
+        #expect(entries[0].size == 12 && entries[0].modified != nil && !entries[0].isDirectory)
+        #expect(entries[1].isSymlink && entries[2].isDirectory && entries[2].size == nil)
+
+        let location = ArchiveLocation(archive: URL(fileURLWithPath: "/tmp/My #1 100%.7z"), path: "/docs//中文/./")
+        #expect(location.path == "docs/中文" && location.name == "中文")
+        #expect(location.url.archiveLocation == location && location.url.isInArchive && !location.url.isFileURL)
+        #expect(location.parent == ArchiveLocation(archive: location.archive, path: "docs"))
+        #expect(location.ancestors.map(\.name) == ["My #1 100%.7z", "docs", "中文"])
+        #expect(ArchiveLocation(archive: location.archive).parent == nil)
+        #expect(FileKind.of(ArchiveLocation(archive: location.archive, path: "x/photo.png").url, type: nil) == .image)
+    }
+
+    @Test func catalogListsFoldersOfARealArchive() throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try "a".write(to: folder.appendingPathComponent("sub/a.txt"), atomically: true, encoding: .utf8)
+        // zip -D leaves folders out, so "docs" and "docs/sub" exist only in the files' paths.
+        let archive = root.appendingPathComponent("docs.zip")
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-q", "-r", "-D", archive.path, "docs"]
+        zip.currentDirectoryURL = root
+        try zip.run()
+        zip.waitUntilExit()
+
+        let catalog = ArchiveCatalog()
+        let top = try catalog.children(of: ArchiveLocation(archive: archive))
+        #expect(top.map(\.name) == ["docs"] && top[0].isDirectory)
+        #expect(try catalog.children(of: ArchiveLocation(archive: archive, path: "docs")).map(\.name) == ["sub"])
+        #expect(try catalog.children(of: ArchiveLocation(archive: archive, path: "docs/sub")).map(\.name) == ["a.txt"])
+        #expect(throws: CocoaError.self) { try catalog.children(of: ArchiveLocation(archive: archive, path: "nope")) }
+        let out = root.appendingPathComponent("out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        try ArchiveDirectory.extract([ArchiveLocation(archive: archive, path: "docs/sub")], from: archive, into: out, catalog: catalog)
+        #expect(try String(contentsOf: out.appendingPathComponent("docs/sub/a.txt"), encoding: .utf8) == "a")
+        #expect(Archives.isBrowsable(archive) && !Archives.isBrowsable(root.appendingPathComponent("x.tar.gz")))
     }
 
     @Test func brokenArchiveReportsErrorAndLeavesNoFolder() throws {

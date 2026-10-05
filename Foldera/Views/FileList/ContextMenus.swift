@@ -6,6 +6,7 @@ enum ContextMenus {
         let menu = NSMenu()
         let items = tab.selectedItems
         let single = items.count == 1 ? items.first : nil
+        if tab.isInsideArchive { return archiveItemMenu(tab: tab, single: single, openInNewTab: openInNewTab) }
 
         menu.add(L10n.text("Open"), symbol: "arrow.up.forward.app") { tab.openSelection() }
         if let folder = single, folder.isNavigable {
@@ -45,11 +46,12 @@ enum ContextMenus {
                 menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
             }
         }
-        if !tab.isRemote && !tab.isRecent {
+        if tab.canCompressSelection {
             menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
             if Archives.canCreate7z {
                 menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
             }
+            menu.add(L10n.text("Compress to…"), symbol: "lock.doc") { tab.compressSelectionWithOptions() }
         }
         menu.addSeparator()
         let folders = tab.isRemote ? [] : items.filter(\.isNavigable)
@@ -85,6 +87,14 @@ enum ContextMenus {
         menu.addItem(sortItem)
         menu.add(L10n.text("Show hidden items"), symbol: "eye", checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         menu.add(L10n.text("Refresh"), symbol: "arrow.clockwise") { tab.reload() }
+        if tab.isInsideArchive {
+            menu.addSeparator()
+            menu.add(L10n.text("Extract all…"), symbol: "arrow.up.bin") { tab.extractFromArchiveChoosingDestination() }
+            menu.addSeparator()
+            menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
+            menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
+            return menu
+        }
         if tab.isRecent {
             menu.addSeparator()
             menu.add(L10n.text("Clear Recent Items"), symbol: "clock.badge.xmark") {
@@ -115,6 +125,22 @@ enum ContextMenus {
             menu.add(L10n.text("Open in Terminal"), symbol: "terminal") { tab.openInTerminal() }
             menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
         }
+        menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
+        return menu
+    }
+
+    /// Inside an archive nothing can change: items come out by opening, copying or extracting them.
+    private static func archiveItemMenu(tab: BrowserTab, single: FileItem?, openInNewTab: @escaping (URL) -> Void) -> NSMenu {
+        let menu = NSMenu()
+        menu.add(L10n.text("Open"), symbol: "arrow.up.forward.app") { tab.openSelection() }
+        if let folder = single, folder.isNavigable {
+            menu.add(L10n.text("Open in new tab"), symbol: "plus.square.on.square") { openInNewTab(folder.url) }
+        }
+        menu.addSeparator()
+        menu.add(L10n.text("Copy"), symbol: "doc.on.doc") { tab.copySelection() }
+        menu.add(L10n.text("Extract to…"), symbol: "arrow.up.bin") { tab.extractFromArchiveChoosingDestination() }
+        menu.addSeparator()
+        menu.add(L10n.text("Copy as path"), symbol: "link") { tab.copyPathOfSelection() }
         menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
         return menu
     }

@@ -12,6 +12,11 @@ enum FileDrop {
         let directory = directory.normalizedFileURL
         // This Mac, Network and Recent are pages, not folders.
         guard !urls.isEmpty, directory.isFileURL || directory.isRemote else { return nil }
+        if urls.contains(where: \.isInArchive) {
+            // Items from one archive are extracted into a folder on this Mac: always a copy.
+            let archives = Set(urls.compactMap { $0.archiveLocation?.archive })
+            return directory.isFileURL && archives.count == 1 && urls.allSatisfy(\.isInArchive) ? .copy : nil
+        }
         // Can't drop a folder into itself or its own subfolder.
         if urls.contains(where: { RemoteTransfers.contains($0.normalizedFileURL, directory) }) {
             return nil
@@ -30,13 +35,24 @@ enum FileDrop {
         switch operation(for: urls, into: directory) {
         case .copy: .copy
         case .move: .move
-        case .compress, nil: []
+        case .compress, .extract, nil: []
         }
     }
 
     @discardableResult
     static func perform(_ urls: [URL], into directory: URL) -> Bool {
         guard let kind = operation(for: urls, into: directory) else { return false }
+        if let archive = urls.first?.archiveLocation?.archive {
+            Task {
+                do {
+                    let created = try await ArchiveExtraction.items(urls.compactMap(\.archiveLocation), from: archive, into: directory) ?? []
+                    FileUndo.shared.record(.created(created), name: "Extract")
+                } catch {
+                    BrowserTab.present(error)
+                }
+            }
+            return true
+        }
         Task {
             let result = await FileTransfers.shared.run(kind, urls, into: directory)
             FileUndo.shared.record(FileChange(result, kind: kind), name: kind == .copy ? "Copy" : "Move")

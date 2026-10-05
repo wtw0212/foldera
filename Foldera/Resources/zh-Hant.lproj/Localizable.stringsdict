@@ -156,5 +156,33 @@
 			<string>%lld 個項目</string>
 		</dict>
 	</dict>
+	<key>transfer.extract</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>正在從 %2$@ 解壓縮 %1$#@count@ 至 %3$@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>other</key>
+			<string>%lld 個項目</string>
+		</dict>
+	</dict>
+	<key>transfer.extract.open</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>正在從 %2$@ 解壓縮 %1$#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>other</key>
+			<string>%lld 個項目</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

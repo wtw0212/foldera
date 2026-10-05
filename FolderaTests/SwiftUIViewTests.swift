@@ -127,6 +127,38 @@ struct SwiftUIViewTests {
         #expect(!FileOperations.exists(original))
     }
 
+    @Test func compressSheetOffersOptionsAndBlocksBadNamesAndPasswords() throws {
+        let directory = try TestDirectory()
+        let file = try directory.file("note.txt", contents: "hi")
+        let other = try directory.file("other.txt", contents: "hi")
+        var result: (options: Archives.Options, name: String, folder: URL)?
+        let view = CompressSheet(items: [file], fallbackFolder: directory.url) { result = ($0, $1, $2) }
+        let labels = try texts(view)
+        #expect(labels.contains(L10n.format("Compress “%@”", "note.txt")))
+        #expect(labels.contains(L10n.text("Archive name:")) && labels.contains(L10n.text("Password:")))
+        try view.inspect().find(button: L10n.text("Compress")).tap()
+        #expect(result?.name == "note.txt" && result?.folder.lastPathComponent == directory.url.lastPathComponent)
+        #expect(result?.options.hasPassword == false)
+        #expect(labels.contains(".zip"))
+        for name in ["backup.zip", " backup.ZIP "] {
+            #expect(try !texts(CompressSheet(items: [file], fallbackFolder: directory.url, name: name) { _, _, _ in }).contains(".zip"))
+        }
+
+        #expect(try texts(CompressSheet(items: [file, other], fallbackFolder: directory.url) { _, _, _ in })
+            .contains(L10n.format("Compress %lld items", 2)))
+        func isBlocked(name: String? = nil, password: String = "", confirmation: String = "") throws -> Bool {
+            try CompressSheet(items: [file], fallbackFolder: directory.url, name: name, password: password, confirmation: confirmation) { _, _, _ in }
+                .inspect().find(button: L10n.text("Compress")).isDisabled()
+        }
+        #expect(try isBlocked(name: " "))
+        #expect(try isBlocked(name: "bad/name"))
+        #expect(try isBlocked(password: "secret", confirmation: "secrex"))
+        #expect(try !isBlocked(password: "secret", confirmation: "secret"))
+        // The encryption choice is there before a password is typed, but only usable with one.
+        let encryption = try view.inspect().find(ViewType.Picker.self) { try $0.labelView().text().string() == L10n.text("Encryption:") }
+        #expect(encryption.isDisabled())
+    }
+
     @Test func detailsPaneDescribesEmptySingleFolderAndMultipleFileSelections() async throws {
         let directory = try TestDirectory(), preferences = try TestPreferences()
         let file = try directory.file("note.txt", contents: "hi"), folder = try directory.folder("nested")

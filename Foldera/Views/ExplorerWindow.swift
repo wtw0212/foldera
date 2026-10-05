@@ -8,6 +8,7 @@ struct ExplorerWindow: View {
     @State private var diskAccess = DiskAccess.shared
     @State private var volumes = VolumeMonitor.shared
     @State private var swipe = SwipeFeedback()
+    @Environment(\.openWindow) private var openWindow
 
     init(model: ExplorerWindowModel = ExplorerWindowModel(), settings: AppSettings = .shared, swipe: SwipeFeedback = SwipeFeedback()) {
         _model = State(initialValue: model)
@@ -70,6 +71,7 @@ struct ExplorerWindow: View {
         .frame(minWidth: 720, minHeight: 420)
         .focusedSceneValue(\.explorer, model)
         .onAppear {
+            ArchiveWindows.opener = { openWindow(id: ArchiveWindows.id, value: $0) }
             TextFieldClickAway.install()
             model.offerWelcomeIfNeeded()
         }
@@ -95,6 +97,14 @@ struct ExplorerWindow: View {
                 tab.selection = Set(renamed.map(\.normalizedFileURL))
                 tab.reload()
                 tab.requestListFocus()
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { tab.compressItems != nil },
+            set: { if !$0 { tab.compressItems = nil } }
+        )) {
+            CompressSheet(items: tab.compressItems ?? [], fallbackFolder: tab.url) { options, name, folder in
+                tab.compress(tab.compressItems ?? [], options: options, named: name, in: folder)
             }
         }
         .navigationTitle(tab.title)

@@ -130,19 +130,37 @@ private struct AddressBar: View {
             if !openPath(expanded) { notFound(input) }
             return
         }
+        if let location = tab.url.archiveLocation {
+            // Inside an archive, relative paths start from this folder in it; ".." past its top leaves it.
+            let path = ((location.displayPath + "/" + expanded) as NSString).standardizingPath
+            if openPath(path) { return }
+        }
         if AddressCommand.runBuiltIn(input, in: tab.url) { return }
         if openPath(tab.url.appendingPathComponent(expanded).standardizedFileURL.path) { return }
         if AddressCommand.runFallback(input, in: tab.url) { return }
         notFound(input)
     }
 
-    /// Opens a folder here, or a file in its app. False when nothing is at `path`.
+    /// Opens a folder here, or a file in its app. An archive, or a path through one ("…/Wine.7z/Wine"),
+    /// opens its folder here. False when nothing is at `path`.
     private func openPath(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return false }
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            guard let location = ArchiveLocation.resolve(path) else { return false }
+            if let entry = ArchiveCatalog.shared.entry(location.path, in: location.archive), !entry.isDirectory {
+                tab.open(FileItem(archiveEntry: entry, in: location.archive))
+            } else {
+                // Not read yet (or a folder): the listing reports it if nothing is there.
+                tab.navigate(to: location.url)
+            }
+            tab.requestListFocus()
+            return true
+        }
         let url = URL(fileURLWithPath: path)
         if isDirectory.boolValue {
             tab.navigate(to: url)
+        } else if Archives.isBrowsable(url) {
+            tab.navigate(to: ArchiveLocation(archive: url).url)
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -194,6 +212,10 @@ struct Breadcrumbs: View {
     /// The location's folders from This Mac down, e.g. This Mac › Macintosh HD › Users › me › Documents.
     static func segments(for url: URL) -> [URL] {
         guard url != BrowserTab.thisMacURL, url != BrowserTab.networkURL, url != BrowserTab.recentURL else { return [url] }
+        if let location = url.archiveLocation {
+            // The archive's folders on disk, then the archive and the folders inside it.
+            return segments(for: location.archive.deletingLastPathComponent()) + location.ancestors.map(\.url)
+        }
         if let endpoint = url.remoteEndpoint {
             var result = [endpoint.root]
             var path = ""
@@ -308,6 +330,21 @@ enum SubfolderMenu {
 
     static func make(for url: URL, tab: BrowserTab) -> NSMenu {
         let menu = NSMenu()
+        if let location = url.archiveLocation {
+            let folders = ((try? ArchiveCatalog.shared.children(of: location)) ?? [])
+                .filter(\.isDirectory)
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            for folder in folders {
+                let target = location.child(folder).url
+                menu.addItem(ClosureMenuItem(folder.name, image: FileIcons.folder) { tab.navigate(to: target) })
+            }
+            if folders.isEmpty {
+                let empty = NSMenuItem(title: L10n.text("No subfolders"), action: nil, keyEquivalent: "")
+                empty.isEnabled = false
+                menu.addItem(empty)
+            }
+            return menu
+        }
         if url == BrowserTab.thisMacURL {
             for volume in VolumeMonitor.shared.volumes {
                 let icon = FileIcons.icon(forPath: volume.url).copy() as? NSImage

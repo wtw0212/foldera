@@ -3,7 +3,7 @@ import Carbon
 
 /// Commands shared by the command bar, context menu, keyboard shortcuts and the menu bar.
 extension BrowserTab {
-    private var clipboard: FileClipboard { .shared }
+    var clipboard: FileClipboard { .shared }
     var recents: RecentItems { settings.recents }
 
     var hasSelection: Bool { !selection.isEmpty }
@@ -28,11 +28,19 @@ extension BrowserTab {
     }
 
     /// Opens a file in its app; server files open from a temporary copy that uploads when saved.
+    /// Archives open as folders, like Explorer's built-in zip support (Archive Utility can't open encrypted
+    /// 7z, rar and several other formats); tar.gz and the like, which can't be browsed, are extracted instead.
     private func openFile(_ url: URL) {
         recents.record(url, isFolder: false)
         if isRecent { reload() }
         if url.isRemote {
             remoteOpen(url)
+        } else if url.isInArchive {
+            openArchiveItem(url)
+        } else if Archives.isBrowsable(url) {
+            openArchiveWindow(url)
+        } else if Archives.isArchive(url) {
+            extract([url], .ownFolder)
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -73,7 +81,7 @@ extension BrowserTab {
 
     /// Inline rename for one item; the bulk rename sheet when several are selected (like Finder).
     func beginRename(_ url: URL? = nil) {
-        guard !isRecent else { return }
+        guard !isRecent, !isInsideArchive else { return }
         if url == nil, selection.count > 1 {
             bulkRenameItems = selectedItems
             return
@@ -95,12 +103,13 @@ extension BrowserTab {
     }
 
     func cutSelection() {
-        guard hasSelection else { return }
+        guard hasSelection, !isInsideArchive else { return }
         clipboard.cut(selectedItems.map(\.url))
     }
 
     func copySelection() {
         guard hasSelection else { return }
+        if isInsideArchive { return copyArchiveSelection() }
         clipboard.copy(selectedItems.map(\.url))
     }
 
@@ -138,43 +147,64 @@ extension BrowserTab {
         /// The archive's own folder, or a new folder named after the archive next to it.
         case here, ownFolder
         /// A chosen folder; `ownFolder` puts each archive in a new folder named after it there.
-        case folder(URL, ownFolder: Bool)
+        /// `opens`: show the result when done (see `revealExtracted`).
+        case folder(URL, ownFolder: Bool, opens: Bool = true)
     }
 
-    var selectedArchives: [URL] { isRemote || isRecent ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
+    /// The Extract dialogs' "Open the extracted folder when done", remembered between extractions.
+    static var opensExtractedFolder: Bool {
+        get { UserDefaults.standard.object(forKey: "extract.openWhenDone") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "extract.openWhenDone") }
+    }
+
+    /// The checkbox for `opensExtractedFolder`, for an Extract dialog's accessory view.
+    static func openWhenDoneCheckbox() -> NSButton {
+        let checkbox = NSButton(checkboxWithTitle: L10n.text("Open the extracted folder when done"), target: nil, action: nil)
+        checkbox.state = opensExtractedFolder ? .on : .off
+        return checkbox
+    }
+
+    var selectedArchives: [URL] { isRemote || isRecent || isInsideArchive ? [] : selectedItems.map(\.url).filter(Archives.isArchive) }
 
     /// Extracts the selected archives: into this folder, or each into a folder named after it.
     /// Encrypted archives ask for their password (again if it was wrong).
     func extractSelection(_ destination: ExtractDestination) {
-        let archives = selectedArchives
+        extract(selectedArchives, destination)
+    }
+
+    private func extract(_ archives: [URL], _ destination: ExtractDestination) {
         guard !archives.isEmpty else { return }
         Task {
             var created: [URL] = []
             var failure: Error?
             for archive in archives {
-                var password: String?
-                while true {
-                    do {
-                        created += try await Task.detached(priority: .userInitiated) { [password] in
-                            switch destination {
-                            case .here: try Archives.extractHere(archive, into: archive.deletingLastPathComponent(), password: password)
-                            case .ownFolder: [try Archives.extractToFolder(archive, password: password)]
-                            case .folder(let folder, ownFolder: true): [try Archives.extractToFolder(archive, in: folder, password: password)]
-                            case .folder(let folder, ownFolder: false): try Archives.extractHere(archive, into: folder, password: password)
-                            }
-                        }.value
-                    } catch let needed as Archives.PasswordRequired {
-                        password = Self.askPassword(for: archive, wasWrong: needed.wasWrong)
-                        if password != nil { continue }
-                    } catch {
-                        failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
+                let folder: URL = switch destination {
+                case .here, .ownFolder: archive.deletingLastPathComponent()
+                case .folder(let folder, _, _): folder
+                }
+                do {
+                    let total = await ArchiveExtraction.size(of: [], in: archive)
+                    // The password is read when each attempt starts: one typed while browsing is tried first.
+                    let added = try await ArchiveExtraction.run(archive, itemCount: 1, source: ArchiveLocation(archive: archive).url, into: folder,
+                                                                totalBytes: total, action: L10n.text("Extract")) { progress in
+                        let password = ArchiveCatalog.shared.password(for: archive)
+                        return switch destination {
+                        case .here, .folder(_, ownFolder: false, _):
+                            try Archives.extractHere(archive, into: folder, password: password, progress: progress, totalBytes: total)
+                        case .ownFolder, .folder(_, ownFolder: true, _):
+                            [try Archives.extractToFolder(archive, in: folder, password: password, progress: progress, totalBytes: total)]
+                        }
                     }
-                    break
+                    created += added ?? []
+                } catch {
+                    failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                 }
             }
-            // Only an Extract to a chosen folder opens it; the others may finish after the user moved on.
-            if case .folder = destination {
-                finishArchiveJob(name: "Extract", created: created, error: failure, revealing: true)
+            // Only an Extract to a chosen folder opens the result, when asked to; the others may finish
+            // after the user moved on.
+            if case .folder(_, let ownFolder, opens: true) = destination {
+                finishArchiveJob(name: "Extract", created: created, error: failure)
+                revealExtracted(created, insideNewFolder: ownFolder)
             } else {
                 finishArchiveJob(name: "Extract", created: created, error: failure)
             }
@@ -184,7 +214,10 @@ extension BrowserTab {
     /// The command bar's Extract: asks where to put the selected archives, starting in their folder,
     /// and by default gives each a new folder named after it.
     func extractSelectionChoosingDestination() {
-        let archives = selectedArchives
+        extractChoosingDestination(selectedArchives)
+    }
+
+    func extractChoosingDestination(_ archives: [URL]) {
         guard let first = archives.first else { return }
         let panel = NSOpenPanel()
         panel.title = L10n.text("Extract")
@@ -201,29 +234,86 @@ extension BrowserTab {
             ? L10n.format("Extract into a new folder “%@”", Archives.baseName(of: first))
             : L10n.text("Extract each into a new folder named after it"), target: nil, action: nil)
         ownFolder.state = .on
-        panel.accessoryView = ownFolder
+        let opens = Self.openWhenDoneCheckbox()
+        panel.accessoryView = Self.checkboxStack([ownFolder, opens])
         panel.isAccessoryViewDisclosed = true
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        extractSelection(.folder(folder, ownFolder: ownFolder.state == .on))
+        Self.opensExtractedFolder = opens.state == .on
+        extract(archives, .folder(folder, ownFolder: ownFolder.state == .on, opens: opens.state == .on))
     }
+
+    /// Checkboxes stacked for an open panel's accessory view.
+    static func checkboxStack(_ checkboxes: [NSButton]) -> NSView {
+        let stack = NSStackView(views: checkboxes)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        stack.frame.size = stack.fittingSize
+        return stack
+    }
+
+    /// Like Explorer's "Show extracted files when complete": a single new folder named after the archive
+    /// opens itself; otherwise the folder the items went to opens with them selected. Inside an archive
+    /// it opens in a new tab, so the archive stays open.
+    func revealExtracted(_ created: [URL], insideNewFolder: Bool) {
+        guard !created.isEmpty else { return }
+        let target: (folder: URL, selecting: Set<URL>)
+        if insideNewFolder, created.count == 1 {
+            target = (created[0].normalizedFileURL, [])
+        } else {
+            let folders = Set(created.map { $0.deletingLastPathComponent().normalizedFileURL })
+            guard folders.count == 1, let folder = folders.first else { return }
+            target = (folder, Set(created.map(\.normalizedFileURL)))
+        }
+        if isInsideArchive, let openInNewTab {
+            openInNewTab(target.folder, target.selecting)
+        } else if target.folder != url {
+            navigate(to: target.folder, selecting: target.selecting)
+        } else {
+            selection = target.selecting
+        }
+    }
+
+    var canCompressSelection: Bool { hasSelection && !isRemote && !isRecent && !isInsideArchive }
 
     /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
     func compressSelection(_ format: Archives.Format = .zip) {
         let items = selectedItems.map(\.url)
         let fallback = url
-        guard !items.isEmpty, !isRemote, !isRecent,
+        guard canCompressSelection,
               let folder = Archives.archiveURL(for: items, format: format, fallbackFolder: fallback)?.deletingLastPathComponent() else { return }
+        compress(items, into: folder) { progress in
+            try Archives.compress(items, format: format, fallbackFolder: fallback, progress: progress)
+        }
+    }
+
+    /// "Compress to…": asks for the archive's name, place, format, level and password.
+    func compressSelectionWithOptions() {
+        guard canCompressSelection else { return }
+        compressItems = selectedItems.map(\.url)
+    }
+
+    /// Compresses `items` into "<name>.<ext>" in `folder`, keeping both if that name is taken.
+    func compress(_ items: [URL], options: Archives.Options, named name: String, in folder: URL) {
+        guard !items.isEmpty else { return }
+        compress(items, into: folder) { progress in
+            try Archives.compress(items, options: options, named: name, in: folder, progress: progress)
+        }
+    }
+
+    /// Runs a compression as a tracked transfer. `body` returns the published archive.
+    private func compress(_ items: [URL], into folder: URL, body: @escaping @Sendable (TransferProgress) throws -> URL) {
         let transfer = FileTransfer(kind: .compress, itemCount: items.count, source: items[0].deletingLastPathComponent(), destination: folder)
         Task {
             do {
                 let total = await Task.detached { items.reduce(0) { $0 + CopyEngine.size(of: $1) } }.value
-                // The name is picked just before the archive is written, so two jobs don't share one.
-                let archive = try await FileTransfers.shared.track(transfer, totalBytes: total) { progress in
-                    try Archives.compress(items, format: format, fallbackFolder: fallback, progress: progress)
-                }
+                let archive = try await FileTransfers.shared.track(transfer, totalBytes: total, body)
                 finishArchiveJob(name: "Compress", created: [archive], error: nil)
             } catch is CopyEngine.Cancelled {
                 finishArchiveJob(name: "Compress", created: [], error: nil)
+            } catch let failure as FileChange.Failure {
+                finishArchiveJob(name: "Compress", created: failure.remaining.createdURLs.filter(FileOperations.exists), error: failure)
             } catch {
                 finishArchiveJob(name: "Compress", created: [], error: error)
             }
@@ -231,31 +321,29 @@ extension BrowserTab {
     }
 
     /// Records undo and selects what was created.
-    private func finishArchiveJob(name: String, created: [URL], error: Error?, revealing: Bool = false) {
+    func finishArchiveJob(name: String, created: [URL], error: Error?) {
         if !created.isEmpty {
             FileUndo.shared.record(.created(created), name: name)
-            let selected = Set(created.map(\.normalizedFileURL))
-            let folders = Set(created.map { $0.deletingLastPathComponent().normalizedFileURL })
-            if revealing, folders.count == 1, let folder = folders.first, folder != url {
-                // Extracted somewhere else: go there, like Explorer's "Show extracted files".
-                navigate(to: folder, selecting: selected)
-            } else {
-                selection = selected
+            // Select only results in this folder; extracting elsewhere keeps the current selection.
+            if !isInsideArchive {
+                let local = created.filter { $0.deletingLastPathComponent().normalizedFileURL == url }
+                if !local.isEmpty { selection = Set(local.map(\.normalizedFileURL)) }
                 reload()
             }
         }
         if let error { Self.present(error) }
     }
 
-    /// Asks for an archive's password. Nil when cancelled.
-    private static func askPassword(for archive: URL, wasWrong: Bool) -> String? {
+    /// Asks for an archive's password; `action` names the button. Nil when cancelled.
+    static func askPassword(for archive: URL, wasWrong: Bool, action: String) -> String? {
+        if let passwordPrompt { return passwordPrompt(archive, wasWrong) }
         let alert = NSAlert()
         alert.messageText = L10n.format("Enter the password for “%@”", archive.lastPathComponent)
         alert.informativeText = wasWrong ? L10n.text("The password is incorrect. Try again.") : L10n.text("This archive is protected with a password.")
         alert.alertStyle = wasWrong ? .warning : .informational
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         alert.accessoryView = field
-        alert.addButton(withTitle: L10n.text("Extract"))
+        alert.addButton(withTitle: action)
         alert.addButton(withTitle: L10n.text("Cancel"))
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
@@ -263,12 +351,13 @@ extension BrowserTab {
     }
 
     func copyPathOfSelection() {
-        let paths = (hasSelection ? selectedItems.map(\.url) : [url]).map(\.path)
+        let paths = (hasSelection ? selectedItems.map(\.url) : [url]).map { $0.archiveLocation?.displayPath ?? $0.path }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
     }
 
     func showInFinder() {
+        if let location = url.archiveLocation { return NSWorkspace.shared.activateFileViewerSelecting([location.archive]) }
         guard !isRemote, !isPage, hasSelection || !isRecent else { return }
         if hasSelection {
             NSWorkspace.shared.activateFileViewerSelecting(selectedItems.map(\.url).filter(\.isFileURL))
@@ -286,6 +375,7 @@ extension BrowserTab {
     /// Opens the Finder "Get Info" window, the closest macOS equivalent of Explorer's Properties.
     func showProperties() {
         if isRemote { return remoteShowProperties() }
+        if isInsideArchive { return archiveShowProperties() }
         guard !isPage, hasSelection || !isRecent else { return }
         let targets = (hasSelection ? selectedItems.map(\.url) : [url]).filter(\.isFileURL)
         guard !targets.isEmpty else { return }
@@ -354,6 +444,8 @@ extension BrowserTab {
 
     /// Replaces the error alert (tests).
     static var errorPresenter: ((Error) -> Void)?
+    /// Replaces the archive password prompt (tests): archive and whether the last password was wrong.
+    static var passwordPrompt: ((URL, Bool) -> String?)?
 
     static func present(_ error: Error) {
         if let errorPresenter { return errorPresenter(error) }

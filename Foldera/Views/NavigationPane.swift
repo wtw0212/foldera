@@ -366,7 +366,7 @@ private struct PinDropDelegate: DropDelegate {
             switch FileDrop.operation(for: urls, into: into) {
             case .copy: return DropProposal(operation: .copy)
             case .move: return DropProposal(operation: .move)
-            case .compress, nil: return DropProposal(operation: .forbidden)
+            case .compress, .extract, nil: return DropProposal(operation: .forbidden)
             }
         case nil:
             return DropProposal(operation: .forbidden)

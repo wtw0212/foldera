@@ -4,7 +4,7 @@ import Observation
 /// One running copy or move, observed by the progress window.
 @Observable
 final class FileTransfer: Identifiable {
-    nonisolated enum Kind: Sendable { case copy, move, compress }
+    nonisolated enum Kind: Sendable { case copy, move, compress, extract }
 
     let id = UUID()
     let kind: Kind
@@ -28,10 +28,15 @@ final class FileTransfer: Identifiable {
     var destinationName: String { BrowserTab.displayName(of: destination) }
 
     var title: String {
+        if kind == .extract, destination == ArchiveDirectory.temporaryRoot {
+            // Taken out to open, copy or preview: the temporary folder means nothing to the user.
+            return L10n.format("transfer.extract.open", itemCount, sourceName)
+        }
         let key = switch kind {
         case .copy: "transfer.copy"
         case .move: "transfer.move"
         case .compress: "transfer.compress"
+        case .extract: "transfer.extract"
         }
         return L10n.format(key, itemCount, sourceName, destinationName)
     }

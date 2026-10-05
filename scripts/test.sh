@@ -17,6 +17,11 @@ mkdir -p "$OUTPUT"
 RUN=$(mktemp -d "$OUTPUT/run.XXXXXX")
 RESULT="$RUN/TestResults.xcresult"
 
+if [[ "$SUITE" == ui ]]; then
+    export TEST_RUNNER_FOLDERA_PRESERVE_SYSTEM_SETTINGS=false
+    if pgrep -x "System Settings" > /dev/null; then export TEST_RUNNER_FOLDERA_PRESERVE_SYSTEM_SETTINGS=true; fi
+fi
+
 # UI tests run sandboxed and can't listen on a port, so the SFTP UI test's throwaway OpenSSH server
 # (key login on 127.0.0.1 only) starts here. xcodebuild hands TEST_RUNNER_* variables to the tests.
 if [[ "$SUITE" == ui && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then

@@ -67,22 +67,31 @@ struct DetailsPane: View {
 private struct ItemDetails: View {
     let item: FileItem
     @State private var dimensions: String?
+    /// A copy taken out of the item's archive, for items inside archives.
+    @State private var extracted: URL?
+
+    /// The local file to preview: the item itself, or its copy.
+    private var previewURL: URL? { item.url.isFileURL ? item.url : extracted }
+    private var previewID: String {
+        let signature = item.url.archiveLocation.flatMap { try? ArchiveSignature($0.archive) }
+        return item.url.absoluteString + (signature?.cacheKey ?? "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if item.isNavigable || item.url.isRemote {
+            if item.isNavigable || previewURL == nil {
                 Image(nsImage: FileIcons.icon(for: item))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: 120)
             } else if FileKind.of(item.url, type: item.contentType) == .video {
-                VideoPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
-                    .id(item.url)
+                VideoPreview(url: previewURL!, autostarts: AppSettings.shared.autoplayPreviews)
+                    .id(previewURL)
                     .frame(maxWidth: .infinity)
                     .frame(height: 286)
             } else {
-                QuickLookPreview(url: item.url, autostarts: AppSettings.shared.autoplayPreviews)
-                    .id(item.url)
+                QuickLookPreview(url: previewURL!, autostarts: AppSettings.shared.autoplayPreviews)
+                    .id(previewURL)
                     .frame(maxWidth: .infinity)
                     .frame(height: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -104,8 +113,15 @@ private struct ItemDetails: View {
             property(L10n.text("Date created"), FileFormat.date(item.dateCreated))
             property(L10n.text("Location"), FileFormat.location(of: item.url))
         }
-        .task(id: item.url) {
-            dimensions = item.url.isFileURL ? Self.imageDimensions(item.url) : nil
+        .task(id: previewID) {
+            dimensions = nil
+            extracted = item.url.isInArchive ? ArchivePreviews.shared.cachedFile(for: item.url) : nil
+            if extracted == nil, item.url.isInArchive, !item.isDirectory, (item.size ?? 0) <= ArchivePreviews.automaticSizeLimit {
+                let file = await ArchivePreviews.shared.file(for: item.url)
+                guard !Task.isCancelled else { return }
+                extracted = file
+            }
+            dimensions = previewURL.flatMap(Self.imageDimensions)
         }
     }
 
