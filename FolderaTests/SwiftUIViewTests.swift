@@ -139,6 +139,10 @@ struct SwiftUIViewTests {
         try view.inspect().find(button: L10n.text("Compress")).tap()
         #expect(result?.name == "note.txt" && result?.folder.lastPathComponent == directory.url.lastPathComponent)
         #expect(result?.options.hasPassword == false)
+        #expect(labels.contains(".zip"))
+        for name in ["backup.zip", " backup.ZIP "] {
+            #expect(try !texts(CompressSheet(items: [file], fallbackFolder: directory.url, name: name) { _, _, _ in }).contains(".zip"))
+        }
 
         #expect(try texts(CompressSheet(items: [file, other], fallbackFolder: directory.url) { _, _, _ in })
             .contains(L10n.format("Compress %lld items", 2)))

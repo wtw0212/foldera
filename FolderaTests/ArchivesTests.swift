@@ -76,6 +76,67 @@ struct ArchivesTests {
     }
 
     @Test(arguments: [Archives.Format.zip, .sevenZip])
+    func concurrentCompressionsKeepSeparateArchives(format: Archives.Format) async throws {
+        let directory = try TestDirectory()
+        let sources = try (0..<4).map { try directory.file("\($0).txt", contents: String(repeating: "\($0)", count: 1_000_000)) }
+        let jobs = sources.map { source in
+            Task.detached {
+                try Archives.compress([source], options: Archives.Options(format: format), named: "Archive", in: directory.url)
+            }
+        }
+        var archives: [URL] = []
+        for job in jobs { archives.append(try await job.value) }
+        #expect(Set(archives).count == sources.count)
+        for (source, archive) in zip(sources, archives) {
+            #expect(try entries(of: archive) == [source.lastPathComponent])
+            let extracted = try Archives.extractToFolder(archive)
+            #expect(try Data(contentsOf: extracted.appendingPathComponent(source.lastPathComponent)) == Data(contentsOf: source))
+        }
+    }
+
+    @Test(arguments: ["file", "directory", "symlink", "dangling symlink"])
+    func compressionNeverChangesAnExistingDestination(kind: String) throws {
+        let directory = try TestDirectory()
+        let source = try directory.file("note.txt", contents: "new")
+        let target = try directory.file("target", contents: "KEEP")
+        let archive = directory.path("existing.7z")
+        switch kind {
+        case "file": try Data("KEEP".utf8).write(to: archive)
+        case "directory": try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: false)
+        default: try FileManager.default.createSymbolicLink(atPath: archive.path, withDestinationPath: kind == "symlink" ? target.path : directory.path("missing").path)
+        }
+        #expect(throws: CocoaError.self) { try Archives.compress([source], format: .sevenZip, to: archive) }
+        #expect(FileOperations.exists(archive))
+        if kind == "file" { #expect(try String(contentsOf: archive, encoding: .utf8) == "KEEP") }
+        if kind.contains("symlink") { #expect(try FileManager.default.destinationOfSymbolicLink(atPath: archive.path) == (kind == "symlink" ? target.path : directory.path("missing").path)) }
+        #expect(try String(contentsOf: target, encoding: .utf8) == "KEEP")
+        // A failed job under the same name must also leave the existing item alone.
+        #expect(throws: (any Error).self) { try Archives.compress([directory.path("missing-source")], format: .sevenZip, to: archive) }
+        #expect(FileOperations.exists(archive))
+        let failed = directory.path("failed.7z")
+        #expect(throws: (any Error).self) { try Archives.compress([directory.path("missing-source")], format: .sevenZip, to: failed) }
+        #expect(!FileOperations.exists(failed))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).allSatisfy { !$0.hasPrefix(".foldera-compress-") })
+    }
+
+    @Test(arguments: [Archives.Format.zip, .sevenZip])
+    func compressionAndExtractionTreatWildcardCharactersLiterally(format: Archives.Format) throws {
+        let directory = try TestDirectory()
+        let selected = try directory.file("a?.txt", contents: "selected")
+        _ = try directory.file("ab.txt", contents: "unselected")
+        var options = Archives.Options(format: format, level: .fastest)
+        options.password = UUID().uuidString
+        options.encryptNames = false
+        let archive = directory.path("selection." + format.fileExtension)
+        try Archives.compress([selected], options: options, to: archive)
+        #expect(try entries(of: archive) == ["a?.txt"])
+        let output = try directory.folder("Extract * Here")
+        try Archives.extract(archive, into: output, password: options.password)
+        #expect(try String(contentsOf: output.appendingPathComponent("a?.txt"), encoding: .utf8) == "selected")
+        #expect(!FileOperations.exists(directory.path("Extract selection Here")))
+    }
+
+    @Test(arguments: [Archives.Format.zip, .sevenZip])
     func cancellingMultiFolderCompressionStopsBeforeCopying(format: Archives.Format) throws {
         let directory = try TestDirectory()
         let first = try directory.file("a/first.txt", contents: "KEEP")

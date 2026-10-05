@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import UniformTypeIdentifiers
 
 /// One item inside an archive, as 7-Zip lists it.
@@ -110,27 +111,37 @@ nonisolated extension URL {
     var archiveLocation: ArchiveLocation? { ArchiveLocation(url: self) }
 }
 
+/// Identifies an archive revision, including a replacement that keeps the same size and modification date.
+nonisolated struct ArchiveSignature: Hashable, Sendable {
+    private let device: dev_t
+    private let inode: ino_t
+    private let size: off_t
+    private let modified: Date
+    private let changed: Date
+
+    var cacheKey: String { "\(device):\(inode):\(size):\(modified.timeIntervalSince1970):\(changed.timeIntervalSince1970)" }
+
+    init(_ archive: URL) throws {
+        var info = stat()
+        guard stat(archive.path, &info) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        device = info.st_dev
+        inode = info.st_ino
+        size = info.st_size
+        modified = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+        changed = Date(timeIntervalSince1970: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1_000_000_000)
+    }
+}
+
 /// Archive listings for browsing, read once and kept while the archive file is unchanged, and the
 /// passwords typed for them this session (in memory only).
 nonisolated final class ArchiveCatalog: @unchecked Sendable {
     static let shared = ArchiveCatalog()
 
     private struct Listing {
-        let signature: Signature
+        let signature: ArchiveSignature
         /// Every item, including folders that only appear as part of other items' paths, by folder.
         let children: [String: [ArchiveEntry]]
         let entries: [String: ArchiveEntry]
-    }
-
-    private struct Signature: Equatable {
-        let size: Int
-        let modified: Date?
-
-        init(_ archive: URL) throws {
-            let values = try archive.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            size = values.fileSize ?? 0
-            modified = values.contentModificationDate
-        }
     }
 
     private let lock = NSLock()
@@ -171,14 +182,14 @@ nonisolated final class ArchiveCatalog: @unchecked Sendable {
 
     private func listing(for archive: URL) throws -> Listing {
         let key = archive.standardizedFileURL.path
-        let signature = try Signature(archive)
+        let signature = try ArchiveSignature(archive)
         if let cached = lock.withLock({ listings[key] }), cached.signature == signature { return cached }
         let listing = Self.index(try Archives.list(archive, password: password(for: archive)), signature: signature)
         lock.withLock { listings[key] = listing }
         return listing
     }
 
-    private static func index(_ listed: [ArchiveEntry], signature: Signature) -> Listing {
+    private static func index(_ listed: [ArchiveEntry], signature: ArchiveSignature) -> Listing {
         var entries: [String: ArchiveEntry] = [:]
         for entry in listed where entries[entry.path] == nil || entry.isDirectory {
             entries[entry.path] = entry

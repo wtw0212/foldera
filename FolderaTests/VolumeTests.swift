@@ -16,6 +16,21 @@ struct VolumeTests {
         }
     }
 
+    @Test func compressionKeepsBothOnVolumesWithoutExclusiveRename() async throws {
+        try await withVolume("MS-DOS") { root, volume in
+            #expect(!FileOperations.supportsExclusiveRename(in: volume))
+            let source = root.appendingPathComponent("note.txt")
+            try Data("payload".utf8).write(to: source)
+            let existing = volume.appendingPathComponent("Archive.7z")
+            try Data("KEEP".utf8).write(to: existing)
+            let archive = try Archives.compress([source], options: Archives.Options(format: .sevenZip), named: "Archive", in: volume)
+            #expect(archive.lastPathComponent == "Archive (2).7z")
+            #expect(try String(contentsOf: existing, encoding: .utf8) == "KEEP")
+            let extracted = try Archives.extractToFolder(archive, in: root)
+            #expect(try String(contentsOf: extracted.appendingPathComponent("note.txt"), encoding: .utf8) == "payload")
+        }
+    }
+
     @Test func partiallyDeletedMoveSourceIsRebuiltBeforeUndoRemovesCompleteCopy() async throws {
         try await withVolume("HFS+") { root, volume in
             let fm = FileManager()

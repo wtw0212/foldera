@@ -72,6 +72,10 @@ private struct ItemDetails: View {
 
     /// The local file to preview: the item itself, or its copy.
     private var previewURL: URL? { item.url.isFileURL ? item.url : extracted }
+    private var previewID: String {
+        let signature = item.url.archiveLocation.flatMap { try? ArchiveSignature($0.archive) }
+        return item.url.absoluteString + (signature?.cacheKey ?? "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -82,12 +86,12 @@ private struct ItemDetails: View {
                     .frame(maxWidth: .infinity, maxHeight: 120)
             } else if FileKind.of(item.url, type: item.contentType) == .video {
                 VideoPreview(url: previewURL!, autostarts: AppSettings.shared.autoplayPreviews)
-                    .id(item.url)
+                    .id(previewURL)
                     .frame(maxWidth: .infinity)
                     .frame(height: 286)
             } else {
                 QuickLookPreview(url: previewURL!, autostarts: AppSettings.shared.autoplayPreviews)
-                    .id(item.url)
+                    .id(previewURL)
                     .frame(maxWidth: .infinity)
                     .frame(height: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -109,10 +113,13 @@ private struct ItemDetails: View {
             property(L10n.text("Date created"), FileFormat.date(item.dateCreated))
             property(L10n.text("Location"), FileFormat.location(of: item.url))
         }
-        .task(id: item.url) {
+        .task(id: previewID) {
+            dimensions = nil
             extracted = item.url.isInArchive ? ArchivePreviews.shared.cachedFile(for: item.url) : nil
             if extracted == nil, item.url.isInArchive, !item.isDirectory, (item.size ?? 0) <= ArchivePreviews.automaticSizeLimit {
-                extracted = await ArchivePreviews.shared.file(for: item.url)
+                let file = await ArchivePreviews.shared.file(for: item.url)
+                guard !Task.isCancelled else { return }
+                extracted = file
             }
             dimensions = previewURL.flatMap(Self.imageDimensions)
         }

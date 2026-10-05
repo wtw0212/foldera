@@ -25,7 +25,8 @@ final class Thumbnails {
     }
 
     private func key(_ item: FileItem, _ size: CGFloat) -> String {
-        "\(item.url.isFileURL ? item.url.path : item.url.absoluteString)|\(item.dateModified?.timeIntervalSince1970 ?? 0)|\(Int(size))"
+        let signature = item.url.archiveLocation.flatMap { try? ArchiveSignature($0.archive) }
+        return "\(item.url.isFileURL ? item.url.path : item.url.absoluteString)|\(item.dateModified?.timeIntervalSince1970 ?? 0)|\(Int(size))|\(signature?.cacheKey ?? "")"
     }
 
     /// Like Explorer, only photos, videos and PDFs show their contents; other files keep their
@@ -58,6 +59,7 @@ final class Thumbnails {
         )
         do {
             let image = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage
+            guard key == self.key(item, size) else { return nil }
             cache.setObject(image, forKey: key as NSString, cost: Self.cost(of: image))
             return image
         } catch {

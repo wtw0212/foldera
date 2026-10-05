@@ -9,6 +9,15 @@ private extension XCUIElement {
 }
 
 @MainActor
+private func closeSystemSettingsOpenedByTests() {
+    // ponytail: preserve an existing Settings session; track individual windows if tests ever need to reuse it.
+    guard ProcessInfo.processInfo.environment["FOLDERA_PRESERVE_SYSTEM_SETTINGS"] == "false" else { return }
+    let settings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+    if settings.state != .notRunning { settings.terminate() }
+    XCTAssertEqual(settings.state, .notRunning, "UI tests must close the System Settings session they opened.")
+}
+
+@MainActor
 private func enter(_ text: String, into field: XCUIElement) {
     // Hosted CI has a disposable clipboard; local runs keep typing without changing it.
     guard ProcessInfo.processInfo.environment["FOLDERA_CI"] == "true" else {
@@ -35,9 +44,11 @@ final class ExplorerUITests: XCTestCase {
             screenshot.lifetime = .keepAlways
             add(screenshot)
             app.terminate()
+            closeSystemSettingsOpenedByTests()
             try? FileManager.default.removeItem(at: root)
         }
         app.launchArguments = [
+            "-ApplePersistenceIgnoreState", "YES",
             "-initialPath", root.path, "-appLanguage", language,
             "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
             "-defaultViewMode", "details", "-folderViewModes", "{}",
@@ -47,6 +58,8 @@ final class ExplorerUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
         XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
+        XCTAssertEqual(app.windows.count, 1)
+        if language == "en" { XCTAssertEqual(app.menuBars.menuBarItems.matching(identifier: "Go").count, 1) }
         try test(app, root)
     }
 
@@ -99,6 +112,32 @@ final class ExplorerUITests: XCTestCase {
             expectation(for: oneTab, evaluatedWith: app)
             waitForExpectations(timeout: 5)
             XCTAssertTrue(app.windows.firstMatch.exists)
+
+            let archive = root.appendingPathComponent("notes.zip")
+            let zip = Process()
+            zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            zip.arguments = ["-q", "-j", archive.path, root.appendingPathComponent("nested/report.txt").path]
+            try zip.run()
+            zip.waitUntilExit()
+            XCTAssertEqual(zip.terminationStatus, 0)
+            app.typeKey("r", modifierFlags: .command)
+            let archiveRow = app.tables["file-list"].staticTexts["notes.zip"]
+            XCTAssertTrue(archiveRow.waitForAppearance(timeout: 5))
+            archiveRow.doubleClick()
+            let archiveWindow = app.windows.containing(.staticText, identifier: "notes.zip (archive)").firstMatch
+            XCTAssertTrue(archiveWindow.waitForAppearance(timeout: 5))
+            XCTAssertEqual(app.windows.count, 2)
+            app.typeKey("t", modifierFlags: .command)
+            expectation(for: NSPredicate { _, _ in archiveWindow.staticTexts.matching(identifier: "tab-title").count == 2 }, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            app.typeKey("w", modifierFlags: .command)
+            expectation(for: NSPredicate { _, _ in archiveWindow.staticTexts.matching(identifier: "tab-title").count == 1 }, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            XCTAssertEqual(app.windows.count, 2)
+            app.typeKey("w", modifierFlags: .command)
+            expectation(for: NSPredicate { _, _ in app.windows.count == 1 }, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].exists)
         }
     }
 
@@ -178,8 +217,10 @@ final class NetworkUITests: XCTestCase {
             screenshot.lifetime = .keepAlways
             add(screenshot)
             app.terminate()
+            closeSystemSettingsOpenedByTests()
         }
         app.launchArguments = [
+            "-ApplePersistenceIgnoreState", "YES",
             "-initialPath", NSTemporaryDirectory(), "-appLanguage", "en",
             "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
             "-defaultViewMode", "details", "-folderViewModes", "{}",

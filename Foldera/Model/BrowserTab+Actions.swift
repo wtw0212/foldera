@@ -246,16 +246,12 @@ extension BrowserTab {
     /// Compresses `items` into "<name>.<ext>" in `folder`, keeping both if that name is taken.
     func compress(_ items: [URL], options: Archives.Options, named name: String, in folder: URL) {
         guard !items.isEmpty else { return }
-        let fileName = Archives.fileName(name, format: options.format)
         compress(items, into: folder) { progress in
-            let archive = FileOperations.uniqueURL(named: fileName, in: folder)
-            try Archives.compress(items, options: options, to: archive, progress: progress)
-            return archive
+            try Archives.compress(items, options: options, named: name, in: folder, progress: progress)
         }
     }
 
-    /// Runs a compression as a tracked transfer. `body` picks the archive's name just before writing it,
-    /// so two jobs don't share one, and returns it.
+    /// Runs a compression as a tracked transfer. `body` returns the published archive.
     private func compress(_ items: [URL], into folder: URL, body: @escaping @Sendable (TransferProgress) throws -> URL) {
         let transfer = FileTransfer(kind: .compress, itemCount: items.count, source: items[0].deletingLastPathComponent(), destination: folder)
         Task {
@@ -265,6 +261,8 @@ extension BrowserTab {
                 finishArchiveJob(name: "Compress", created: [archive], error: nil)
             } catch is CopyEngine.Cancelled {
                 finishArchiveJob(name: "Compress", created: [], error: nil)
+            } catch let failure as FileChange.Failure {
+                finishArchiveJob(name: "Compress", created: failure.remaining.createdURLs.filter(FileOperations.exists), error: failure)
             } catch {
                 finishArchiveJob(name: "Compress", created: [], error: error)
             }

@@ -42,7 +42,10 @@ final class BrowserTab: Identifiable {
     private(set) var isLoading = false
     private var lastLoadError: NSError?
     var loadError: String? { lastLoadError.map(Self.describe) }
-    var selection: Set<URL> = []
+    var selection: Set<URL> = [] {
+        // An explicit selection supersedes the selection saved by an in-flight load.
+        didSet { selectAfterLoad = [] }
+    }
     var sort = SortOrder() {
         didSet { if isRecent && sort != oldValue { keepsRecentOrder = false } }
     }

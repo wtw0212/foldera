@@ -30,6 +30,8 @@ struct BrowserArchiveTests {
     }
 
     @Test func openingATarGzExtractsItIntoAFolderNamedAfterIt() async throws {
+        let errors = ErrorCollector()
+        defer { #expect(errors.messages.isEmpty) }
         let directory = try TestDirectory()
         _ = try directory.file("note.txt", contents: "archive payload")
         let archive = directory.path("note.tar.gz")
@@ -38,15 +40,31 @@ struct BrowserArchiveTests {
         tar.arguments = ["-czf", archive.path, "-C", directory.url.path, "note.txt"]
         try tar.run()
         tar.waitUntilExit()
+        try #require(tar.terminationStatus == 0)
         let tab = BrowserTab(url: directory.url)
         try await eventually { !tab.isLoading }
         tab.selection = [archive]
+        try #require(tab.selectedItems.map(\.url) == [archive])
         tab.openSelection()
         // tar.gz can't be browsed (7-Zip would only show the .tar inside), so it's extracted like before.
-        try await eventually(timeout: .seconds(10)) { tab.selection.first?.lastPathComponent == "note" && !tab.isLoading }
+        try await eventually(timeout: .seconds(10)) { tab.selection == [directory.path("note")] && !tab.isLoading }
         let folder = try #require(tab.selection.first)
         #expect(try String(contentsOf: folder.appendingPathComponent("note.txt"), encoding: .utf8) == "archive payload")
         #expect(!tab.isInsideArchive)
+    }
+
+    @Test func archiveCompletionReplacesSelectionFromAnInFlightReload() async throws {
+        let directory = try TestDirectory()
+        let archive = try directory.file("notes.zip")
+        let folder = try directory.folder("notes")
+        let tab = BrowserTab(url: directory.url)
+        try await eventually { !tab.isLoading }
+        tab.selection = [archive]
+        tab.reload() // A directory watcher can still be reloading the old selection when extraction finishes.
+        try #require(tab.isLoading)
+        tab.finishArchiveJob(name: "Extract", created: [folder], error: nil)
+        try await eventually { !tab.isLoading }
+        #expect(tab.selection == [folder])
     }
 
     @Test func openingAnArchiveBrowsesItReadOnlyAndUpLeavesIt() async throws {
@@ -281,6 +299,50 @@ struct BrowserArchiveTests {
         try await eventually(timeout: .seconds(10)) { result != nil }
         #expect(result! == nil)
         #expect(try String(contentsOf: destination, encoding: .utf8) == "first")
+    }
+
+    @Test func changedArchivesInvalidateListingsPreviewsAndThumbnails() async throws {
+        let directory = try TestDirectory()
+        let source = try directory.file("note.txt", contents: "first")
+        let archive = directory.path("notes.zip")
+        let options = Archives.Options(format: .zip, level: .store)
+        try Archives.compress([source], options: options, to: archive)
+        let location = ArchiveLocation(archive: archive)
+        let entry = try #require(ArchiveCatalog.shared.children(of: location).first)
+        let url = location.child(entry).url
+        let previews = ArchivePreviews()
+        let oldCopy = try #require(await previews.file(for: url))
+        #expect(try String(contentsOf: oldCopy, encoding: .utf8) == "first")
+        let oldSignature = try ArchiveSignature(archive)
+        let archiveDate = try #require(archive.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+        let sourceDate = try #require(source.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+        let oldSize = try Data(contentsOf: archive).count
+
+        try Data("other".utf8).write(to: source)
+        try FileManager.default.setAttributes([.modificationDate: sourceDate], ofItemAtPath: source.path)
+        let replacement = directory.path("replacement.zip")
+        try Archives.compress([source], options: options, to: replacement)
+        try FileManager.default.setAttributes([.modificationDate: archiveDate], ofItemAtPath: replacement.path)
+        #expect(try Data(contentsOf: replacement).count == oldSize)
+        try FileManager.default.removeItem(at: archive)
+        try FileManager.default.moveItem(at: replacement, to: archive)
+        #expect(try ArchiveSignature(archive) != oldSignature)
+        #expect(previews.cachedFile(for: url) == nil)
+        #expect(try ArchiveCatalog.shared.children(of: location).map(\.path) == ["note.txt"])
+        let newCopy = try #require(await previews.file(for: url))
+        #expect(newCopy != oldCopy)
+        #expect(try String(contentsOf: newCopy, encoding: .utf8) == "other")
+        #expect(try String(contentsOf: oldCopy, encoding: .utf8) == "first", "a copy already open in Quick Look remains usable")
+
+        let photoArchive = try makeNotesArchive(in: directory)
+        let photoEntry = try #require(ArchiveCatalog.shared.children(of: ArchiveLocation(archive: photoArchive, path: "Notes")).first { $0.name == "photo.png" })
+        let photo = FileItem(archiveEntry: photoEntry, in: photoArchive)
+        #expect(await Thumbnails.shared.load(for: photo, size: 64, scale: 1) != nil)
+        #expect(Thumbnails.shared.cached(for: photo, size: 64) != nil)
+        try FileManager.default.removeItem(at: photoArchive)
+        try Archives.compress([source], format: .sevenZip, to: photoArchive)
+        #expect(Thumbnails.shared.cached(for: photo, size: 64) == nil)
+        #expect(ArchivePreviews.shared.cachedFile(for: photo.url) == nil)
     }
 
     @Test func archiveItemsGetThumbnailsDetailsAndQuickLookFromCopies() async throws {

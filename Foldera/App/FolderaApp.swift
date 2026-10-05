@@ -9,23 +9,28 @@ struct FolderaApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            ExplorerWindow()
-                .environment(\.locale, L10n.locale)
+        Group {
+            WindowGroup {
+                ExplorerWindow()
+                    .environment(\.locale, L10n.locale)
+            }
+            .windowStyle(.hiddenTitleBar)
+            .defaultSize(width: 1180, height: 720)
+            .restorationBehavior(UserDefaults.standard.bool(forKey: "ApplePersistenceIgnoreState") ? .disabled : .automatic)
+
+            // Archive windows open explicitly; restoring a nil scene value would open a duplicate folder window.
+            WindowGroup(id: ArchiveWindows.id, for: URL.self) { $url in
+                ExplorerWindow(model: ExplorerWindowModel(url: url ?? ExplorerWindowModel.defaultURL))
+                    .environment(\.locale, L10n.locale)
+            }
+            .windowStyle(.hiddenTitleBar)
+            .defaultSize(width: 980, height: 620)
+            .defaultLaunchBehavior(.suppressed)
+            .restorationBehavior(.disabled)
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1180, height: 720)
         .commands {
             FolderaCommands()
         }
-
-        // Double-clicked archives open in their own window, so browsing one never replaces a folder's tab.
-        WindowGroup(id: ArchiveWindows.id, for: URL.self) { $url in
-            ExplorerWindow(model: ExplorerWindowModel(url: url ?? ExplorerWindowModel.defaultURL))
-                .environment(\.locale, L10n.locale)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 980, height: 620)
 
         Settings {
             SettingsView()

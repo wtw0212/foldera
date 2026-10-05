@@ -68,8 +68,10 @@ struct CompressSheet: View {
                         TextField("", text: $name)
                             .labelsHidden()
                             .accessibilityIdentifier("compress-name")
-                        Text("." + effectiveFormat.fileExtension)
-                            .foregroundStyle(Theme.secondaryText.swiftUI)
+                        if Archives.fileName(name, format: effectiveFormat) != name.trimmingCharacters(in: .whitespacesAndNewlines) {
+                            Text("." + effectiveFormat.fileExtension)
+                                .foregroundStyle(Theme.secondaryText.swiftUI)
+                        }
                     }
                 }
                 LabeledContent(L10n.text("Save in:")) {

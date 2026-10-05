@@ -187,13 +187,22 @@ final class ArchivePreviews {
     /// Larger items get no automatic thumbnail or Details preview: taking them out would take too long.
     static let automaticSizeLimit: Int64 = 64 * 1024 * 1024
 
-    private var files: [URL: URL] = [:]
+    private struct CachedFile {
+        let file: URL
+        let signature: ArchiveSignature
+    }
+
+    private var files: [URL: CachedFile] = [:]
     private var waiting: [URL: [CheckedContinuation<URL?, Never>]] = [:]
     private var queued: [URL: [URL]] = [:]
 
     func cachedFile(for url: URL) -> URL? {
-        guard let file = files[url], FileManager.default.fileExists(atPath: file.path) else { return nil }
-        return file
+        guard let cached = files[url], let archive = url.archiveLocation?.archive,
+              cached.signature == (try? ArchiveSignature(archive)), FileManager.default.fileExists(atPath: cached.file.path) else {
+            files[url] = nil
+            return nil
+        }
+        return cached.file
     }
 
     /// The item's copy, taken out quietly (no progress, no password prompt). Nil when that isn't possible.
@@ -216,11 +225,14 @@ final class ArchivePreviews {
 
     private func flush(_ archive: URL) async {
         let urls = queued.removeValue(forKey: archive) ?? []
+        let callbacks = urls.map { waiting.removeValue(forKey: $0) ?? [] }
+        let signature = try? ArchiveSignature(archive)
         let extracted = await Task.detached { try? ArchiveDirectory.extractToTemporaryFolder(urls) }.value
+        let unchanged = signature != nil && signature == (try? ArchiveSignature(archive))
         for (index, url) in urls.enumerated() {
-            let file = extracted?[index]
-            if let file { files[url] = file }
-            for continuation in waiting.removeValue(forKey: url) ?? [] { continuation.resume(returning: file) }
+            let file = unchanged ? extracted?[index] : nil
+            if let file, let signature { files[url] = CachedFile(file: file, signature: signature) }
+            for continuation in callbacks[index] { continuation.resume(returning: file) }
         }
     }
 
@@ -230,8 +242,12 @@ final class ArchivePreviews {
         let missing = urls.filter { $0.isInArchive && cachedFile(for: $0) == nil }
         guard !missing.isEmpty else { return true }
         do {
+            let locations = missing.compactMap(\.archiveLocation)
+            guard locations.count == missing.count else { return false }
+            let signatures = try locations.map { try ArchiveSignature($0.archive) }
             guard let extracted = try await ArchiveExtraction.toTemporaryFolder(missing, action: L10n.text("Open")) else { return false }
-            for (url, file) in zip(missing, extracted) { files[url] = file }
+            guard try locations.map({ try ArchiveSignature($0.archive) }) == signatures else { return false }
+            for (index, url) in missing.enumerated() { files[url] = CachedFile(file: extracted[index], signature: signatures[index]) }
             return true
         } catch {
             BrowserTab.present(error)
