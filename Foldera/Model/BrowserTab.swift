@@ -60,6 +60,8 @@ final class BrowserTab: Identifiable {
     var renameRequest: RenameRequest?
     /// Items for the "Rename N items" sheet, set when renaming a multiple selection.
     var bulkRenameItems: [FileItem]?
+    /// Items for the "Compress to…" sheet.
+    var compressItems: [URL]?
     /// Bumped to move keyboard focus to the file list.
     private(set) var focusListToken = 0
 

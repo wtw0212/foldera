@@ -45,11 +45,12 @@ enum ContextMenus {
                 menu.add(L10n.text("Extract each to separate folders"), symbol: "folder.badge.plus") { tab.extractSelection(.ownFolder) }
             }
         }
-        if !tab.isRemote && !tab.isRecent {
+        if tab.canCompressSelection {
             menu.add(L10n.text("Compress to ZIP file"), symbol: "doc.zipper") { tab.compressSelection(.zip) }
             if Archives.canCreate7z {
                 menu.add(L10n.text("Compress to 7z file"), symbol: "doc.zipper") { tab.compressSelection(.sevenZip) }
             }
+            menu.add(L10n.text("Compress to…"), symbol: "lock.doc") { tab.compressSelectionWithOptions() }
         }
         menu.addSeparator()
         let folders = tab.isRemote ? [] : items.filter(\.isNavigable)

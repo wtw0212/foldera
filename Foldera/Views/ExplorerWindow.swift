@@ -97,6 +97,14 @@ struct ExplorerWindow: View {
                 tab.requestListFocus()
             }
         }
+        .sheet(isPresented: Binding(
+            get: { tab.compressItems != nil },
+            set: { if !$0 { tab.compressItems = nil } }
+        )) {
+            CompressSheet(items: tab.compressItems ?? [], fallbackFolder: tab.url) { options, name, folder in
+                tab.compress(tab.compressItems ?? [], options: options, named: name, in: folder)
+            }
+        }
         .navigationTitle(tab.title)
     }
 

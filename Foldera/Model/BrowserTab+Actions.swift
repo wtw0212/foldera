@@ -207,20 +207,44 @@ extension BrowserTab {
         extractSelection(.folder(folder, ownFolder: ownFolder.state == .on))
     }
 
+    var canCompressSelection: Bool { hasSelection && !isRemote && !isRecent }
+
     /// Finder-style Compress: "<name>.zip" (or .7z) for one item, "Archive.zip" for several.
     func compressSelection(_ format: Archives.Format = .zip) {
         let items = selectedItems.map(\.url)
         let fallback = url
-        guard !items.isEmpty, !isRemote, !isRecent,
+        guard canCompressSelection,
               let folder = Archives.archiveURL(for: items, format: format, fallbackFolder: fallback)?.deletingLastPathComponent() else { return }
+        compress(items, into: folder) { progress in
+            try Archives.compress(items, format: format, fallbackFolder: fallback, progress: progress)
+        }
+    }
+
+    /// "Compress to…": asks for the archive's name, place, format, level and password.
+    func compressSelectionWithOptions() {
+        guard canCompressSelection else { return }
+        compressItems = selectedItems.map(\.url)
+    }
+
+    /// Compresses `items` into "<name>.<ext>" in `folder`, keeping both if that name is taken.
+    func compress(_ items: [URL], options: Archives.Options, named name: String, in folder: URL) {
+        guard !items.isEmpty else { return }
+        let fileName = Archives.fileName(name, format: options.format)
+        compress(items, into: folder) { progress in
+            let archive = FileOperations.uniqueURL(named: fileName, in: folder)
+            try Archives.compress(items, options: options, to: archive, progress: progress)
+            return archive
+        }
+    }
+
+    /// Runs a compression as a tracked transfer. `body` picks the archive's name just before writing it,
+    /// so two jobs don't share one, and returns it.
+    private func compress(_ items: [URL], into folder: URL, body: @escaping @Sendable (TransferProgress) throws -> URL) {
         let transfer = FileTransfer(kind: .compress, itemCount: items.count, source: items[0].deletingLastPathComponent(), destination: folder)
         Task {
             do {
                 let total = await Task.detached { items.reduce(0) { $0 + CopyEngine.size(of: $1) } }.value
-                // The name is picked just before the archive is written, so two jobs don't share one.
-                let archive = try await FileTransfers.shared.track(transfer, totalBytes: total) { progress in
-                    try Archives.compress(items, format: format, fallbackFolder: fallback, progress: progress)
-                }
+                let archive = try await FileTransfers.shared.track(transfer, totalBytes: total, body)
                 finishArchiveJob(name: "Compress", created: [archive], error: nil)
             } catch is CopyEngine.Cancelled {
                 finishArchiveJob(name: "Compress", created: [], error: nil)

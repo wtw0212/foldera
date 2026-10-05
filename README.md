@@ -150,7 +150,7 @@ The address bar takes more than paths:
 
 ## Archives
 
-Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**; right-click anything to **Compress to ZIP file** or **Compress to 7z file**. Extraction never overwrites existing items, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
+Right-click archives to **Extract here**, **Extract to “name”** or **Extract each to separate folders**; right-click anything to **Compress to ZIP file** or **Compress to 7z file**, or **Compress to…** to pick the name, folder, format, compression level and an optional password (AES-256 or ZipCrypto for zip; 7z can also encrypt file names). Extraction never overwrites existing items, asks for a password when an archive is encrypted, and reads zip, 7z, rar (incl. RAR5), split archives, tar.gz/bz2/xz, iso and cab.
 
 ![Right-clicking a zip shows Extract here, Extract to and Compress commands; the Details pane lists the archive's contents](docs/images/archives.png)
 
