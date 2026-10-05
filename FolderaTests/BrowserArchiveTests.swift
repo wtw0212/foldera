@@ -206,4 +206,123 @@ struct BrowserArchiveTests {
         #expect(look.previewPanel(nil, previewItemAt: 2) == nil)
         look.selectionChanged()
     }
+
+    /// A 7z with "Notes/a.txt", "Notes/photo.png" and a 1 MB "Notes/big.bin", plus its location.
+    private func makeNotesArchive(in directory: TestDirectory) throws -> URL {
+        let folder = try directory.folder("Notes")
+        try "first".write(to: folder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        let image = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
+            NSColor.systemRed.setFill()
+            rect.fill()
+            return true
+        }
+        let png = NSBitmapImageRep(data: try #require(image.tiffRepresentation))?.representation(using: .png, properties: [:])
+        try #require(png).write(to: folder.appendingPathComponent("photo.png"))
+        try Data(repeating: 7, count: 1_000_000).write(to: folder.appendingPathComponent("big.bin"))
+        let archive = try Archives.compress([folder], format: .sevenZip, fallbackFolder: directory.url)
+        try FileManager.default.removeItem(at: folder)
+        return archive
+    }
+
+    @Test func extractingReportsProgressAndCancellingCleansUp() async throws {
+        let directory = try TestDirectory()
+        let archive = try makeNotesArchive(in: directory)
+        let total = try #require(ArchiveCatalog.shared.unpackedSize(of: [], in: archive))
+        #expect(total > 1_000_000)
+        #expect(ArchiveCatalog.shared.unpackedSize(of: ["Notes/a.txt"], in: archive) == 5)
+
+        let progress = TransferProgress()
+        let folder = try Archives.extractToFolder(archive, progress: progress, totalBytes: total)
+        #expect(progress.completedBytes == total && progress.currentName == "Notes.7z")
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Notes/big.bin").path))
+
+        let cancelled = TransferProgress()
+        cancelled.cancel()
+        #expect(throws: CopyEngine.Cancelled.self) { try Archives.extractToFolder(archive, progress: cancelled, totalBytes: total) }
+        #expect(!FileManager.default.fileExists(atPath: directory.path("Notes (3)").path))
+
+        let transfer = FileTransfer(kind: .extract, itemCount: 2, source: ArchiveLocation(archive: archive).url, destination: directory.url)
+        #expect(transfer.title == L10n.format("transfer.extract", 2, "Notes.7z", BrowserTab.displayName(of: directory.url)))
+        let opening = FileTransfer(kind: .extract, itemCount: 1, source: ArchiveLocation(archive: archive).url,
+                                   destination: ArchiveDirectory.temporaryRoot)
+        #expect(opening.title == L10n.format("transfer.extract.open", 1, "Notes.7z"))
+    }
+
+    @Test func draggingArchiveItemsPromisesFilesAndDropsExtractThemInFoldera() async throws {
+        let directory = try TestDirectory()
+        let archive = try makeNotesArchive(in: directory)
+        let note = ArchiveLocation(archive: archive, path: "Notes/a.txt")
+        _ = try ArchiveCatalog.shared.children(of: ArchiveLocation(archive: archive))
+
+        // Inside Foldera the drag carries the item's address.
+        let pasteboard = NSPasteboard(name: .init("BrowserArchiveTests-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        let writer = ItemPasteboard.writer(for: note.url)
+        #expect(writer is ArchiveItemPromise)
+        pasteboard.writeObjects([writer])
+        #expect(ItemPasteboard.urls(from: pasteboard) == [note.url])
+
+        let target = try directory.folder("target")
+        #expect(FileDrop.operation(for: [note.url], into: target) == .copy)
+        #expect(FileDrop.operation(for: [note.url], into: ArchiveLocation(archive: archive, path: "Notes").url) == nil)
+        #expect(FileDrop.operation(for: [note.url, directory.url], into: target) == nil)
+        #expect(FileDrop.perform([note.url], into: target))
+        try await eventually(timeout: .seconds(10)) { FileManager.default.fileExists(atPath: target.appendingPathComponent("a.txt").path) }
+
+        // Other apps get a file promise, kept by extracting where they ask.
+        let promise = ArchiveItemPromise(itemURL: note.url)
+        #expect(ArchivePromises.shared.filePromiseProvider(promise, fileNameForType: promise.fileType) == "a.txt")
+        let destination = target.appendingPathComponent("dropped.txt")
+        var result: Error?? = .none
+        ArchivePromises.shared.filePromiseProvider(promise, writePromiseTo: destination) { error in
+            Task { @MainActor in result = .some(error) }
+        }
+        try await eventually(timeout: .seconds(10)) { result != nil }
+        #expect(result! == nil)
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "first")
+    }
+
+    @Test func archiveItemsGetThumbnailsDetailsAndQuickLookFromCopies() async throws {
+        let directory = try TestDirectory()
+        let archive = try makeNotesArchive(in: directory)
+        let root = ArchiveLocation(archive: archive)
+        let items = try ArchiveCatalog.shared.children(of: ArchiveLocation(archive: archive, path: "Notes"))
+            .map { FileItem(archiveEntry: $0, in: archive) }
+        let photo = try #require(items.first { $0.name == "photo.png" })
+        let text = try #require(items.first { $0.name == "a.txt" })
+        #expect(Thumbnails.showsPreview(photo) && !Thumbnails.showsPreview(text))
+
+        // Requests that arrive together come out in one go, each to its own copy.
+        async let photoFile = ArchivePreviews.shared.file(for: photo.url)
+        async let textFile = ArchivePreviews.shared.file(for: text.url)
+        let (photoCopy, textCopy) = await (photoFile, textFile)
+        #expect(photoCopy?.lastPathComponent == "photo.png" && textCopy?.lastPathComponent == "a.txt")
+        #expect(ArchivePreviews.shared.cachedFile(for: photo.url) == photoCopy)
+        _ = await Thumbnails.shared.load(for: photo, size: 64, scale: 1)
+
+        let look = QuickLook.shared
+        if let panel = QLPreviewPanel.sharedPreviewPanelExists() ? QLPreviewPanel.shared() : nil { panel.orderOut(nil) }
+        let big = ArchiveLocation(archive: archive, path: "Notes/big.bin").url
+        var presented: [String] = []
+        BrowserTab.errorPresenter = { presented.append($0.localizedDescription) }
+        defer { BrowserTab.errorPresenter = nil }
+        let prepared = await ArchivePreviews.shared.prepare([big])
+        #expect(prepared, "\(presented)")
+        look.toggle { [big] }
+        try await eventually(timeout: .seconds(10)) { look.urls().count == 1 }
+        #expect(look.urls()[0].lastPathComponent == "big.bin" && look.urls()[0].isFileURL)
+        if let panel = QLPreviewPanel.sharedPreviewPanelExists() ? QLPreviewPanel.shared() : nil { panel.orderOut(nil) }
+        #expect(FileFormat.location(of: photo.url) == (root.displayPath as NSString).abbreviatingWithTildeInPath + "/Notes")
+    }
+
+    @Test func typedPathsGoThroughArchives() throws {
+        let directory = try TestDirectory()
+        let archive = try makeNotesArchive(in: directory)
+        #expect(ArchiveLocation.resolve(archive.path + "/Notes/a.txt") == ArchiveLocation(archive: archive, path: "Notes/a.txt"))
+        #expect(ArchiveLocation.resolve(archive.path + "/Notes/../Notes") == ArchiveLocation(archive: archive, path: "Notes"))
+        #expect(ArchiveLocation.resolve(directory.url.path + "/missing/file") == nil)
+        let plain = try directory.file("plain.txt", contents: "x")
+        #expect(ArchiveLocation.resolve(plain.path + "/inside") == nil)
+    }
 }

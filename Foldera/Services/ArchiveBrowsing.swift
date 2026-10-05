@@ -57,6 +57,23 @@ nonisolated struct ArchiveLocation: Hashable, Sendable {
         return components.url!
     }
 
+    /// A typed path that goes through an archive file, like "/Users/me/Wine.7z/Wine/Notes": the archive is
+    /// the deepest part that exists on disk. Nil when no archive Foldera can browse is on the way.
+    static func resolve(_ path: String) -> ArchiveLocation? {
+        var prefix = URL(fileURLWithPath: path).standardizedFileURL
+        var inside: [String] = []
+        while prefix.path != "/" {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: prefix.path, isDirectory: &isDirectory) {
+                guard !isDirectory.boolValue, Archives.isBrowsable(prefix) else { return nil }
+                return ArchiveLocation(archive: prefix, path: inside.reversed().joined(separator: "/"))
+            }
+            inside.append(prefix.lastPathComponent)
+            prefix = prefix.deletingLastPathComponent()
+        }
+        return nil
+    }
+
     var isRoot: Bool { path.isEmpty }
     /// The folder's name; the archive's own name at its top level.
     var name: String { isRoot ? archive.lastPathComponent : Self.name(of: path) }
@@ -136,6 +153,17 @@ nonisolated final class ArchiveCatalog: @unchecked Sendable {
         return listing.children[location.path] ?? []
     }
 
+    /// Bytes unpacked when extracting `paths` (with everything in the folders among them), or the whole
+    /// archive when `paths` is empty. Nil when the listing can't be read, e.g. without its password.
+    func unpackedSize(of paths: [String], in archive: URL) -> Int64? {
+        guard let listing = try? listing(for: archive) else { return nil }
+        let files = listing.entries.values.filter { !$0.isDirectory }
+        let chosen = paths.isEmpty ? files : files.filter { file in
+            paths.contains { file.path == $0 || file.path.hasPrefix($0 + "/") }
+        }
+        return chosen.reduce(0) { $0 + ($1.size ?? 0) }
+    }
+
     /// The listed item at `path`, if the archive has been read.
     func entry(_ path: String, in archive: URL) -> ArchiveEntry? {
         lock.withLock { listings[archive.standardizedFileURL.path]?.entries[path] }
@@ -189,6 +217,9 @@ nonisolated extension FileItem {
 
 /// Listing archive folders for `BrowserTab`, and taking items out of archives to open or copy them.
 nonisolated enum ArchiveDirectory {
+    /// Where items are taken out to open, copy or preview them; macOS clears the temporary folder over time.
+    static let temporaryRoot = FileManager.default.temporaryDirectory.appendingPathComponent("Foldera Archive Items", isDirectory: true)
+
     static func load(_ url: URL, catalog: ArchiveCatalog = .shared) async throws -> [FileItem] {
         guard let location = url.archiveLocation else { throw CocoaError(.fileReadInvalidFileName) }
         return try await Task.detached(priority: .userInitiated) {
@@ -198,15 +229,14 @@ nonisolated enum ArchiveDirectory {
 
     /// Extracts items from one archive into a new temporary folder and returns where each one landed.
     /// Throws `Archives.PasswordRequired` until `catalog` knows the right password.
-    static func extractToTemporaryFolder(_ urls: [URL], catalog: ArchiveCatalog = .shared) throws -> [URL] {
+    static func extractToTemporaryFolder(_ urls: [URL], catalog: ArchiveCatalog = .shared,
+                                         progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> [URL] {
         let locations = urls.compactMap(\.archiveLocation)
         guard let archive = locations.first?.archive else { return [] }
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Foldera Archive Items", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let folder = temporaryRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         do {
-            try extract(locations, from: archive, into: folder, catalog: catalog)
+            try extract(locations, from: archive, into: folder, catalog: catalog, progress: progress, totalBytes: totalBytes)
         } catch {
             try? FileManager.default.removeItem(at: folder)
             throw error
@@ -216,8 +246,26 @@ nonisolated enum ArchiveDirectory {
 
     /// Extracts items (with everything in the folders among them) into `folder`, keeping their paths inside the archive.
     /// A folder the archive only implies, with no entry of its own, still brings the items under it.
-    static func extract(_ locations: [ArchiveLocation], from archive: URL, into folder: URL, catalog: ArchiveCatalog = .shared) throws {
+    static func extract(_ locations: [ArchiveLocation], from archive: URL, into folder: URL, catalog: ArchiveCatalog = .shared,
+                        progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws {
         let names = locations.map { catalog.entry($0.path, in: archive)?.rawPath ?? $0.path }
-        try Archives.extract(archive, into: folder, password: catalog.password(for: archive), entries: names)
+        try Archives.extract(archive, into: folder, password: catalog.password(for: archive), entries: names,
+                             progress: progress, totalBytes: totalBytes)
+    }
+
+    /// Extracts items into `folder` through a staging folder, keeping both when names clash. Returns what was added.
+    static func extractKeepingBoth(_ locations: [ArchiveLocation], from archive: URL, into folder: URL, catalog: ArchiveCatalog = .shared,
+                                   progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> [URL] {
+        let fm = FileManager.default
+        let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
+        defer { try? fm.removeItem(at: staging) }
+        try extract(locations, from: archive, into: staging, catalog: catalog, progress: progress, totalBytes: totalBytes)
+        var created: [URL] = []
+        for location in locations {
+            let destination = FileOperations.uniqueURL(named: location.name, in: folder)
+            try fm.moveItem(at: staging.appendingPathComponent(location.path), to: destination)
+            created.append(destination)
+        }
+        return created
     }
 }

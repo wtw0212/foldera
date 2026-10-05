@@ -130,19 +130,37 @@ private struct AddressBar: View {
             if !openPath(expanded) { notFound(input) }
             return
         }
+        if let location = tab.url.archiveLocation {
+            // Inside an archive, relative paths start from this folder in it; ".." past its top leaves it.
+            let path = ((location.displayPath + "/" + expanded) as NSString).standardizingPath
+            if openPath(path) { return }
+        }
         if AddressCommand.runBuiltIn(input, in: tab.url) { return }
         if openPath(tab.url.appendingPathComponent(expanded).standardizedFileURL.path) { return }
         if AddressCommand.runFallback(input, in: tab.url) { return }
         notFound(input)
     }
 
-    /// Opens a folder here, or a file in its app. False when nothing is at `path`.
+    /// Opens a folder here, or a file in its app. An archive, or a path through one ("…/Wine.7z/Wine"),
+    /// opens its folder here. False when nothing is at `path`.
     private func openPath(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return false }
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            guard let location = ArchiveLocation.resolve(path) else { return false }
+            if let entry = ArchiveCatalog.shared.entry(location.path, in: location.archive), !entry.isDirectory {
+                tab.open(FileItem(archiveEntry: entry, in: location.archive))
+            } else {
+                // Not read yet (or a folder): the listing reports it if nothing is there.
+                tab.navigate(to: location.url)
+            }
+            tab.requestListFocus()
+            return true
+        }
         let url = URL(fileURLWithPath: path)
         if isDirectory.boolValue {
             tab.navigate(to: url)
+        } else if Archives.isBrowsable(url) {
+            tab.navigate(to: ArchiveLocation(archive: url).url)
         } else {
             NSWorkspace.shared.open(url)
         }

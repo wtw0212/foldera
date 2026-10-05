@@ -204,8 +204,7 @@ struct FileListView: NSViewRepresentable {
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            // Items inside archives can't be dragged out yet: use Copy or Extract.
-            items[row].url.isInArchive ? nil : ItemPasteboard.writer(for: items[row].url)
+            ItemPasteboard.writer(for: items[row].url)
         }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {

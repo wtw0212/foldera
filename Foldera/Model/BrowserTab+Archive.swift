@@ -7,6 +7,54 @@ enum ArchiveWindows {
     static var opener: ((URL) -> Void)?
 }
 
+/// Extractions shown in the progress window (with Cancel), asking for the archive's password while one is needed.
+enum ArchiveExtraction {
+    /// Runs `body` as a tracked transfer. Nil when the password prompt or Cancel stopped it.
+    static func run<T: Sendable>(_ archive: URL, itemCount: Int, source: URL, into destination: URL, totalBytes: Int64,
+                                 action: String, _ body: @escaping @Sendable (TransferProgress) throws -> T) async throws -> T? {
+        while true {
+            let transfer = FileTransfer(kind: .extract, itemCount: itemCount, source: source, destination: destination)
+            do {
+                return try await FileTransfers.shared.track(transfer, totalBytes: totalBytes, body)
+            } catch is CopyEngine.Cancelled {
+                return nil
+            } catch let needed as Archives.PasswordRequired {
+                guard let password = BrowserTab.askPassword(for: archive, wasWrong: needed.wasWrong, action: action) else { return nil }
+                ArchiveCatalog.shared.setPassword(password, for: archive)
+            }
+        }
+    }
+
+    /// Bytes to unpack, for the progress bar: from the archive's listing, or its own size when that can't be read.
+    static func size(of paths: [String], in archive: URL) async -> Int64 {
+        await Task.detached {
+            ArchiveCatalog.shared.unpackedSize(of: paths, in: archive)
+                ?? Int64((try? archive.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }.value
+    }
+
+    /// Takes items out of one archive into a new temporary folder, to open, copy or preview them.
+    static func toTemporaryFolder(_ urls: [URL], action: String) async throws -> [URL]? {
+        let locations = urls.compactMap(\.archiveLocation)
+        guard let first = locations.first else { return [] }
+        let total = await size(of: locations.map(\.path), in: first.archive)
+        return try await run(first.archive, itemCount: locations.count, source: first.parent?.url ?? ArchiveLocation(archive: first.archive).url,
+                             into: ArchiveDirectory.temporaryRoot, totalBytes: total, action: action) { progress in
+            try ArchiveDirectory.extractToTemporaryFolder(urls, progress: progress, totalBytes: total)
+        }
+    }
+
+    /// Extracts items into `folder`, keeping both when names clash. Returns what was added; nil when stopped.
+    static func items(_ locations: [ArchiveLocation], from archive: URL, into folder: URL) async throws -> [URL]? {
+        guard let first = locations.first else { return [] }
+        let total = await size(of: locations.map(\.path), in: archive)
+        return try await run(archive, itemCount: locations.count, source: first.parent?.url ?? ArchiveLocation(archive: archive).url,
+                             into: folder, totalBytes: total, action: L10n.text("Extract")) { progress in
+            try ArchiveDirectory.extractKeepingBoth(locations, from: archive, into: folder, progress: progress, totalBytes: total)
+        }
+    }
+}
+
 /// Commands for folders inside archives. They're read-only: items come out by opening, copying or extracting them.
 extension BrowserTab {
     /// Reads the archive's listing here first, asking for its password if the names are encrypted, so a
@@ -31,12 +79,9 @@ extension BrowserTab {
 
     /// Opens a file from an archive from a temporary copy; an archive inside the archive opens as a folder.
     func openArchiveItem(_ url: URL) {
-        guard let archive = url.archiveLocation?.archive else { return }
         Task {
             do {
-                guard let extracted = try await withArchivePassword(archive, action: L10n.text("Open"), {
-                    try ArchiveDirectory.extractToTemporaryFolder([url])
-                })?.first else { return }
+                guard let extracted = try await ArchiveExtraction.toTemporaryFolder([url], action: L10n.text("Open"))?.first else { return }
                 if Archives.isBrowsable(extracted) {
                     navigate(to: ArchiveLocation(archive: extracted).url)
                 } else {
@@ -51,13 +96,11 @@ extension BrowserTab {
     /// Copy inside an archive: the items are extracted to a temporary folder and those copies go on the
     /// clipboard, so they paste anywhere, Finder included.
     func copyArchiveSelection() {
-        let urls = selectedItems.map(\.url)
-        guard let archive = urls.first?.archiveLocation?.archive else { return }
+        let urls = selectedItems.map(\.url).filter(\.isInArchive)
+        guard !urls.isEmpty else { return }
         Task {
             do {
-                guard let extracted = try await withArchivePassword(archive, action: L10n.text("Copy"), {
-                    try ArchiveDirectory.extractToTemporaryFolder(urls)
-                }) else { return }
+                guard let extracted = try await ArchiveExtraction.toTemporaryFolder(urls, action: L10n.text("Copy")) else { return }
                 clipboard.copy(extracted)
             } catch {
                 Self.present(error)
@@ -90,19 +133,7 @@ extension BrowserTab {
     func extract(_ locations: [ArchiveLocation], from archive: URL, into folder: URL) {
         Task {
             do {
-                let created = try await withArchivePassword(archive, action: L10n.text("Extract")) {
-                    let fm = FileManager.default
-                    let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
-                    defer { try? fm.removeItem(at: staging) }
-                    try ArchiveDirectory.extract(locations, from: archive, into: staging)
-                    var created: [URL] = []
-                    for location in locations {
-                        let destination = FileOperations.uniqueURL(named: location.name, in: folder)
-                        try fm.moveItem(at: staging.appendingPathComponent(location.path), to: destination)
-                        created.append(destination)
-                    }
-                    return created
-                }
+                let created = try await ArchiveExtraction.items(locations, from: archive, into: folder)
                 finishArchiveJob(name: "Extract", created: created ?? [], error: nil, revealing: true)
             } catch {
                 finishArchiveJob(name: "Extract", created: [], error: error)
@@ -144,6 +175,67 @@ extension BrowserTab {
                 guard let password = Self.askPassword(for: archive, wasWrong: needed.wasWrong, action: action) else { return nil }
                 ArchiveCatalog.shared.setPassword(password, for: archive)
             }
+        }
+    }
+}
+
+/// Copies of archive items taken out for thumbnails, the Details pane and Quick Look, kept for the session.
+/// Requests that arrive together (a folder's thumbnails) are taken out in one 7-Zip run.
+final class ArchivePreviews {
+    static let shared = ArchivePreviews()
+
+    /// Larger items get no automatic thumbnail or Details preview: taking them out would take too long.
+    static let automaticSizeLimit: Int64 = 64 * 1024 * 1024
+
+    private var files: [URL: URL] = [:]
+    private var waiting: [URL: [CheckedContinuation<URL?, Never>]] = [:]
+    private var queued: [URL: [URL]] = [:]
+
+    func cachedFile(for url: URL) -> URL? {
+        guard let file = files[url], FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return file
+    }
+
+    /// The item's copy, taken out quietly (no progress, no password prompt). Nil when that isn't possible.
+    func file(for url: URL) async -> URL? {
+        if let file = cachedFile(for: url) { return file }
+        guard let archive = url.archiveLocation?.archive else { return nil }
+        return await withCheckedContinuation { continuation in
+            waiting[url, default: []].append(continuation)
+            guard !(queued[archive]?.contains(url) ?? false) else { return }
+            let first = queued[archive] == nil
+            queued[archive, default: []].append(url)
+            if first {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(80))
+                    await flush(archive)
+                }
+            }
+        }
+    }
+
+    private func flush(_ archive: URL) async {
+        let urls = queued.removeValue(forKey: archive) ?? []
+        let extracted = await Task.detached { try? ArchiveDirectory.extractToTemporaryFolder(urls) }.value
+        for (index, url) in urls.enumerated() {
+            let file = extracted?[index]
+            if let file { files[url] = file }
+            for continuation in waiting.removeValue(forKey: url) ?? [] { continuation.resume(returning: file) }
+        }
+    }
+
+    /// For Quick Look: takes out whatever isn't ready yet, with progress and the password prompt.
+    /// False when that was cancelled or failed.
+    func prepare(_ urls: [URL]) async -> Bool {
+        let missing = urls.filter { $0.isInArchive && cachedFile(for: $0) == nil }
+        guard !missing.isEmpty else { return true }
+        do {
+            guard let extracted = try await ArchiveExtraction.toTemporaryFolder(missing, action: L10n.text("Open")) else { return false }
+            for (url, file) in zip(missing, extracted) { files[url] = file }
+            return true
+        } catch {
+            BrowserTab.present(error)
+            return false
         }
     }
 }

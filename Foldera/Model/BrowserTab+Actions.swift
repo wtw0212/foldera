@@ -164,28 +164,26 @@ extension BrowserTab {
             var created: [URL] = []
             var failure: Error?
             for archive in archives {
-                // A password typed while browsing the archive is tried first.
-                var password = ArchiveCatalog.shared.password(for: archive)
-                while true {
-                    do {
-                        created += try await Task.detached(priority: .userInitiated) { [password] in
-                            switch destination {
-                            case .here: try Archives.extractHere(archive, into: archive.deletingLastPathComponent(), password: password)
-                            case .ownFolder: [try Archives.extractToFolder(archive, password: password)]
-                            case .folder(let folder, ownFolder: true): [try Archives.extractToFolder(archive, in: folder, password: password)]
-                            case .folder(let folder, ownFolder: false): try Archives.extractHere(archive, into: folder, password: password)
-                            }
-                        }.value
-                    } catch let needed as Archives.PasswordRequired {
-                        password = Self.askPassword(for: archive, wasWrong: needed.wasWrong, action: L10n.text("Extract"))
-                        if password != nil {
-                            ArchiveCatalog.shared.setPassword(password, for: archive)
-                            continue
+                let folder: URL = switch destination {
+                case .here, .ownFolder: archive.deletingLastPathComponent()
+                case .folder(let folder, _): folder
+                }
+                do {
+                    let total = await ArchiveExtraction.size(of: [], in: archive)
+                    // The password is read when each attempt starts: one typed while browsing is tried first.
+                    let added = try await ArchiveExtraction.run(archive, itemCount: 1, source: ArchiveLocation(archive: archive).url, into: folder,
+                                                                totalBytes: total, action: L10n.text("Extract")) { progress in
+                        let password = ArchiveCatalog.shared.password(for: archive)
+                        return switch destination {
+                        case .here, .folder(_, ownFolder: false):
+                            try Archives.extractHere(archive, into: folder, password: password, progress: progress, totalBytes: total)
+                        case .ownFolder, .folder(_, ownFolder: true):
+                            [try Archives.extractToFolder(archive, in: folder, password: password, progress: progress, totalBytes: total)]
                         }
-                    } catch {
-                        failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                     }
-                    break
+                    created += added ?? []
+                } catch {
+                    failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                 }
             }
             // Only an Extract to a chosen folder opens it; the others may finish after the user moved on.

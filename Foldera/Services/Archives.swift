@@ -97,11 +97,11 @@ nonisolated enum Archives {
     // MARK: Extract
 
     /// Extracts into a new folder named after the archive, in `parent` (next to the archive by default). Returns that folder.
-    static func extractToFolder(_ archive: URL, in parent: URL? = nil, password: String? = nil) throws -> URL {
+    static func extractToFolder(_ archive: URL, in parent: URL? = nil, password: String? = nil, progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> URL {
         let folder = FileOperations.uniqueURL(named: baseName(of: archive), in: parent ?? archive.deletingLastPathComponent())
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
-            try extract(archive, into: folder, password: password)
+            try extract(archive, into: folder, password: password, progress: progress, totalBytes: totalBytes)
         } catch {
             try? FileManager.default.removeItem(at: folder) // ours, created above
             throw error
@@ -111,11 +111,11 @@ nonisolated enum Archives {
 
     /// Extracts the archive's contents into `folder` itself, keeping both when names clash.
     /// Returns the items that were added.
-    static func extractHere(_ archive: URL, into folder: URL, password: String? = nil) throws -> [URL] {
+    static func extractHere(_ archive: URL, into folder: URL, password: String? = nil, progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws -> [URL] {
         let fm = FileManager.default
         let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
         defer { try? fm.removeItem(at: staging) }
-        try extract(archive, into: staging, password: password)
+        try extract(archive, into: staging, password: password, progress: progress, totalBytes: totalBytes)
         var added: [URL] = []
         for item in try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil) {
             let destination = FileOperations.uniqueURL(named: item.lastPathComponent, in: folder)
@@ -126,11 +126,16 @@ nonisolated enum Archives {
     }
 
     /// Extracts the whole archive, or only `entries` (paths inside it, as `list` gives them, with their folders).
-    static func extract(_ archive: URL, into directory: URL, password: String? = nil, entries: [String] = []) throws {
+    /// `progress` gets 7-Zip's percentage of `totalBytes`, and cancelling it stops the extraction.
+    static func extract(_ archive: URL, into directory: URL, password: String? = nil, entries: [String] = [],
+                        progress: TransferProgress? = nil, totalBytes: Int64 = 0) throws {
         let useTar = suffix(of: archive).map(tarSuffixes.contains) ?? false
+        // Progress is reported as a share of what 7-Zip unpacks, so the archive's growth isn't measured.
+        let meter = progress.map { CompressionMeter(progress: $0, archive: directory, total: totalBytes, name: archive.lastPathComponent) }
         guard !useTar || !entries.isEmpty, let sevenZip else {
             // __MACOSX holds Finder metadata copies that only clutter the result.
-            try run(URL(fileURLWithPath: "/usr/bin/tar"), ["-x", "-f", archive.path, "-C", directory.path, "--exclude", "__MACOSX"])
+            try run(URL(fileURLWithPath: "/usr/bin/tar"), ["-x", "-f", archive.path, "-C", directory.path, "--exclude", "__MACOSX"], meter: meter)
+            meter?.complete()
             return
         }
         do {
@@ -138,10 +143,20 @@ nonisolated enum Archives {
             // 7-Zip reads an empty line and reports a wrong password for encrypted archives.
             // -spd: entry names are matched literally, so "*" or "?" in a name isn't a wildcard.
             let selection = entries.isEmpty ? ["-xr!__MACOSX"] : ["-spd"]
-            try run(sevenZip, ["x", "-y", "-bso0", "-bsp0"] + selection + ["-o" + directory.path, "--", archive.path] + entries,
-                    input: (password ?? "") + "\n")
+            try run(sevenZip, ["x", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1"] + selection + ["-o" + directory.path, "--", archive.path] + entries,
+                    input: (password ?? "") + "\n", meter: meter, handleLine: percentLine(meter))
         } catch let failure as Failure where isPasswordFailure(failure) {
             throw PasswordRequired(archive: archive, wasWrong: password != nil)
+        }
+        meter?.complete()
+    }
+
+    /// "-bsp1" redraws "  42% 12 - name" in place.
+    private static func percentLine(_ meter: CompressionMeter?) -> (String) -> Bool {
+        { line in
+            guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
+            meter?.reached(percent: percent)
+            return true
         }
     }
 
@@ -296,12 +311,8 @@ nonisolated enum Archives {
             }
             // Given full paths, 7-Zip stores each item under its own name (no parent folders). -snl keeps links.
             arguments += ["-snl", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path]
-            try run(sevenZip, arguments + items.map(\.path), input: options.hasPassword ? options.password! + "\n" : nil, meter: meter) { line in
-                // "-bsp1" redraws "  42% 12 + name" in place.
-                guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
-                meter?.reached(percent: percent)
-                return true
-            }
+            try run(sevenZip, arguments + items.map(\.path), input: options.hasPassword ? options.password! + "\n" : nil,
+                    meter: meter, handleLine: percentLine(meter))
         } else if items.count == 1 && !isSymbolicLink(items[0]) {
             // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does. It follows
             // a link given as its source, so a selected link goes to zip below; links inside a folder stay links.
@@ -355,11 +366,11 @@ nonisolated enum Archives {
         private var archiveAtLastFile: Int64 = 0
         private var byPercent = false
 
-        init(progress: TransferProgress, archive: URL, total: Int64) {
+        init(progress: TransferProgress, archive: URL, total: Int64, name: String? = nil) {
             self.progress = progress
             self.archive = archive
             self.total = total
-            progress.setCurrentName(archive.lastPathComponent)
+            progress.setCurrentName(name ?? archive.lastPathComponent)
         }
 
         var isCancelled: Bool { progress.isCancelled }
