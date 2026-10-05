@@ -1,5 +1,5 @@
 // swift-tools-version:5.10
-// Joannis/swift-nio-ssh 0.3.5 (791437a), the fork Citadel 0.12.0 depends on, with one patch: see PATCHES.md.
+// Joannis/swift-nio-ssh 0.3.5 (791437a), the fork Citadel 0.12.0 depends on, with Foldera's patches: see PATCHES.md.
 // Foldera's project lists this local package, which overrides the remote one for Citadel too.
 
 import PackageDescription

@@ -7,7 +7,7 @@ packages:
   Citadel:
     url: https://github.com/orlandos-nl/Citadel
     exactVersion: 0.12.0
-  # Citadel's swift-nio-ssh fork with Foldera's RFC 8332 patch; as a local package it replaces the remote one
+  # Citadel's swift-nio-ssh fork with Foldera's patches (RFC 8332, CVE-2026-43798); as a local package it replaces the remote one
   # for Citadel too. See ThirdParty/swift-nio-ssh/PATCHES.md.
   swift-nio-ssh:
     path: ThirdParty/swift-nio-ssh
