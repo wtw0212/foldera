@@ -91,6 +91,43 @@ struct RemoteEditingLifecycleTests {
         #expect(restored.sessions.isEmpty && !FileOperations.exists(local))
     }
 
+    /// Editors and tools can rewrite a file and set its modification date back. The bytes are still new, so
+    /// they're uploaded, and the copy isn't deleted as if it were synchronized.
+    @Test func rewritesThatKeepTheModificationDateAreStillUploaded() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let manager = editing(cache, server: FakeRemoteFileSystem())
+        let original = try remote.file("notes.txt", contents: "v1")
+        let local = try await manager.open(uniqueEndpoint().url(path: original.path))
+        let modified = try #require(try FileManager.default.attributesOfItem(atPath: local.path)[.modificationDate] as? Date)
+        let handle = try FileHandle(forWritingTo: local) // in place: same file, same size
+        try handle.write(contentsOf: Data("v2".utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: local.path)
+        #expect(manager.pendingFiles == ["notes.txt"])
+        await manager.finishEditing()
+        #expect(try String(contentsOf: original, encoding: .utf8) == "v2")
+        #expect(manager.sessions.isEmpty)
+    }
+
+    /// Records written before versions included more than a date can't vouch for their copy: it's kept for recovery.
+    @Test func olderRecordsKeepTheirCopiesForRecovery() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let server = FakeRemoteFileSystem()
+        var manager: RemoteEditing? = editing(cache, server: server)
+        let original = try remote.file("old.txt", contents: "v1")
+        let local = try #require(await manager?.open(uniqueEndpoint().url(path: original.path)))
+        let session = try #require(manager?.sessions.first)
+        let metadata = session.directory.appendingPathComponent("session.json")
+        var record = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: Any])
+        record["uploadedVersion"] = Date().timeIntervalSinceReferenceDate
+        record["closed"] = true
+        try JSONSerialization.data(withJSONObject: record).write(to: metadata, options: .atomic)
+        manager = nil // ended without cleaning up
+        let restored = editing(cache, server: server)
+        #expect(restored.hasRecoveredSessions && FileOperations.exists(local))
+        restored.prepareToQuit()
+    }
+
     @Test func failedFinishRetainsTheOnlyUnsentCopy() async throws {
         let cache = try TestDirectory(), remote = try TestDirectory()
         let server = FakeRemoteFileSystem(), errors = ErrorCollector()

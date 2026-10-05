@@ -335,11 +335,18 @@ private struct ECDSASignatureHelper {
         UInt64
     ) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-    private init(r: ByteBuffer, s: ByteBuffer, pointSize: Int) {
+    private init(r: ByteBuffer, s: ByteBuffer, pointSize: Int) throws { // FOLDERA PATCH: was non-throwing
         precondition(MemoryLayout<ECDSASignatureHelper>.size >= pointSize, "Invalid width for ECDSA signature helper.")
 
         let rByteView = r.mpIntView
         let sByteView = s.mpIntView
+
+        // FOLDERA PATCH (CVE-2026-43798, backported from upstream 0.14.1): r and s are attacker-controlled and
+        // parsed before authentication. Wider than the point size, they'd give a negative starting offset below
+        // and an out-of-bounds write into the stack storage.
+        guard rByteView.count <= pointSize, sByteView.count <= pointSize else {
+            throw NIOSSHError.invalidSSHMessage(reason: "ECDSA signature mpint exceeds curve point size")
+        }
 
         let rByteStartingOffset = pointSize - rByteView.count
         let sByteStartingOffset = pointSize - sByteView.count
@@ -357,7 +364,7 @@ private struct ECDSASignatureHelper {
     }
 
     static func toECDSASignature<Signature: ECDSASignatureProtocol>(r: ByteBuffer, s: ByteBuffer) throws -> Signature {
-        let helper = ECDSASignatureHelper(r: r, s: s, pointSize: Signature.pointSize)
+        let helper = try ECDSASignatureHelper(r: r, s: s, pointSize: Signature.pointSize) // FOLDERA PATCH: try
         return try withUnsafeBytes(of: helper.storage) { storagePtr in
             try Signature(rawRepresentation: UnsafeRawBufferPointer(rebasing: storagePtr.prefix(Signature.pointSize * 2)))
         }

@@ -114,7 +114,7 @@ struct RemoteTransfers {
                     // cannot make cleanup delete a colliding public path.
                     let localStaging = job.destination.isRemote ? nil : try FileManager.default.url(
                         for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: job.destination, create: true)
-                    let staging = localStaging?.appendingPathComponent("payload") ?? Self.stagingURL(for: job.destination)
+                    let staging = if let localStaging { localStaging.appendingPathComponent("payload") } else { try await stagingURL(for: job.destination) }
                     defer { if let localStaging { try? FileManager.default.removeItem(at: localStaging) } }
                     do {
                         try await copy(job, to: staging, counter: counter, moving: kind == .move)
@@ -149,7 +149,8 @@ struct RemoteTransfers {
     private func commit(_ item: URL, to destination: URL, replacing: Bool, isStaging: Bool) async throws {
         if destination.isRemote {
             return try await connections.commit(item.remotePath, to: destination.remotePath, on: try Self.endpoint(destination),
-                                                replacing: replacing, isStaging: isStaging)
+                                                replacing: replacing, isStaging: isStaging,
+                                                stagingDirectory: isStaging ? RemotePath.parent(of: item.remotePath) : nil)
         }
         guard replacing, FileOperations.exists(destination) else {
             return try FileManager.default.moveItem(at: item, to: destination)
@@ -271,17 +272,17 @@ struct RemoteTransfers {
         return try await connections.read(try Self.endpoint(job.source)) { try await $0.totalSize(entry) }
     }
 
-    /// ".name.foldera-1A2B3C4D.part" beside `destination`.
-    static func stagingURL(for destination: URL) -> URL {
-        child(parent(of: destination), ".\(name(of: destination)).foldera-\(UUID().uuidString.prefix(8)).part")
+    /// A payload inside an exclusively acquired private directory beside `destination` on its server.
+    func stagingURL(for destination: URL) async throws -> URL {
+        let endpoint = try Self.endpoint(destination)
+        let directory = try await connections.reserveTemporaryDirectory(beside: destination.remotePath, suffix: "part", on: endpoint)
+        return endpoint.url(path: RemotePath.join(directory, "payload"))
     }
 
     /// Deletes a staging copy (never to the Trash). Best effort: the transfer's own error is what matters.
     private func discard(_ url: URL) async {
         if url.isRemote {
-            _ = try? await connections.perform(try Self.endpoint(url)) { system in
-                if let entry = try await system.unfollowedEntry(at: url.remotePath) { try await system.removeRecursively(entry) }
-            }
+            try? await connections.discardTemporaryDirectory(RemotePath.parent(of: url.remotePath), on: Self.endpoint(url))
         } else {
             try? FileManager.default.removeItem(at: url)
         }

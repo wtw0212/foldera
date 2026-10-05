@@ -7,6 +7,7 @@ import Testing
 @MainActor
 struct RemoteTransferTests {
     nonisolated enum Direction: CaseIterable, Sendable { case upload, download, betweenServers }
+    nonisolated enum ReplacementKind: CaseIterable, Sendable { case edit, copy, move }
 
     private func transfers(choice: NSApplication.ModalResponse = .alertSecondButtonReturn, alerts: ((String) -> Void)? = nil) -> RemoteTransfers {
         var transfers = RemoteTransfers(transfers: .shared)
@@ -360,7 +361,10 @@ struct RemoteTransferTests {
         let replaced = await transfers(choice: .alertFirstButtonReturn).run(.copy, [file], into: folder)
         #expect(replaced.error == nil)
         #expect(try Data(contentsOf: remote.path("data.bin")).count == 1_000)
-        #expect(RemoteTransfers.stagingURL(for: remote.path("x.txt")).lastPathComponent.hasPrefix(".x.txt.foldera-"))
+        let staging = try await transfers().stagingURL(for: endpoint.url(path: remote.path("x.txt").path))
+        let stagingDirectory = staging.deletingLastPathComponent()
+        #expect(staging.lastPathComponent == "payload")
+        #expect(stagingDirectory.lastPathComponent.hasPrefix(".foldera-") && stagingDirectory.lastPathComponent.hasSuffix(".part"))
     }
 
     @Test func replacingNeverLosesTheOriginalWhenTheFinalRenameFails() async throws {
@@ -425,6 +429,73 @@ struct RemoteTransferTests {
         try await eventually { tab.items.map(\.name).sorted() == ["cut.txt", "dropped.txt"] }
     }
 
+    @Test(arguments: ReplacementKind.allCases)
+    func destinationRacesPreserveAllCopiesAndJournal(kind: ReplacementKind) async throws {
+        let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
+        let preferences = try TestPreferences(), errors = ErrorCollector()
+        let target = try remote.file("data.txt", contents: "original")
+        let localSource = try local.file("data.txt", contents: "replacement")
+        let moveSource = try remote.file("source/data.txt", contents: "replacement")
+        let backup = remote.path(".foldera-BACKUP.old/payload")
+        let server = FakeRemoteFileSystem(beforeRename: { path, destination in
+            if destination == target.path, !RemotePath.parent(of: path).hasSuffix(".old") {
+                try Data("other client's data".utf8).write(to: target)
+            }
+        })
+        let journal = SwapJournal(defaults: preferences.defaults)
+        let connections = RemoteConnections(connector: { _ in server.reconnect() }, journal: journal)
+        connections.uniqueToken = { "BACKUP" }
+        var failure: Error?
+        if kind == .edit {
+            do {
+                try await connections.upload(localSource, replacing: target.path, on: endpoint) { _ in }
+            } catch { failure = error }
+        } else {
+            var transfer = transfers(choice: .alertFirstButtonReturn)
+            transfer.connections = connections
+            let source = kind == .move ? endpoint.url(path: moveSource.path) : localSource
+            let result = await transfer.run(kind == .move ? .move : .copy, [source], into: endpoint.url(path: remote.url.path))
+            failure = result.error
+            #expect(result.results.isEmpty && result.completedSources.isEmpty && result.consumedCutSources.isEmpty)
+            #expect(errors.errors.count == 1)
+        }
+        #expect(failure != nil)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "other client's data")
+        #expect(try String(contentsOf: localSource, encoding: .utf8) == "replacement")
+        #expect(try String(contentsOf: moveSource, encoding: .utf8) == "replacement")
+        #expect(FileOperations.exists(backup), "the original must survive the failed final rename")
+        if FileOperations.exists(backup) { #expect(try String(contentsOf: backup, encoding: .utf8) == "original") }
+        #expect(journal.swaps.count == 1, "an unresolved conflict must retain its recovery record")
+        #expect(failure as? RemoteError == .replacementConflict(target.path, backup.path))
+        let pending = try #require(journal.swaps.first)
+        let source = try #require(pending.source)
+        #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement")
+        #expect(source == (kind == .move ? moveSource.path : remote.path(".foldera-BACKUP.part/payload").path))
+        #expect((pending.staging == nil) == (kind == .move))
+
+        // Reopening the journal must preserve the source evidence and block mutations until resolved.
+        let reopened = SwapJournal(defaults: preferences.defaults)
+        #expect(reopened.swaps == [pending])
+        let restored = RemoteConnections(connector: { _ in server.reconnect() }, journal: reopened)
+        var mutations = 0
+        await #expect(throws: RemoteError.replacementConflict(target.path, backup.path)) {
+            try await restored.perform(endpoint) { _ in mutations += 1 }
+        }
+        #expect(mutations == 0 && reopened.swaps == [pending])
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "original")
+        #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement")
+        #expect(try String(contentsOf: target, encoding: .utf8) == "other client's data")
+
+        // Once the other client removes its destination, recovery restores the original safely.
+        try FileManager.default.removeItem(at: target)
+        _ = try await restored.fileSystem(for: endpoint)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: moveSource, encoding: .utf8) == "replacement")
+        #expect(!FileOperations.exists(backup.deletingLastPathComponent()))
+        if let directory = pending.stagingDirectory { #expect(!FileOperations.exists(URL(fileURLWithPath: directory))) }
+        #expect(SwapJournal(defaults: preferences.defaults).swaps.isEmpty)
+    }
+
     /// A dropped connection may lose a rename's reply after the server carried it out. Foldera reconnects,
     /// looks, and either finishes the replace or puts the original back.
     @Test func replacingRecoversFromDroppedConnections() async throws {
@@ -470,7 +541,8 @@ struct RemoteTransferTests {
         try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
         #expect(try contents() == "edited")
         #expect(connections.journal.swaps.count == 1)
-        #expect(try leftovers().count == 3, "the backup is still there")
+        let pending = try #require(connections.journal.swaps.first)
+        #expect(try String(contentsOfFile: pending.backup, encoding: .utf8) == "moved", "the complete backup is still there")
         _ = try await connections.fileSystem(for: endpoint)
         #expect(connections.journal.swaps.isEmpty)
         #expect(try leftovers() == ["data.txt", "other"])

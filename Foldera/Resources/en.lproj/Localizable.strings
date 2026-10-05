@@ -318,6 +318,8 @@
 "The identity of %@ has changed" = "The identity of %@ has changed";
 "The passphrase is incorrect. Try again." = "The passphrase is incorrect. Try again.";
 "The password was not accepted. Try again." = "The password was not accepted. Try again.";
+"The replacement of “%@” has a conflict. The original is kept at “%@”. Resolve the conflict before reconnecting." = "The replacement of “%@” has a conflict. The original is kept at “%@”. Resolve the conflict before reconnecting.";
+"“%@” can’t replace a folder that contains it." = "“%@” can’t replace a folder that contains it.";
 "The server asks for a password." = "The server asks for a password.";
 "The server presented a different key than last time. Someone could be intercepting the connection, or the server was reinstalled. New fingerprint:\n\n%@" = "The server presented a different key than last time. Someone could be intercepting the connection, or the server was reinstalled. New fingerprint:\n\n%@";
 "The user name, password or key was not accepted by %@." = "The user name, password or key was not accepted by %@.";

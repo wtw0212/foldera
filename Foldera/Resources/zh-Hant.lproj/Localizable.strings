@@ -318,6 +318,8 @@
 "The identity of %@ has changed" = "%@ 的身分已變更";
 "The passphrase is incorrect. Try again." = "密語不正確，請再試一次。";
 "The password was not accepted. Try again." = "密碼未被接受，請再試一次。";
+"The replacement of “%@” has a conflict. The original is kept at “%@”. Resolve the conflict before reconnecting." = "取代「%@」時出現衝突。原始項目已保留於「%@」。請先處理衝突，再重新連線。";
+"“%@” can’t replace a folder that contains it." = "「%@」無法取代包含它的資料夾。";
 "The server asks for a password." = "伺服器要求輸入密碼。";
 "The server presented a different key than last time. Someone could be intercepting the connection, or the server was reinstalled. New fingerprint:\n\n%@" = "伺服器提供的金鑰與上次不同。可能有人正在攔截連線，或伺服器已重新安裝。新的指紋：\n\n%@";
 "The user name, password or key was not accepted by %@." = "%@ 不接受此使用者名稱、密碼或金鑰。";

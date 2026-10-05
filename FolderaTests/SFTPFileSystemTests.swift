@@ -6,6 +6,71 @@ import Testing
 /// Real SFTP against a local OpenSSH server.
 @Suite(.serialized)
 struct SFTPFileSystemTests {
+    @Test(arguments: [false, true])
+    func destinationConflictsRetainOriginalsOverSFTP(isStaging: Bool) async throws {
+        let server = try LocalSSHServer(), remote = try TestDirectory(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let journal = SwapJournal(defaults: nil)
+        let connections = RemoteConnections(connector: { _ in sftp }, journal: journal)
+        let target = try remote.file("data.txt", contents: "original")
+        let localSource = try local.file("replacement.txt", contents: "replacement")
+        let stagingDirectory = isStaging ? try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "part", on: server.endpoint) : nil
+        let source = stagingDirectory.map { RemotePath.join($0, "payload") } ?? remote.path("replacement.txt").path
+        try await sftp.upload(localSource, to: source) { _ in }
+        let backupDirectory = try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "old", on: server.endpoint)
+        let swap = PendingSwap(endpoint: server.endpoint, path: target.path, backup: RemotePath.join(backupDirectory, "payload"),
+                               staging: isStaging ? source : nil, source: source,
+                               backupDirectory: backupDirectory, stagingDirectory: stagingDirectory)
+        journal.add(swap)
+        try await sftp.rename(target.path, to: swap.backup)
+        try Data("other client's data".utf8).write(to: target)
+        await #expect(throws: RemoteError.self) { try await sftp.rename(source, to: target.path) }
+        await #expect(throws: RemoteError.replacementConflict(target.path, swap.backup)) {
+            try await connections.settle(swap, using: sftp)
+        }
+        if let stagingDirectory { try await connections.discardTemporaryDirectory(stagingDirectory, on: server.endpoint) }
+        #expect(try String(contentsOfFile: swap.backup, encoding: .utf8) == "original")
+        #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement")
+        #expect(try String(contentsOf: target, encoding: .utf8) == "other client's data")
+        #expect(journal.swaps == [swap])
+
+        try FileManager.default.removeItem(at: target)
+        try await connections.settle(swap, using: sftp)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: localSource, encoding: .utf8) == "replacement")
+        if !isStaging { #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement") }
+        #expect(!FileOperations.exists(URL(fileURLWithPath: backupDirectory)))
+        #expect(journal.swaps.isEmpty)
+        await sftp.close()
+    }
+
+    @Test func privateReservationsRejectOccupiedPathsAndSupportLongNames() async throws {
+        let server = try LocalSSHServer(), remote = try TestDirectory(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let connections = RemoteConnections(connector: { _ in sftp }, journal: SwapJournal(defaults: nil))
+        let target = try remote.file(String(repeating: "a", count: 220), contents: "original")
+        let edit = try local.file("edit.txt", contents: "edited")
+        let occupied = try remote.folder(".foldera-TAKEN.part")
+        let sentinel = occupied.appendingPathComponent("payload")
+        try Data("KEEP".utf8).write(to: sentinel)
+        let dangling = remote.path(".foldera-LINK.part")
+        try FileManager.default.createSymbolicLink(atPath: dangling.path, withDestinationPath: "missing")
+        var tokens = ["TAKEN", "LINK", "FRESH", "BACKUP"]
+        connections.uniqueToken = { tokens.removeFirst() }
+        try await connections.upload(edit, replacing: target.path, on: server.endpoint) { _ in }
+        #expect(try String(contentsOf: target, encoding: .utf8) == "edited")
+        #expect(try String(contentsOf: sentinel, encoding: .utf8) == "KEEP")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: dangling.path) == "missing")
+        #expect(tokens.isEmpty && connections.journal.swaps.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: remote.url.path).count == 3)
+
+        connections.uniqueToken = { "MODE" }
+        let directory = try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "part", on: server.endpoint)
+        #expect(try await sftp.entry(at: directory)?.permissions.map { $0 & 0o777 } == 0o700)
+        try await connections.discardTemporaryDirectory(directory, on: server.endpoint)
+        await sftp.close()
+    }
+
     @Test func downloadsRejectOccupiedPathsWithoutRemovingThem() async throws {
         let server = try LocalSSHServer(), directory = try TestDirectory()
         let sftp = try await server.connect()

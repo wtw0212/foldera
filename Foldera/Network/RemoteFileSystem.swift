@@ -22,7 +22,8 @@ nonisolated protocol RemoteFileSystem: AnyObject, Sendable {
     func list(_ path: String) async throws -> [RemoteEntry]
     /// Nil when nothing exists at `path`.
     func entry(at path: String) async throws -> RemoteEntry?
-    func makeDirectory(_ path: String) async throws
+    /// Creates a directory exclusively: an existing file, directory or link must cause an error.
+    func makeDirectory(_ path: String, permissions: UInt32?) async throws
     func createFile(_ path: String) async throws
     func rename(_ path: String, to newPath: String) async throws
     func removeFile(_ path: String) async throws
@@ -35,6 +36,10 @@ nonisolated protocol RemoteFileSystem: AnyObject, Sendable {
 }
 
 nonisolated extension RemoteFileSystem {
+    func makeDirectory(_ path: String) async throws {
+        try await makeDirectory(path, permissions: nil)
+    }
+
     /// The item at `path` as its folder lists it, so a symbolic link is reported as a link
     /// (`entry(at:)` follows links). Nil when it doesn't exist.
     func unfollowedEntry(at path: String) async throws -> RemoteEntry? {
@@ -89,6 +94,7 @@ nonisolated enum RemoteError: LocalizedError, Equatable {
     case unsupportedKey(String)
     case notFound(String)
     case alreadyExists(String)
+    case replacementConflict(String, String)
     case failed(String)
 
     var errorDescription: String? {
@@ -106,6 +112,9 @@ nonisolated enum RemoteError: LocalizedError, Equatable {
             L10n.format("“%@” no longer exists on the server.", language: language, arguments: [name])
         case .alreadyExists(let name):
             L10n.format("An item named “%@” already exists in this location.", language: language, arguments: [name])
+        case .replacementConflict(let path, let backup):
+            L10n.format("The replacement of “%@” has a conflict. The original is kept at “%@”. Resolve the conflict before reconnecting.",
+                        language: language, arguments: [path, backup])
         case .failed(let message):
             message
         }

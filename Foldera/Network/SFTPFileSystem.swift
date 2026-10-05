@@ -160,8 +160,12 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         }
     }
 
-    func makeDirectory(_ path: String) async throws {
-        try await translate(path) { try await self.sftp.createDirectory(atPath: path) }
+    func makeDirectory(_ path: String, permissions: UInt32?) async throws {
+        try await translate(path) {
+            var attributes = SFTPFileAttributes()
+            attributes.permissions = permissions
+            try await self.sftp.createDirectory(atPath: path, attributes: attributes)
+        }
     }
 
     func createFile(_ path: String) async throws {

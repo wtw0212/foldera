@@ -137,61 +137,78 @@ nonisolated enum Archives {
     }
 
     /// Compresses `items` into `archive`, which must not exist. `progress` gets bytes read from the items.
+    /// Symbolic links are stored as links and never followed, so an archive holds only what was selected.
     static func compress(_ items: [URL], format: Format = .zip, to archive: URL, progress: TransferProgress? = nil) throws {
         guard let first = items.first else { throw Failure(message: "Nothing to compress.") }
+        if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
         let meter = progress.map { CompressionMeter(progress: $0, archive: archive, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }) }
         do {
-            switch format {
-            case .sevenZip:
-                guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
-                // Given full paths, 7-Zip stores each item under its own name (no parent folders).
-                try run(sevenZip, ["a", "-t7z", "-mx=5", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path] + items.map(\.path),
-                        meter: meter) { line in
-                    // "-bsp1" redraws "  42% 12 + name" in place.
-                    guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
-                    meter?.reached(percent: percent)
-                    return true
-                }
-            case .zip where items.count == 1:
-                // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does.
-                // For a file, --keepParent includes its containing directory instead of just the file.
-                var arguments = ["-c", "-k", "--sequesterRsrc"]
-                if try first.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
-                    arguments.append("--keepParent")
-                }
-                if meter != nil { arguments.append("-V") }
-                try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [first.path, archive.path], meter: meter) { line in
-                    // -V prints "copying file ./x ... " before and "1234 bytes for ./x" after each file.
-                    if let match = line.firstMatch(of: #/^(\d+) bytes for /#), let bytes = Int64(match.1) {
-                        meter?.finished(bytes: bytes)
-                        return true
-                    }
-                    return line.hasPrefix(">>> Copying ") || line.hasPrefix("copying file ")
-                }
-            case .zip where sameParent:
-                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + items.map(\.lastPathComponent) + ["-x", "*.DS_Store"],
-                        in: parent, meter: meter) { zipLine($0, in: parent, meter: meter) }
-            case .zip:
-                // Search results from several folders: store each item under its own name.
+            if sameParent {
+                try compress(items.map(\.lastPathComponent), in: parent, format: format, to: archive, meter: meter)
+            } else {
+                // Search results from several folders: each item is copied (cloned on APFS, links kept as links)
+                // into a staging folder under its own unique name, and archived from there.
                 let staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: archive.deletingLastPathComponent(), create: true)
                 defer { try? FileManager.default.removeItem(at: staging) }
                 var names: [String] = []
                 for item in items {
-                    let link = FileOperations.uniqueURL(named: item.lastPathComponent, in: staging)
-                    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: item)
-                    names.append(link.lastPathComponent)
+                    let copy = FileOperations.uniqueURL(named: item.lastPathComponent, in: staging)
+                    try CopyEngine.copy(item, to: copy, progress: TransferProgress(cancellationSource: progress), baseBytes: 0)
+                    names.append(copy.lastPathComponent)
                 }
-                // Without -y, zip follows the links and stores the real files.
-                try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r"] + (meter == nil ? ["-q"] : []) + [archive.path] + names + ["-x", "*.DS_Store"],
-                        in: staging, meter: meter) { zipLine($0, in: staging, meter: meter) }
+                try compress(names, in: staging, format: format, to: archive, meter: meter)
             }
         } catch {
             try? FileManager.default.removeItem(at: archive) // a partial archive under our new, unique name
             throw error
         }
         meter?.complete() // 7-Zip skips its last percentages when it finishes quickly
+    }
+
+    /// Archives the items `names` in `directory`, each under its own name.
+    private static func compress(_ names: [String], in directory: URL, format: Format, to archive: URL, meter: CompressionMeter?) throws {
+        let items = names.map { directory.appendingPathComponent($0) }
+        switch format {
+        case .sevenZip:
+            guard let sevenZip else { throw Failure(message: "7-Zip isn’t available.") }
+            // Given full paths, 7-Zip stores each item under its own name (no parent folders). -snl keeps links.
+            try run(sevenZip, ["a", "-t7z", "-mx=5", "-snl", "-y", "-bso0", meter == nil ? "-bsp0" : "-bsp1", "-xr!.DS_Store", "--", archive.path] + items.map(\.path),
+                    meter: meter) { line in
+                // "-bsp1" redraws "  42% 12 + name" in place.
+                guard let match = line.firstMatch(of: #/^\s*(\d+)%/#), let percent = Int(match.1) else { return false }
+                meter?.reached(percent: percent)
+                return true
+            }
+        case .zip where items.count == 1 && !isSymbolicLink(items[0]):
+            // ditto keeps macOS metadata (resource forks, extended attributes) the way Finder does. It follows
+            // a link given as its source, so a selected link goes to zip below; links inside a folder stay links.
+            // For a file, --keepParent includes its containing directory instead of just the file.
+            var arguments = ["-c", "-k", "--sequesterRsrc"]
+            if try items[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                arguments.append("--keepParent")
+            }
+            if meter != nil { arguments.append("-V") }
+            try run(URL(fileURLWithPath: "/usr/bin/ditto"), arguments + [items[0].path, archive.path], meter: meter) { line in
+                // -V prints "copying file ./x ... " before and "1234 bytes for ./x" after each file.
+                if let match = line.firstMatch(of: #/^(\d+) bytes for /#), let bytes = Int64(match.1) {
+                    meter?.finished(bytes: bytes)
+                    return true
+                }
+                return line.hasPrefix(">>> Copying ") || line.hasPrefix("copying file ")
+            }
+        case .zip:
+            // -y stores links as links.
+            // Relative operands start with ./ so names beginning with '-' cannot become zip options.
+            try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + names.map { "./" + $0 } + ["-x", "*.DS_Store"],
+                    in: directory, meter: meter) { zipLine($0, in: directory, meter: meter) }
+        }
+    }
+
+    private static func isSymbolicLink(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFLNK
     }
 
     /// zip prints "  adding: name (deflated 12%)" once a file is in the archive.
@@ -201,7 +218,7 @@ nonisolated enum Archives {
         }
         let name = String(line[start.upperBound..<end.lowerBound])
         let item = directory.appendingPathComponent(name)
-        let values = try? item.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+        let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) // a link's own size, not its target's
         meter?.finished(bytes: values?.isDirectory == true ? 0 : Int64(values?.fileSize ?? 0))
         return true
     }
@@ -267,6 +284,7 @@ nonisolated enum Archives {
     /// backspaces) and returns true for progress lines, which stay out of error messages; cancelling stops the tool.
     private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil,
                             meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws {
+        if meter?.isCancelled == true { throw CopyEngine.Cancelled() }
         let process = Process()
         process.executableURL = tool
         process.arguments = arguments

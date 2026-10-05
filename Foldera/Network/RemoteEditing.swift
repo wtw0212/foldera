@@ -8,12 +8,36 @@ import Observation
 final class RemoteEditing {
     static let shared = RemoteEditing()
 
+    /// One saved state of an editing copy. The modification date alone isn't enough: editors and tools can
+    /// rewrite a file and set its date back. The status change time moves on every write and can't be set,
+    /// so new bytes are never mistaken for ones already uploaded.
+    struct Version: Codable, Hashable {
+        let modified: Int64
+        let changed: Int64
+        let size: Int64
+        let inode: UInt64
+
+        /// Read fresh each time; URL resource values can be cached. Nil unless `url` is a regular file.
+        init?(of url: URL) {
+            var info = stat()
+            guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
+            modified = Self.nanoseconds(info.st_mtimespec)
+            changed = Self.nanoseconds(info.st_ctimespec)
+            size = Int64(info.st_size)
+            inode = UInt64(info.st_ino)
+        }
+
+        private static func nanoseconds(_ time: timespec) -> Int64 {
+            Int64(time.tv_sec) * 1_000_000_000 + Int64(time.tv_nsec)
+        }
+    }
+
     struct Session: Equatable {
         let remote: URL
         let local: URL
-        var uploadedVersion: Date?
+        var uploadedVersion: Version?
         /// A save that couldn't be uploaded yet: retried after `retryAt`, and reported once.
-        var failedVersion: Date?
+        var failedVersion: Version?
         var retryAt: Date?
         var failures = 0
         /// Relaunch recovery waits for the user before writing an old edit back to the server.
@@ -28,8 +52,25 @@ final class RemoteEditing {
     private struct Record: Codable {
         let remote: URL
         let name: String
-        let uploadedVersion: Date?
+        let uploadedVersion: Version?
         var closed = false
+
+        init(remote: URL, name: String, uploadedVersion: Version?, closed: Bool) {
+            self.remote = remote
+            self.name = name
+            self.uploadedVersion = uploadedVersion
+            self.closed = closed
+        }
+
+        /// Records from older versions hold a date instead: their copies count as never uploaded, so they're
+        /// kept for recovery rather than deleted.
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            remote = try container.decode(URL.self, forKey: .remote)
+            name = try container.decode(String.self, forKey: .name)
+            uploadedVersion = try? container.decodeIfPresent(Version.self, forKey: .uploadedVersion)
+            closed = try container.decodeIfPresent(Bool.self, forKey: .closed) ?? false
+        }
     }
 
     private(set) var sessions: [Session] = []
@@ -92,7 +133,7 @@ final class RemoteEditing {
         let local = files.appendingPathComponent(name)
         do {
             try await connections.read(endpoint) { try await $0.download(remote.remotePath, to: local) { _ in } }
-            let session = Session(remote: endpoint.url(path: remote.remotePath), local: local, uploadedVersion: Self.version(of: local))
+            let session = Session(remote: endpoint.url(path: remote.remotePath), local: local, uploadedVersion: Version(of: local))
             try persist(session)
             sessions.append(session)
         } catch {
@@ -130,7 +171,7 @@ final class RemoteEditing {
     /// Copies saved since their last upload (not yet on the server), for the quit warning.
     var pendingFiles: [String] {
         sessions.filter { session in
-            guard let version = Self.version(of: session.local) else { return false }
+            guard let version = Version(of: session.local) else { return false }
             return version != session.uploadedVersion
         }.map(\.local.lastPathComponent)
     }
@@ -157,7 +198,7 @@ final class RemoteEditing {
         let now = Date()
         for index in sessions.indices {
             let session = sessions[index]
-            guard !session.isRecovered, let version = Self.version(of: session.local) else { continue }
+            guard !session.isRecovered, let version = Version(of: session.local) else { continue }
             guard version != session.uploadedVersion, let endpoint = session.remote.remoteEndpoint else { continue }
             // A failed save is retried with backoff; a newer save is tried straight away.
             if version == session.failedVersion, let retryAt = session.retryAt, now < retryAt { continue }
@@ -191,7 +232,7 @@ final class RemoteEditing {
         guard !isUploading else { return }
         for index in sessions.indices.reversed() {
             let session = sessions[index]
-            guard !session.isRecovered, let version = Self.version(of: session.local), version == session.uploadedVersion else { continue }
+            guard !session.isRecovered, let version = Version(of: session.local), version == session.uploadedVersion else { continue }
             // A closed record allows the next launch to finish an interrupted cleanup.
             try persist(session, closed: true)
             try FileManager.default.removeItem(at: session.directory)
@@ -222,13 +263,13 @@ final class RemoteEditing {
             guard UUID(uuidString: directory.lastPathComponent) != nil, Self.isDirectory(directory) else { continue }
             let metadata = directory.appendingPathComponent("session.json")
             let files = directory.appendingPathComponent("files", isDirectory: true)
-            guard Self.version(of: metadata) != nil, Self.isDirectory(files),
+            guard Version(of: metadata) != nil, Self.isDirectory(files),
                   let data = try? Data(contentsOf: metadata), let record = try? JSONDecoder().decode(Record.self, from: data),
                   Self.validName(record.name), let endpoint = record.remote.remoteEndpoint else { continue }
             let local = files.appendingPathComponent(record.name)
-            if record.closed, let version = Self.version(of: local), version == record.uploadedVersion {
+            if record.closed, let version = Version(of: local), version == record.uploadedVersion {
                 try? fm.removeItem(at: directory)
-            } else if Self.version(of: local) != nil {
+            } else if Version(of: local) != nil {
                 sessions.append(Session(remote: endpoint.url(path: record.remote.remotePath), local: local, uploadedVersion: record.uploadedVersion, isRecovered: true))
             }
         }
@@ -256,12 +297,5 @@ final class RemoteEditing {
     private func stopWatching() {
         timer?.invalidate()
         timer = nil
-    }
-
-    /// Read fresh each time; URL resource values can be cached.
-    private static func version(of url: URL) -> Date? {
-        var info = stat()
-        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
-        return (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 }
