@@ -20,6 +20,8 @@ final class RemoteConnections {
     /// Replacements whose old item still sits under a backup name (see `commit(_:to:on:replacing:isStaging:)`).
     @ObservationIgnored let journal: SwapJournal
     @ObservationIgnored var swapsInFlight: Set<PendingSwap> = []
+    /// Makes the hidden staging and backup names unique (see `unusedSibling`). Tests replace it to force collisions.
+    @ObservationIgnored var uniqueToken: () -> String = { UUID().uuidString }
 
     init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil, journal: SwapJournal? = nil) {
         // Unit tests bring their own servers; a real sign-in prompt would block the run, and their swaps

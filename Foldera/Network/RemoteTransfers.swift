@@ -114,7 +114,7 @@ struct RemoteTransfers {
                     // cannot make cleanup delete a colliding public path.
                     let localStaging = job.destination.isRemote ? nil : try FileManager.default.url(
                         for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: job.destination, create: true)
-                    let staging = localStaging?.appendingPathComponent("payload") ?? Self.stagingURL(for: job.destination)
+                    let staging = if let localStaging { localStaging.appendingPathComponent("payload") } else { try await stagingURL(for: job.destination) }
                     defer { if let localStaging { try? FileManager.default.removeItem(at: localStaging) } }
                     do {
                         try await copy(job, to: staging, counter: counter, moving: kind == .move)
@@ -271,9 +271,10 @@ struct RemoteTransfers {
         return try await connections.read(try Self.endpoint(job.source)) { try await $0.totalSize(entry) }
     }
 
-    /// ".name.foldera-1A2B3C4D.part" beside `destination`.
-    static func stagingURL(for destination: URL) -> URL {
-        child(parent(of: destination), ".\(name(of: destination)).foldera-\(UUID().uuidString.prefix(8)).part")
+    /// An unused ".name.foldera-<UUID>.part" beside `destination` on its server.
+    func stagingURL(for destination: URL) async throws -> URL {
+        let endpoint = try Self.endpoint(destination)
+        return endpoint.url(path: try await connections.unusedSibling(of: destination.remotePath, suffix: "part", on: endpoint))
     }
 
     /// Deletes a staging copy (never to the Trash). Best effort: the transfer's own error is what matters.

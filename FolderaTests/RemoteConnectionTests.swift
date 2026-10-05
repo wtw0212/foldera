@@ -59,6 +59,34 @@ struct RemoteConnectionsTests {
         #expect(connections.connected == [endpoint])
     }
 
+    /// Staging and backup items are deleted by name, so a name someone else's item already has is never used.
+    @Test func hiddenNamesAlreadyInUseAreNeverTakenOrDeleted() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), local = try TestDirectory()
+        let target = try directory.file("data.txt", contents: "original")
+        let part = try directory.file(".data.txt.foldera-TAKEN.part", contents: "someone else's upload")
+        let old = try directory.file(".data.txt.foldera-TAKEN.old", contents: "someone else's backup")
+        let edit = try local.file("data.txt", contents: "edited")
+        let connections = RemoteConnections(connector: { _ in FakeRemoteFileSystem() }, journal: SwapJournal(defaults: nil))
+        var tokens = ["TAKEN", "FIRST", "TAKEN", "SECOND"]
+        connections.uniqueToken = { tokens.removeFirst() }
+        func untouched() throws -> Bool {
+            try String(contentsOf: part, encoding: .utf8) == "someone else's upload"
+                && String(contentsOf: old, encoding: .utf8) == "someone else's backup"
+        }
+
+        try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        #expect(tokens.isEmpty && connections.journal.swaps.isEmpty)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "edited" && untouched())
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).count == 3)
+
+        // A name that stays taken fails the replace instead.
+        connections.uniqueToken = { "TAKEN" }
+        await #expect(throws: RemoteError.alreadyExists("data.txt")) {
+            try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        }
+        #expect(try untouched())
+    }
+
     @Test(arguments: [false, true])
     func concurrentCallersWaitForSwapSettlement(duringLogin: Bool) async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory()

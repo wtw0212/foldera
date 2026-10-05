@@ -360,7 +360,8 @@ struct RemoteTransferTests {
         let replaced = await transfers(choice: .alertFirstButtonReturn).run(.copy, [file], into: folder)
         #expect(replaced.error == nil)
         #expect(try Data(contentsOf: remote.path("data.bin")).count == 1_000)
-        #expect(RemoteTransfers.stagingURL(for: remote.path("x.txt")).lastPathComponent.hasPrefix(".x.txt.foldera-"))
+        let staging = try await transfers().stagingURL(for: endpoint.url(path: remote.path("x.txt").path))
+        #expect(staging.lastPathComponent.hasPrefix(".x.txt.foldera-") && staging.lastPathComponent.hasSuffix(".part"))
     }
 
     @Test func replacingNeverLosesTheOriginalWhenTheFinalRenameFails() async throws {

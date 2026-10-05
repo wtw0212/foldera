@@ -41,7 +41,7 @@ extension RemoteConnections {
     /// Uploads `local` under a hidden staging name, then commits it over `path`, so a failed upload leaves
     /// the server's copy as it was.
     func upload(_ local: URL, replacing path: String, on endpoint: RemoteEndpoint, written: @Sendable (Int) throws -> Void) async throws {
-        let staging = Self.sibling(of: path, suffix: "part")
+        let staging = try await unusedSibling(of: path, suffix: "part", on: endpoint)
         do {
             try await perform(endpoint) { try await $0.upload(local, to: staging, written: written) }
             try await commit(staging, to: path, on: endpoint, replacing: true, isStaging: true)
@@ -64,7 +64,8 @@ extension RemoteConnections {
     func commit(_ item: String, to path: String, on endpoint: RemoteEndpoint, replacing: Bool, isStaging: Bool) async throws {
         var swap: PendingSwap?
         if replacing, try await read(endpoint, { try await $0.unfollowedEntry(at: path) }) != nil {
-            swap = PendingSwap(endpoint: endpoint, path: path, backup: Self.sibling(of: path, suffix: "old"), staging: isStaging ? item : nil)
+            let backup = try await unusedSibling(of: path, suffix: "old", on: endpoint)
+            swap = PendingSwap(endpoint: endpoint, path: path, backup: backup, staging: isStaging ? item : nil)
         }
         if let swap {
             journal.add(swap)
@@ -87,7 +88,8 @@ extension RemoteConnections {
     }
 
     /// Finishes a swap: restores the old item if the new one never arrived, otherwise deletes the backup;
-    /// then deletes a leftover staging copy and forgets the swap.
+    /// then deletes a leftover staging copy and forgets the swap. Both names were unused when the swap began
+    /// (see `unusedSibling`), so whatever is found under them is Foldera's own.
     func settle(_ swap: PendingSwap) async throws {
         try await perform(swap.endpoint) { system in
             try await settle(swap, using: system)
@@ -115,8 +117,14 @@ extension RemoteConnections {
         }
     }
 
-    /// ".name.foldera-1A2B3C4D.suffix" beside `path`.
-    private static func sibling(of path: String, suffix: String) -> String {
-        RemotePath.join(RemotePath.parent(of: path), ".\(RemotePath.name(of: path)).foldera-\(UUID().uuidString.prefix(8)).\(suffix)")
+    /// A hidden name beside `path`, ".name.foldera-<UUID>.suffix", that nothing on the server uses yet. Staging
+    /// and backup items are later deleted by name, so a name someone else's item already has is never taken.
+    func unusedSibling(of path: String, suffix: String, on endpoint: RemoteEndpoint) async throws -> String {
+        let parent = RemotePath.parent(of: path), name = RemotePath.name(of: path)
+        for _ in 0..<3 {
+            let candidate = RemotePath.join(parent, ".\(name).foldera-\(uniqueToken()).\(suffix)")
+            if try await read(endpoint, { try await $0.unfollowedEntry(at: candidate) }) == nil { return candidate }
+        }
+        throw RemoteError.alreadyExists(name)
     }
 }
