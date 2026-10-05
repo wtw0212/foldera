@@ -7,10 +7,14 @@ nonisolated final class TransferProgress: @unchecked Sendable {
     private var _completedBytes: Int64 = 0
     private var _currentName = ""
     private var _cancelled = false
+    private let cancellationSource: TransferProgress?
+
+    /// A staging copy can share cancellation without advancing the compressor's byte progress.
+    init(cancellationSource: TransferProgress? = nil) { self.cancellationSource = cancellationSource }
 
     var completedBytes: Int64 { lock.withLock { _completedBytes } }
     var currentName: String { lock.withLock { _currentName } }
-    var isCancelled: Bool { lock.withLock { _cancelled } }
+    var isCancelled: Bool { lock.withLock { _cancelled } || cancellationSource?.isCancelled == true }
 
     func cancel() { lock.withLock { _cancelled = true } }
     func setCompleted(_ bytes: Int64) { lock.withLock { _completedBytes = bytes } }

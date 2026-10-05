@@ -75,6 +75,49 @@ struct ArchivesTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("big.bin.zip").path))
     }
 
+    @Test(arguments: [Archives.Format.zip, .sevenZip])
+    func cancellingMultiFolderCompressionStopsBeforeCopying(format: Archives.Format) throws {
+        let directory = try TestDirectory()
+        let first = try directory.file("a/first.txt", contents: "KEEP")
+        let missing = directory.path("b/missing.txt")
+        let progress = TransferProgress()
+        progress.cancel()
+        let archive = directory.path("cancelled.zip")
+        #expect(throws: CopyEngine.Cancelled.self) {
+            try Archives.compress([first, missing], format: format, to: archive, progress: progress)
+        }
+        #expect(!FileOperations.exists(archive))
+        #expect(try String(contentsOf: first, encoding: .utf8) == "KEEP")
+    }
+
+    /// Staging has its own byte counter, but cancellation must still propagate from the compression job.
+    @Test func stagingCopiesShareCancellationWithoutAdvancingCompressionProgress() throws {
+        let directory = try TestDirectory()
+        let source = try directory.file("source.txt", contents: "KEEP")
+        let job = TransferProgress(), staging = TransferProgress(cancellationSource: job)
+        try CopyEngine.copy(source, to: directory.path("first.txt"), progress: staging, baseBytes: 0)
+        #expect(job.completedBytes == 0 && !staging.isCancelled)
+        job.cancel()
+        #expect(throws: CopyEngine.Cancelled.self) {
+            try CopyEngine.copy(source, to: directory.path("second.txt"), progress: staging, baseBytes: 0)
+        }
+        #expect(!FileOperations.exists(directory.path("second.txt")))
+        #expect(try String(contentsOf: source, encoding: .utf8) == "KEEP")
+    }
+
+    @Test(arguments: ["-notes", "-m", "-@"])
+    func selectedLinksBeginningWithADashAreLiteralZipOperands(name: String) throws {
+        let directory = try TestDirectory()
+        let target = try directory.file("private.txt", contents: "SECRET")
+        let link = directory.path(name)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: target.lastPathComponent)
+        let archive = directory.path("selection.zip")
+        try Archives.compress([link], to: archive)
+        #expect(try entries(of: archive) == [name])
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.lastPathComponent)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "SECRET")
+    }
+
     /// Paths stored in `archive`, as 7-Zip lists them (macOS metadata left out).
     private func entries(of archive: URL) throws -> [String] {
         let list = Process(), pipe = Pipe()

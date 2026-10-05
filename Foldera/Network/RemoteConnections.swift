@@ -20,7 +20,7 @@ final class RemoteConnections {
     /// Replacements whose old item still sits under a backup name (see `commit(_:to:on:replacing:isStaging:)`).
     @ObservationIgnored let journal: SwapJournal
     @ObservationIgnored var swapsInFlight: Set<PendingSwap> = []
-    /// Makes the hidden staging and backup names unique (see `unusedSibling`). Tests replace it to force collisions.
+    /// Makes the private staging and backup directory names unique. Tests replace it to force collisions.
     @ObservationIgnored var uniqueToken: () -> String = { UUID().uuidString }
 
     init(connector: ((RemoteEndpoint) async throws -> any RemoteFileSystem)? = nil, journal: SwapJournal? = nil) {

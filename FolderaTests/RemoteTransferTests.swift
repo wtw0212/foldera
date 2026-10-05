@@ -361,7 +361,9 @@ struct RemoteTransferTests {
         #expect(replaced.error == nil)
         #expect(try Data(contentsOf: remote.path("data.bin")).count == 1_000)
         let staging = try await transfers().stagingURL(for: endpoint.url(path: remote.path("x.txt").path))
-        #expect(staging.lastPathComponent.hasPrefix(".x.txt.foldera-") && staging.lastPathComponent.hasSuffix(".part"))
+        let stagingDirectory = staging.deletingLastPathComponent()
+        #expect(staging.lastPathComponent == "payload")
+        #expect(stagingDirectory.lastPathComponent.hasPrefix(".foldera-") && stagingDirectory.lastPathComponent.hasSuffix(".part"))
     }
 
     @Test func replacingNeverLosesTheOriginalWhenTheFinalRenameFails() async throws {
@@ -471,7 +473,8 @@ struct RemoteTransferTests {
         try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
         #expect(try contents() == "edited")
         #expect(connections.journal.swaps.count == 1)
-        #expect(try leftovers().count == 3, "the backup is still there")
+        let pending = try #require(connections.journal.swaps.first)
+        #expect(try String(contentsOfFile: pending.backup, encoding: .utf8) == "moved", "the complete backup is still there")
         _ = try await connections.fileSystem(for: endpoint)
         #expect(connections.journal.swaps.isEmpty)
         #expect(try leftovers() == ["data.txt", "other"])

@@ -140,6 +140,7 @@ nonisolated enum Archives {
     /// Symbolic links are stored as links and never followed, so an archive holds only what was selected.
     static func compress(_ items: [URL], format: Format = .zip, to archive: URL, progress: TransferProgress? = nil) throws {
         guard let first = items.first else { throw Failure(message: "Nothing to compress.") }
+        if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
         let meter = progress.map { CompressionMeter(progress: $0, archive: archive, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }) }
@@ -154,7 +155,7 @@ nonisolated enum Archives {
                 var names: [String] = []
                 for item in items {
                     let copy = FileOperations.uniqueURL(named: item.lastPathComponent, in: staging)
-                    try CopyEngine.copy(item, to: copy, progress: TransferProgress(), baseBytes: 0)
+                    try CopyEngine.copy(item, to: copy, progress: TransferProgress(cancellationSource: progress), baseBytes: 0)
                     names.append(copy.lastPathComponent)
                 }
                 try compress(names, in: staging, format: format, to: archive, meter: meter)
@@ -199,7 +200,8 @@ nonisolated enum Archives {
             }
         case .zip:
             // -y stores links as links.
-            try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + names + ["-x", "*.DS_Store"],
+            // Relative operands start with ./ so names beginning with '-' cannot become zip options.
+            try run(URL(fileURLWithPath: "/usr/bin/zip"), ["-r", "-y"] + (meter == nil ? ["-q"] : []) + [archive.path] + names.map { "./" + $0 } + ["-x", "*.DS_Store"],
                     in: directory, meter: meter) { zipLine($0, in: directory, meter: meter) }
         }
     }
@@ -282,6 +284,7 @@ nonisolated enum Archives {
     /// backspaces) and returns true for progress lines, which stay out of error messages; cancelling stops the tool.
     private static func run(_ tool: URL, _ arguments: [String], in directory: URL? = nil, input: String? = nil,
                             meter: CompressionMeter? = nil, handleLine: (String) -> Bool = { _ in false }) throws {
+        if meter?.isCancelled == true { throw CopyEngine.Cancelled() }
         let process = Process()
         process.executableURL = tool
         process.arguments = arguments

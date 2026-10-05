@@ -6,6 +6,33 @@ import Testing
 /// Real SFTP against a local OpenSSH server.
 @Suite(.serialized)
 struct SFTPFileSystemTests {
+    @Test func privateReservationsRejectOccupiedPathsAndSupportLongNames() async throws {
+        let server = try LocalSSHServer(), remote = try TestDirectory(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let connections = RemoteConnections(connector: { _ in sftp }, journal: SwapJournal(defaults: nil))
+        let target = try remote.file(String(repeating: "a", count: 220), contents: "original")
+        let edit = try local.file("edit.txt", contents: "edited")
+        let occupied = try remote.folder(".foldera-TAKEN.part")
+        let sentinel = occupied.appendingPathComponent("payload")
+        try Data("KEEP".utf8).write(to: sentinel)
+        let dangling = remote.path(".foldera-LINK.part")
+        try FileManager.default.createSymbolicLink(atPath: dangling.path, withDestinationPath: "missing")
+        var tokens = ["TAKEN", "LINK", "FRESH", "BACKUP"]
+        connections.uniqueToken = { tokens.removeFirst() }
+        try await connections.upload(edit, replacing: target.path, on: server.endpoint) { _ in }
+        #expect(try String(contentsOf: target, encoding: .utf8) == "edited")
+        #expect(try String(contentsOf: sentinel, encoding: .utf8) == "KEEP")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: dangling.path) == "missing")
+        #expect(tokens.isEmpty && connections.journal.swaps.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: remote.url.path).count == 3)
+
+        connections.uniqueToken = { "MODE" }
+        let directory = try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "part", on: server.endpoint)
+        #expect(try await sftp.entry(at: directory)?.permissions.map { $0 & 0o777 } == 0o700)
+        try await connections.discardTemporaryDirectory(directory, on: server.endpoint)
+        await sftp.close()
+    }
+
     @Test func downloadsRejectOccupiedPathsWithoutRemovingThem() async throws {
         let server = try LocalSSHServer(), directory = try TestDirectory()
         let sftp = try await server.connect()

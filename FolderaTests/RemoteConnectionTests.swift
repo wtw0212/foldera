@@ -63,8 +63,8 @@ struct RemoteConnectionsTests {
     @Test func hiddenNamesAlreadyInUseAreNeverTakenOrDeleted() async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory(), local = try TestDirectory()
         let target = try directory.file("data.txt", contents: "original")
-        let part = try directory.file(".data.txt.foldera-TAKEN.part", contents: "someone else's upload")
-        let old = try directory.file(".data.txt.foldera-TAKEN.old", contents: "someone else's backup")
+        let part = try directory.file(".foldera-TAKEN.part/payload", contents: "someone else's upload")
+        let old = try directory.file(".foldera-TAKEN.old/payload", contents: "someone else's backup")
         let edit = try local.file("data.txt", contents: "edited")
         let connections = RemoteConnections(connector: { _ in FakeRemoteFileSystem() }, journal: SwapJournal(defaults: nil))
         var tokens = ["TAKEN", "FIRST", "TAKEN", "SECOND"]
@@ -85,6 +85,75 @@ struct RemoteConnectionsTests {
             try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
         }
         #expect(try untouched())
+    }
+
+    /// Another client wins the name just as mkdir reaches the server. Failure never grants cleanup rights.
+    @Test(arguments: ["part", "old"])
+    func racingReservationsNeverDeleteSomeoneElsesItems(suffix: String) async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), local = try TestDirectory()
+        let target = try directory.file("data.txt", contents: "original")
+        let edit = try local.file("data.txt", contents: "edited")
+        let occupied = directory.path(".foldera-TAKEN.\(suffix)")
+        let payload = occupied.appendingPathComponent("payload")
+        let server = FakeRemoteFileSystem(beforeMakeDirectory: { path in
+            if path == occupied.path, !FileOperations.exists(occupied) {
+                try FileManager.default.createDirectory(at: occupied, withIntermediateDirectories: false)
+                try Data("other client's data".utf8).write(to: payload)
+            }
+        })
+        let connections = RemoteConnections(connector: { _ in server }, journal: SwapJournal(defaults: nil))
+        connections.uniqueToken = { "TAKEN" }
+        await #expect(throws: RemoteError.alreadyExists("data.txt")) {
+            try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        }
+        #expect(try String(contentsOf: payload, encoding: .utf8) == "other client's data")
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(connections.journal.swaps.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).sorted() == [occupied.lastPathComponent, "data.txt"])
+    }
+
+    @Test func anUnacknowledgedReservationIsNeverClaimedOrCleanedUp() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), local = try TestDirectory()
+        let target = try directory.file("data.txt", contents: "original")
+        let edit = try local.file("data.txt", contents: "edited")
+        let server = FakeRemoteFileSystem()
+        server.simulateConnectionDrop("makeDirectory", applied: true)
+        let connections = RemoteConnections(connector: { _ in server.reconnect() }, journal: SwapJournal(defaults: nil))
+        var tokens = ["LOST", "FRESH", "BACKUP"]
+        connections.uniqueToken = { tokens.removeFirst() }
+        try await connections.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        let unknown = directory.path(".foldera-LOST.part")
+        #expect(FileOperations.exists(unknown))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: unknown.path).isEmpty)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "edited")
+        #expect(connections.journal.swaps.isEmpty && tokens.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).sorted() == [unknown.lastPathComponent, "data.txt"])
+    }
+
+    @Test func privateSwapDirectoriesAreRecoveredAfterRelaunch() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), local = try TestDirectory()
+        let preferences = try TestPreferences()
+        let target = try directory.file("data.txt", contents: "original")
+        let edit = try local.file("data.txt", contents: "edited")
+        let server = FakeRemoteFileSystem()
+        let first = RemoteConnections(connector: { _ in throw RemoteError.notConnected(endpoint.displayName) },
+                                      journal: SwapJournal(defaults: preferences.defaults))
+        first.install(server, for: endpoint)
+        server.simulateConnectionDrop("rename", afterCalls: 1, applied: false)
+        await #expect(throws: RemoteError.self) {
+            try await first.upload(edit, replacing: target.path, on: endpoint) { _ in }
+        }
+        let reopened = SwapJournal(defaults: preferences.defaults)
+        let pending = try #require(reopened.swaps.first)
+        #expect(pending.backupDirectory != nil && pending.stagingDirectory != nil)
+        #expect(try String(contentsOfFile: pending.backup, encoding: .utf8) == "original")
+        #expect(!FileOperations.exists(target))
+
+        let restored = RemoteConnections(connector: { _ in server.reconnect() }, journal: reopened)
+        _ = try await restored.fileSystem(for: endpoint)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["data.txt"])
+        #expect(SwapJournal(defaults: preferences.defaults).swaps.isEmpty)
     }
 
     @Test(arguments: [false, true])

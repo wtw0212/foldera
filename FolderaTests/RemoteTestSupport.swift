@@ -12,12 +12,15 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private var drops: [String: (skip: Int, applied: Bool)] = [:]
     private let beforeList: (@Sendable () async -> Void)?
     private let beforeUpload: (@Sendable () async -> Void)?
+    private let beforeMakeDirectory: (@Sendable (String) async throws -> Void)?
     let homePath: String
 
-    init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil, beforeUpload: (@Sendable () async -> Void)? = nil) {
+    init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil, beforeUpload: (@Sendable () async -> Void)? = nil,
+         beforeMakeDirectory: (@Sendable (String) async throws -> Void)? = nil) {
         homePath = home
         self.beforeList = beforeList
         self.beforeUpload = beforeUpload
+        self.beforeMakeDirectory = beforeMakeDirectory
     }
 
     var operations: [String] { lock.withLock { calls } }
@@ -95,9 +98,13 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
         return try Self.entry(path, followLinks: true)
     }
 
-    func makeDirectory(_ path: String) async throws {
-        try record("makeDirectory")
-        try fileManager.createDirectory(atPath: path, withIntermediateDirectories: false)
+    func makeDirectory(_ path: String, permissions: UInt32?) async throws {
+        let dropped = try record("makeDirectory")
+        try await beforeMakeDirectory?(path)
+        guard mkdir(path, mode_t(permissions ?? 0o777)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        try finish(dropped)
     }
 
     func createFile(_ path: String) async throws {
