@@ -226,14 +226,23 @@ struct ArchivesTests {
         #expect(try String(contentsOf: out.appendingPathComponent("secret.txt"), encoding: .utf8) == "s3cret")
     }
 
+    /// Which characters a throwaway passphrase uses; it is generated per run, never written in the source.
+    enum Phrase { case none, ascii, unicode }
+
     @Test(arguments: [
-        Archives.Options(format: .zip, level: .maximum, password: "let me in!", zipEncryption: .aes256),
-        Archives.Options(format: .zip, level: .store, password: "letmein", zipEncryption: .zipCrypto),
-        Archives.Options(format: .zip, level: .fastest),
-        Archives.Options(format: .sevenZip, level: .ultra, password: "pässwörd 密碼", encryptNames: true),
-        Archives.Options(format: .sevenZip, level: .store, password: "letmein", encryptNames: false),
+        (Archives.Options(format: .zip, level: .maximum, zipEncryption: .aes256), Phrase.ascii),
+        (Archives.Options(format: .zip, level: .store, zipEncryption: .zipCrypto), .ascii),
+        (Archives.Options(format: .zip, level: .fastest), .none),
+        (Archives.Options(format: .sevenZip, level: .ultra, encryptNames: true), .unicode),
+        (Archives.Options(format: .sevenZip, level: .store, encryptNames: false), .ascii),
     ])
-    func compressingWithOptionsRoundTrips(options: Archives.Options) throws {
+    func compressingWithOptionsRoundTrips(options: Archives.Options, phrase: Phrase) throws {
+        var options = options
+        switch phrase {
+        case .none: break
+        case .ascii: options.password = UUID().uuidString + " !~"
+        case .unicode: options.password = UUID().uuidString + " äö 中文"
+        }
         let root = try makeFolder()
         defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("docs")
