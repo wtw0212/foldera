@@ -50,6 +50,8 @@ struct RemoteURLTests {
         #expect(RemoteError.unsupportedKey("/k").localizedDescription.contains("/k"))
         #expect(RemoteError.notFound("n").localizedDescription.contains("n"))
         #expect(RemoteError.alreadyExists("n").localizedDescription.contains("n"))
+        let conflict = RemoteError.replacementConflict("/destination", "/backup").localizedDescription
+        #expect(conflict.contains("/destination") && conflict.contains("/backup"))
         #expect(RemoteError.failed("custom").localizedDescription == "custom")
     }
 }

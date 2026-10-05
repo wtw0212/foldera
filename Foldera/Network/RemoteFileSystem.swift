@@ -94,6 +94,7 @@ nonisolated enum RemoteError: LocalizedError, Equatable {
     case unsupportedKey(String)
     case notFound(String)
     case alreadyExists(String)
+    case replacementConflict(String, String)
     case failed(String)
 
     var errorDescription: String? {
@@ -111,6 +112,9 @@ nonisolated enum RemoteError: LocalizedError, Equatable {
             L10n.format("“%@” no longer exists on the server.", language: language, arguments: [name])
         case .alreadyExists(let name):
             L10n.format("An item named “%@” already exists in this location.", language: language, arguments: [name])
+        case .replacementConflict(let path, let backup):
+            L10n.format("The replacement of “%@” has a conflict. The original is kept at “%@”. Resolve the conflict before reconnecting.",
+                        language: language, arguments: [path, backup])
         case .failed(let message):
             message
         }

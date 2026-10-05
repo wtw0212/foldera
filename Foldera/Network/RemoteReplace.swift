@@ -8,6 +8,8 @@ nonisolated struct PendingSwap: Codable, Hashable, Sendable {
     let backup: String
     /// Foldera's own staging copy, deleted once settled. Nil when the new item is the user's (a move).
     var staging: String?
+    /// The replacement source for both uploads and moves. Nil only in journals from older versions.
+    var source: String? = nil
     /// Private directories acquired by successful, exclusive mkdir. Nil for records from older versions.
     var backupDirectory: String? = nil
     var stagingDirectory: String? = nil
@@ -60,38 +62,47 @@ extension RemoteConnections {
     ///
     /// A rename whose reply was lost (a dropped connection) may still have happened, so after any failure
     /// the server is looked at again over a fresh connection: if `item` reached `path` the commit counts as
-    /// done; otherwise the old item is renamed back. What can't be settled now stays in the journal and is
-    /// settled when the server is next connected.
+    /// done; otherwise the old item is renamed back. If both the source and a competing destination remain,
+    /// the backup and source are retained in the journal until that conflict is resolved.
     func commit(_ item: String, to path: String, on endpoint: RemoteEndpoint, replacing: Bool, isStaging: Bool, stagingDirectory: String? = nil) async throws {
+        // Moving the old directory aside must never consume the replacement source itself.
+        if replacing, item != path, RemotePath.isWithin(item, path) {
+            throw RemoteError.failed(L10n.format("“%@” can’t replace a folder that contains it.", RemotePath.name(of: item)))
+        }
         var swap: PendingSwap?
         if replacing, try await read(endpoint, { try await $0.unfollowedEntry(at: path) }) != nil {
             let directory = try await reserveTemporaryDirectory(beside: path, suffix: "old", on: endpoint)
             swap = PendingSwap(endpoint: endpoint, path: path, backup: RemotePath.join(directory, "payload"),
-                               staging: isStaging ? item : nil, backupDirectory: directory, stagingDirectory: stagingDirectory)
+                               staging: isStaging ? item : nil, source: item,
+                               backupDirectory: directory, stagingDirectory: stagingDirectory)
         }
         if let swap {
             journal.add(swap)
             swapsInFlight.insert(swap)
         }
         defer { if let swap { swapsInFlight.remove(swap) } }
+        var failure: Error?
         do {
             if let swap { try await perform(endpoint) { try await $0.rename(path, to: swap.backup) } }
             try await perform(endpoint) { try await $0.rename(item, to: path) }
-        } catch {
-            let committed = (try? await read(endpoint) { system in
+        } catch { failure = error }
+        let committed = if failure == nil { true } else {
+            (try? await read(endpoint) { system in
                 guard try await system.unfollowedEntry(at: item) == nil else { return false }
                 return try await system.unfollowedEntry(at: path) != nil
             }) ?? false
-            if let swap { try? await settle(swap) }
-            if !committed { throw error }
         }
-        if let swap { try? await settle(swap) }
-        else if let stagingDirectory { try? await discardTemporaryDirectory(stagingDirectory, on: endpoint) }
+        if let swap {
+            do { try await settle(swap) }
+            catch RemoteError.replacementConflict(let path, let backup) {
+                throw RemoteError.replacementConflict(path, backup)
+            } catch { /* Recovery remains journaled if the server is unavailable or cleanup fails. */ }
+        } else if committed, let stagingDirectory { try? await discardTemporaryDirectory(stagingDirectory, on: endpoint) }
+        if !committed, let failure { throw failure }
     }
 
-    /// Finishes a swap: restores the old item if the new one never arrived, otherwise deletes the backup;
-    /// then deletes a leftover staging copy and forgets the swap. New swaps keep their payloads inside
-    /// private directories acquired by exclusive mkdir, rather than assuming an absent name is reserved.
+    /// Restores the backup if the destination is absent, or deletes it only when the replacement source is
+    /// gone. A competing destination with a remaining (or unknown legacy) source keeps all recovery data.
     func settle(_ swap: PendingSwap) async throws {
         try await perform(swap.endpoint) { system in
             try await settle(swap, using: system)
@@ -106,6 +117,10 @@ extension RemoteConnections {
             if try await system.unfollowedEntry(at: swap.path) == nil {
                 try await system.rename(swap.backup, to: swap.path)
             } else {
+                guard let source = swap.source ?? swap.staging,
+                      try await system.unfollowedEntry(at: source) == nil else {
+                    throw RemoteError.replacementConflict(swap.path, swap.backup)
+                }
                 try await system.removeRecursively(backup)
             }
         }
@@ -143,6 +158,8 @@ extension RemoteConnections {
     }
 
     func discardTemporaryDirectory(_ directory: String, on endpoint: RemoteEndpoint) async throws {
+        // Failed uploads/transfers must not destroy the source evidence of an unresolved replacement.
+        guard !journal.swaps.contains(where: { $0.endpoint == endpoint && $0.stagingDirectory == directory }) else { return }
         try await perform(endpoint) { try await discardTemporaryDirectory(directory, using: $0) }
     }
 

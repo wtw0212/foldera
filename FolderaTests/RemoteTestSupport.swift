@@ -13,14 +13,17 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     private let beforeList: (@Sendable () async -> Void)?
     private let beforeUpload: (@Sendable () async -> Void)?
     private let beforeMakeDirectory: (@Sendable (String) async throws -> Void)?
+    private let beforeRename: (@Sendable (String, String) async throws -> Void)?
     let homePath: String
 
     init(home: String = NSHomeDirectory(), beforeList: (@Sendable () async -> Void)? = nil, beforeUpload: (@Sendable () async -> Void)? = nil,
-         beforeMakeDirectory: (@Sendable (String) async throws -> Void)? = nil) {
+         beforeMakeDirectory: (@Sendable (String) async throws -> Void)? = nil,
+         beforeRename: (@Sendable (String, String) async throws -> Void)? = nil) {
         homePath = home
         self.beforeList = beforeList
         self.beforeUpload = beforeUpload
         self.beforeMakeDirectory = beforeMakeDirectory
+        self.beforeRename = beforeRename
     }
 
     var operations: [String] { lock.withLock { calls } }
@@ -114,6 +117,7 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
 
     func rename(_ path: String, to newPath: String) async throws {
         let dropped = try record("rename")
+        try await beforeRename?(path, newPath)
         try fileManager.moveItem(atPath: path, toPath: newPath)
         try finish(dropped)
     }

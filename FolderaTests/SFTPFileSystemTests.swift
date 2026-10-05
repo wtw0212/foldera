@@ -6,6 +6,44 @@ import Testing
 /// Real SFTP against a local OpenSSH server.
 @Suite(.serialized)
 struct SFTPFileSystemTests {
+    @Test(arguments: [false, true])
+    func destinationConflictsRetainOriginalsOverSFTP(isStaging: Bool) async throws {
+        let server = try LocalSSHServer(), remote = try TestDirectory(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let journal = SwapJournal(defaults: nil)
+        let connections = RemoteConnections(connector: { _ in sftp }, journal: journal)
+        let target = try remote.file("data.txt", contents: "original")
+        let localSource = try local.file("replacement.txt", contents: "replacement")
+        let stagingDirectory = isStaging ? try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "part", on: server.endpoint) : nil
+        let source = stagingDirectory.map { RemotePath.join($0, "payload") } ?? remote.path("replacement.txt").path
+        try await sftp.upload(localSource, to: source) { _ in }
+        let backupDirectory = try await connections.reserveTemporaryDirectory(beside: target.path, suffix: "old", on: server.endpoint)
+        let swap = PendingSwap(endpoint: server.endpoint, path: target.path, backup: RemotePath.join(backupDirectory, "payload"),
+                               staging: isStaging ? source : nil, source: source,
+                               backupDirectory: backupDirectory, stagingDirectory: stagingDirectory)
+        journal.add(swap)
+        try await sftp.rename(target.path, to: swap.backup)
+        try Data("other client's data".utf8).write(to: target)
+        await #expect(throws: RemoteError.self) { try await sftp.rename(source, to: target.path) }
+        await #expect(throws: RemoteError.replacementConflict(target.path, swap.backup)) {
+            try await connections.settle(swap, using: sftp)
+        }
+        if let stagingDirectory { try await connections.discardTemporaryDirectory(stagingDirectory, on: server.endpoint) }
+        #expect(try String(contentsOfFile: swap.backup, encoding: .utf8) == "original")
+        #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement")
+        #expect(try String(contentsOf: target, encoding: .utf8) == "other client's data")
+        #expect(journal.swaps == [swap])
+
+        try FileManager.default.removeItem(at: target)
+        try await connections.settle(swap, using: sftp)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: localSource, encoding: .utf8) == "replacement")
+        if !isStaging { #expect(try String(contentsOfFile: source, encoding: .utf8) == "replacement") }
+        #expect(!FileOperations.exists(URL(fileURLWithPath: backupDirectory)))
+        #expect(journal.swaps.isEmpty)
+        await sftp.close()
+    }
+
     @Test func privateReservationsRejectOccupiedPathsAndSupportLongNames() async throws {
         let server = try LocalSSHServer(), remote = try TestDirectory(), local = try TestDirectory()
         let sftp = try await server.connect()

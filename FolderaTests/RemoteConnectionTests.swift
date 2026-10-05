@@ -146,6 +146,7 @@ struct RemoteConnectionsTests {
         let reopened = SwapJournal(defaults: preferences.defaults)
         let pending = try #require(reopened.swaps.first)
         #expect(pending.backupDirectory != nil && pending.stagingDirectory != nil)
+        #expect(pending.source == pending.staging)
         #expect(try String(contentsOfFile: pending.backup, encoding: .utf8) == "original")
         #expect(!FileOperations.exists(target))
 
@@ -206,13 +207,70 @@ struct RemoteConnectionsTests {
     }
 
     @Test(arguments: [false, true])
+    func legacyJournalsKeepAmbiguousBackups(hasStaging: Bool) async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        let target = try directory.file("data.txt", contents: "other client's data")
+        let backup = try directory.file(".data.old", contents: "original")
+        let staging = hasStaging ? try directory.file(".data.part", contents: "replacement") : nil
+        let swap = PendingSwap(endpoint: endpoint, path: target.path, backup: backup.path, staging: staging?.path)
+        SwapJournal(defaults: preferences.defaults).add(swap)
+        let reopened = SwapJournal(defaults: preferences.defaults)
+        #expect(reopened.swaps == [swap] && reopened.swaps.first?.source == nil)
+        let connections = RemoteConnections(connector: { _ in FakeRemoteFileSystem() }, journal: reopened)
+        await #expect(throws: RemoteError.replacementConflict(target.path, backup.path)) {
+            _ = try await connections.fileSystem(for: endpoint)
+        }
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: target, encoding: .utf8) == "other client's data")
+        if let staging { #expect(try String(contentsOf: staging, encoding: .utf8) == "replacement") }
+        #expect(SwapJournal(defaults: preferences.defaults).swaps == [swap])
+
+        try FileManager.default.removeItem(at: target)
+        _ = try await connections.fileSystem(for: endpoint)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["data.txt"])
+        #expect(SwapJournal(defaults: preferences.defaults).swaps.isEmpty)
+    }
+
+    @Test func legacyUploadsUseTheirStagingPathToConfirmCommit() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        let target = try directory.file("data.txt", contents: "replacement")
+        let backup = try directory.file(".data.old", contents: "original")
+        SwapJournal(defaults: preferences.defaults).add(PendingSwap(endpoint: endpoint, path: target.path,
+            backup: backup.path, staging: directory.path(".data.part").path))
+        let reopened = SwapJournal(defaults: preferences.defaults)
+        let connections = RemoteConnections(connector: { _ in FakeRemoteFileSystem() }, journal: reopened)
+        _ = try await connections.fileSystem(for: endpoint)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "replacement")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["data.txt"])
+        #expect(SwapJournal(defaults: preferences.defaults).swaps.isEmpty)
+    }
+
+    @Test func aSourceInsideTheReplacedDirectoryIsNeverMovedAside() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory()
+        let source = try directory.file("data.txt/data.txt", contents: "replacement")
+        try directory.file("data.txt/original.txt", contents: "original")
+        let server = FakeRemoteFileSystem()
+        let connections = RemoteConnections(connector: { _ in server }, journal: SwapJournal(defaults: nil))
+        await #expect(throws: RemoteError.self) {
+            try await connections.commit(source.path, to: source.deletingLastPathComponent().path,
+                                         on: endpoint, replacing: true, isStaging: false)
+        }
+        #expect(try String(contentsOf: source, encoding: .utf8) == "replacement")
+        #expect(try String(contentsOf: directory.path("data.txt/original.txt"), encoding: .utf8) == "original")
+        #expect(server.operations.isEmpty && connections.journal.swaps.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path) == ["data.txt"])
+    }
+
+    @Test(arguments: [false, true])
     func aConnectionDroppedBySwapSettlementIsReconnectedBeforeAMutation(restore: Bool) async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory()
         let path = directory.path("data.txt")
         if !restore { try directory.file("data.txt", contents: "new") }
         let backup = try directory.file(".data.old", contents: "old")
         let journal = SwapJournal(defaults: nil)
-        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil))
+        journal.add(PendingSwap(endpoint: endpoint, path: path.path, backup: backup.path, staging: nil,
+                               source: directory.path("replacement.txt").path))
         let dropped = FakeRemoteFileSystem(), replacement = FakeRemoteFileSystem()
         dropped.simulateConnectionDrop(restore ? "rename" : "removeFile", applied: false)
         var attempts = 0
