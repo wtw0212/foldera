@@ -62,6 +62,16 @@ struct RemoteTransferTests {
         #expect(!server.operations.contains("upload"))
     }
 
+    @Test func remoteSizePreparationStopsAfterCancellation() async throws {
+        let remote = try TestDirectory()
+        try remote.file("nested/file.txt")
+        let progress = TransferProgress()
+        let server = FakeRemoteFileSystem(beforeList: { progress.cancel() })
+        let entry = try #require(try await server.entry(at: remote.url.path))
+        await #expect(throws: CopyEngine.Cancelled.self) { try await server.totalSize(entry, progress: progress) }
+        #expect(server.operations.filter { $0 == "list" }.count == 1)
+    }
+
     @Test func uploadsAndDownloadsFilesAndFolders() async throws {
         let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
         let server = installFakeServer(endpoint)
