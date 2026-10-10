@@ -137,7 +137,7 @@ jobs:
           dmg="dist/Foldera-$VERSION.dmg"
           signature=$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - -p "$dmg")
           xcrun swift scripts/verify-update-signature.swift "$app" "$dmg" "$signature"
-          python3 scripts/make-appcast.py "$GITHUB_REPOSITORY" "$VERSION" "$BUILD_NUMBER" "$dmg" "$signature" dist/appcast.xml
+          python3 scripts/make-appcast.py "$GITHUB_REPOSITORY" "$VERSION" "$BUILD_NUMBER" "$dmg" "$signature"
           printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - dist/appcast.xml
           printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - --verify dist/appcast.xml
 

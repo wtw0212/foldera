@@ -4,7 +4,7 @@
 Foldera reads the appcast from https://github.com/<repo>/releases/latest/download/appcast.xml, so each release
 carries a feed listing only itself. Sparkle installs the DMG only if its EdDSA signature matches SUPublicEDKey.
 
-Usage: make-appcast.py REPO VERSION BUILD DMG SIGNATURE OUTPUT
+Usage: make-appcast.py REPO VERSION BUILD DMG SIGNATURE  (writes appcast.xml beside DMG)
 """
 import base64
 import binascii
@@ -52,11 +52,12 @@ def make_appcast(repo: str, version: str, build: str, dmg: Path, signature: str)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 7:
+    if len(sys.argv) != 6:
         raise SystemExit(__doc__.strip().splitlines()[-1])
-    repo, version, build, dmg, signature, output = sys.argv[1:]
+    repo, version, build, dmg, signature = sys.argv[1:]
+    image = Path(dmg).resolve()
     try:
-        feed = make_appcast(repo, version, build, Path(dmg), signature.strip())
+        feed = make_appcast(repo, version, build, image, signature.strip())
     except ValueError as error:
         raise SystemExit(str(error))
-    Path(output).write_text(feed, encoding="utf-8")
+    (image.parent / "appcast.xml").write_text(feed, encoding="utf-8")
