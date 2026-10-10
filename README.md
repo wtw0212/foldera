@@ -64,6 +64,8 @@ Use the search box's **Search options** to choose **Only this folder** or **Incl
 
 **View → Columns** chooses the columns in Details. Drag a header to reorder or resize it; each folder remembers its sort order, visible columns, order and widths.
 
+**Rename in place.** Press F2, or click the name of an item that's already selected, wait a moment, and click it again, like Explorer. A double-click still opens it.
+
 **Bulk rename.** Select several items and press F2 for Finder-style Replace / Add / Format renaming with a live preview.
 
 ![The Rename 6 items sheet replacing IMG_2026 with Kyoto 2026- and previewing the new names](docs/images/bulk-rename.png)

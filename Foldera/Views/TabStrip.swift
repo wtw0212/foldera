@@ -61,20 +61,43 @@ private struct WindowButtonAlignment: NSViewRepresentable {
     func updateNSView(_ view: AlignmentView, context: Context) { view.needsLayout = true }
 
     final class AlignmentView: NSView {
+        private var observers: [NSObjectProtocol] = []
+
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        /// AppKit lays the title bar out again on its own (resizing, key changes), moving the buttons back to
+        /// their default spot, so re-center whenever one of them moves.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            for button in buttons(in: window) {
+                button.postsFrameChangedNotifications = true
+                observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button,
+                                                                        queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.align() }
+                })
+            }
             needsLayout = true
         }
 
         override func layout() {
             super.layout()
+            align()
+        }
+
+        private func buttons(in window: NSWindow) -> [NSButton] {
+            [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
+        }
+
+        private func align() {
             guard bounds.height > 0, let window, !window.styleMask.contains(.fullScreen) else { return }
-            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                guard let button = window.standardWindowButton(kind), let parent = button.superview else { continue }
-                let center = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: parent)
-                button.setFrameOrigin(NSPoint(x: button.frame.minX, y: center.y - button.frame.height / 2))
+            for button in buttons(in: window) {
+                guard let parent = button.superview else { continue }
+                let y = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: parent).y - button.frame.height / 2
+                // Only move a button that is off center, so the frame-change notification doesn't loop.
+                if abs(button.frame.minY - y) > 0.5 { button.setFrameOrigin(NSPoint(x: button.frame.minX, y: y)) }
             }
         }
     }
