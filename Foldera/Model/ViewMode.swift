@@ -43,14 +43,57 @@ extension ViewMode {
     }
 }
 
-/// Remembers the layout per folder, falling back to the last layout chosen anywhere.
+enum FileColumn: String, CaseIterable, Codable {
+    case name, location, dateModified, kind, size
+
+    var field: SortField? { SortField(rawValue: rawValue) }
+    var title: String { field?.title ?? L10n.text("Folder") }
+    var width: CGFloat {
+        switch self {
+        case .name: 320
+        case .location: 280
+        case .dateModified: 160
+        case .kind: 150
+        case .size: 100
+        }
+    }
+}
+
+struct DetailColumns: Codable, Equatable {
+    var order = FileColumn.allCases
+    var widths: [String: Double] = [:]
+    var hidden: Set<FileColumn> = []
+
+    var ordered: [FileColumn] {
+        var seen: Set<FileColumn> = []
+        return (order + FileColumn.allCases).filter { seen.insert($0).inserted }
+    }
+
+    func width(of column: FileColumn) -> CGFloat {
+        guard let width = widths[column.rawValue], width.isFinite else { return column.width }
+        return CGFloat(min(4096, max(60, width)))
+    }
+
+    mutating func toggle(_ column: FileColumn) {
+        guard column != .name else { return }
+        if !hidden.insert(column).inserted { hidden.remove(column) }
+    }
+}
+
+struct FolderDetails: Codable, Equatable {
+    var sort = SortOrder()
+    var columns = DetailColumns()
+}
+
+/// Remembers view settings per folder; new folders use the last layout chosen anywhere.
 enum FolderViewModes {
     private static let key = "folderViewModes"
     private static let defaultKey = "defaultViewMode"
+    private static let detailsKey = "folderDetailsView"
 
     static func mode(for folder: URL, defaults: UserDefaults = .standard) -> ViewMode {
         let saved = defaults.dictionary(forKey: key) as? [String: String]
-        let raw = saved?[folder.path] ?? defaults.string(forKey: defaultKey)
+        let raw = saved?[folder.absoluteString] ?? (folder.isFileURL ? saved?[folder.path] : nil) ?? defaults.string(forKey: defaultKey)
         return raw.flatMap(ViewMode.init(rawValue:)) ?? .details
     }
 
@@ -63,12 +106,26 @@ enum FolderViewModes {
     /// Forgets every per-folder layout.
     static func resetAll(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: detailsKey)
     }
 
     static func set(_ mode: ViewMode, for folder: URL, defaults: UserDefaults = .standard) {
         var saved = defaults.dictionary(forKey: key) as? [String: String] ?? [:]
-        saved[folder.path] = mode.rawValue
+        saved[folder.absoluteString] = mode.rawValue
         defaults.set(saved, forKey: key)
         defaults.set(mode.rawValue, forKey: defaultKey)
+    }
+
+    static func details(for folder: URL, defaults: UserDefaults = .standard) -> FolderDetails {
+        guard let data = (defaults.dictionary(forKey: detailsKey) as? [String: Data])?[folder.absoluteString],
+              let details = try? JSONDecoder().decode(FolderDetails.self, from: data) else { return FolderDetails() }
+        return details
+    }
+
+    static func setDetails(_ details: FolderDetails, for folder: URL, defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(details) else { return }
+        var saved = defaults.dictionary(forKey: detailsKey) as? [String: Data] ?? [:]
+        saved[folder.absoluteString] = data
+        defaults.set(saved, forKey: detailsKey)
     }
 }

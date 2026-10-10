@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Foldera
@@ -45,6 +46,13 @@ struct VolumeTests {
             let result = FileTransfers.execute([plan], progress: TransferProgress(), fileManager: fm)
             #expect(result.error != nil && result.created.isEmpty && result.moved.isEmpty)
             #expect(result.moveCleanups.count == 1 && result.results == [destination])
+            #expect(result.consumedCutSources == [source])
+            let pasteboard = NSPasteboard(name: .init("FolderaPartialMove-\(UUID())"))
+            defer { pasteboard.clearContents() }
+            let clipboard = FileClipboard(pasteboard: pasteboard)
+            clipboard.cut([source])
+            clipboard.finishMove(result, urls: [source], changeCount: pasteboard.changeCount)
+            #expect(!clipboard.isCut(source) && !clipboard.canPaste)
             #expect(try fm.contentsOfDirectory(atPath: source.path) == ["b"])
             try expectComplete(destination)
             fm.delegate = previous
@@ -117,7 +125,8 @@ struct VolumeTests {
             #expect(try Data(contentsOf: destination) == Data(contentsOf: source))
             let plan = FileTransfers.planItem(.move, source: destination, destination: volume.appendingPathComponent("moved"))
             #expect(FileOperations.sameVolume(destination, volume) && !plan.isRename)
-            #expect(plan.deleteSourceAfterCopy && FileTransfers.totalBytes([plan]) == Int64(bytes))
+            let total = try FileTransfers.totalBytes([plan])
+            #expect(plan.deleteSourceAfterCopy && total == Int64(bytes))
         }
     }
 

@@ -68,7 +68,12 @@ final class AppSettings {
         NSApplication.shared.appearance = theme.appearance
     }
 
-    var showHiddenFiles: Bool { didSet { defaults.set(showHiddenFiles, forKey: Key.showHiddenFiles) } }
+    var showHiddenFiles: Bool {
+        didSet {
+            defaults.set(showHiddenFiles, forKey: Key.showHiddenFiles)
+            if showHiddenFiles != oldValue { NotificationCenter.default.post(name: .hiddenFilesChanged, object: self) }
+        }
+    }
     var showExtensions: Bool { didSet { defaults.set(showExtensions, forKey: Key.showExtensions) } }
     var compactView: Bool { didSet { defaults.set(compactView, forKey: Key.compactView) } }
     var showNavigationPane: Bool { didSet { defaults.set(showNavigationPane, forKey: Key.showNavigationPane) } }

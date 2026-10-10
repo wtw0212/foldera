@@ -52,6 +52,42 @@ struct RemoteBrowsingTests {
         #expect(tab.visibleItems.map(\.name) == ["report-new.txt"])
     }
 
+    @Test(arguments: [false, true])
+    func renameDuringRemoteSearchKeepsOnlyMatchingSelection(filtersOnly: Bool) async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        let original = try directory.file("report.txt")
+        let tab = try await remoteTab(endpoint, directory, preferences: preferences)
+        if filtersOnly { tab.searchFilters.kind = .documents } else { tab.searchText = "report" }
+        tab.selection = [endpoint.url(path: original.path)]
+        tab.commitRename(of: endpoint.url(path: original.path), to: "report-renamed.txt")
+        let renamed = endpoint.url(path: directory.path("report-renamed.txt").path)
+        try await eventually { !tab.isLoading && tab.visibleItems.contains { $0.url == renamed } }
+        #expect(tab.selection == [renamed])
+        tab.commitRename(of: renamed, to: "photo.png")
+        let unmatched = endpoint.url(path: directory.path("photo.png").path)
+        try await eventually { !tab.isLoading && tab.items.contains { $0.url == unmatched } }
+        #expect(tab.visibleItems.isEmpty && tab.selection.isEmpty)
+    }
+
+    @Test func remoteSearchFiltersAndHiddenSelectionsUseTheCurrentListing() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        try directory.file("note.txt")
+        let image = try directory.file("photo.png"), hidden = try directory.file(".private.png")
+        let tab = try await remoteTab(endpoint, directory, preferences: preferences)
+        tab.searchFilters.kind = .images
+        #expect(tab.visibleItems.map(\.name) == [image.lastPathComponent])
+        #expect(!tab.canSearchRecursively && tab.searchScope == .folder && !tab.searchReachedLimit)
+        tab.settings.showHiddenFiles = true
+        #expect(Set(tab.visibleItems.map(\.name)) == [image.lastPathComponent, hidden.lastPathComponent])
+        tab.selection = [endpoint.url(path: hidden.path)]
+        tab.settings.showHiddenFiles = false
+        #expect(tab.selection.isEmpty && tab.visibleItems.map(\.name) == [image.lastPathComponent])
+        tab.clearSearch()
+        #expect(!tab.isSearchActive && tab.visibleItems.count == 2)
+    }
+
     @Test func remoteSearchBeforeLoadingUsesTheNewListing() async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
         installFakeServer(endpoint)

@@ -176,6 +176,14 @@ struct CommandBar: View {
         showMenu.add(L10n.text("Hidden items"), checked: settings.showHiddenFiles) { settings.showHiddenFiles.toggle() }
         show.submenu = showMenu
         menu.addItem(show)
+        let columns = NSMenuItem(title: L10n.text("Columns"), action: nil, keyEquivalent: "")
+        let columnMenu = NSMenu()
+        for column in FileColumn.allCases where column != .location || tab.isSearchActive || tab.isRecent {
+            let item = columnMenu.add(column.title, checked: column == .name || !tab.columns.hidden.contains(column)) { tab.columns.toggle(column) }
+            item.isEnabled = column != .name
+        }
+        columns.submenu = columnMenu
+        menu.addItem(columns)
         return menu
     }
 

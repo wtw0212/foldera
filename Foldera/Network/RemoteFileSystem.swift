@@ -26,6 +26,7 @@ nonisolated protocol RemoteFileSystem: AnyObject, Sendable {
     func makeDirectory(_ path: String, permissions: UInt32?) async throws
     func createFile(_ path: String) async throws
     func rename(_ path: String, to newPath: String) async throws
+    func setPermissions(_ permissions: UInt32, at path: String) async throws
     func removeFile(_ path: String) async throws
     func removeDirectory(_ path: String) async throws
     /// Streams a file to `local`, calling `written` with each chunk's size; `written` throws to cancel.
@@ -61,11 +62,13 @@ nonisolated extension RemoteFileSystem {
     }
 
     /// Bytes in a file or folder tree.
-    func totalSize(_ entry: RemoteEntry) async throws -> Int64 {
+    func totalSize(_ entry: RemoteEntry, progress: TransferProgress? = nil) async throws -> Int64 {
+        if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
+        progress?.setCurrentName(entry.name)
         guard entry.isDirectory, !entry.isSymlink else { return entry.size ?? 0 }
         var total: Int64 = 0
         for child in try await list(entry.path) {
-            total += try await totalSize(child)
+            total += try await totalSize(child, progress: progress)
         }
         return total
     }

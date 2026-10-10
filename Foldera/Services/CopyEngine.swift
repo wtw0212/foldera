@@ -27,13 +27,17 @@ nonisolated enum CopyEngine {
     struct Cancelled: Error {}
 
     /// Total size of a file or folder tree, in bytes.
-    static func size(of url: URL) -> Int64 {
+    static func size(of url: URL, progress: TransferProgress? = nil) throws -> Int64 {
+        if progress?.isCancelled == true { throw Cancelled() }
+        progress?.setCurrentName(url.lastPathComponent)
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey]
         guard let values = try? url.resourceValues(forKeys: keys) else { return 0 }
         guard values.isDirectory == true, values.isSymbolicLink != true else { return Int64(values.fileSize ?? 0) }
         var total: Int64 = 0
         let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys), options: [])
         while let child = enumerator?.nextObject() as? URL {
+            if progress?.isCancelled == true { throw Cancelled() }
+            progress?.setCurrentName(child.lastPathComponent)
             total += Int64((try? child.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
         return total

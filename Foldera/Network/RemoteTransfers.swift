@@ -84,6 +84,7 @@ struct RemoteTransfers {
 
     private func execute(_ kind: FileTransfer.Kind, _ jobs: [Job], from first: URL, into directory: URL) async -> TransferResult {
         let transfer = FileTransfer(kind: kind, itemCount: jobs.count, source: Self.parent(of: first), destination: directory)
+        transfer.isPreparing = true
         transfers.begin(transfer)
         defer { transfers.end(transfer) }
         let progress = transfer.progress
@@ -98,8 +99,8 @@ struct RemoteTransfers {
         var result = TransferResult()
         do {
             var total: Int64 = 0
-            for job in jobs where !isServerMove(kind, job) { total += try await size(of: job) }
-            transfer.totalBytes = total
+            for job in jobs where !isServerMove(kind, job) { total += try await size(of: job, progress: progress) }
+            transfer.startProgress(totalBytes: total)
             let counter = ByteCounter(progress: progress)
             for job in jobs {
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
@@ -266,10 +267,12 @@ struct RemoteTransfers {
         return try await connections.read(try Self.endpoint(url)) { try await $0.entry(at: url.remotePath) } != nil
     }
 
-    private func size(of job: Job) async throws -> Int64 {
-        guard job.source.isRemote else { return CopyEngine.size(of: job.source) }
+    private func size(of job: Job, progress: TransferProgress) async throws -> Int64 {
+        guard job.source.isRemote else {
+            return try await Task.detached { try CopyEngine.size(of: job.source, progress: progress) }.value
+        }
         guard let entry = job.sourceEntry else { throw RemoteError.notFound(Self.name(of: job.source)) }
-        return try await connections.read(try Self.endpoint(job.source)) { try await $0.totalSize(entry) }
+        return try await connections.read(try Self.endpoint(job.source)) { try await $0.totalSize(entry, progress: progress) }
     }
 
     /// A payload inside an exclusively acquired private directory beside `destination` on its server.

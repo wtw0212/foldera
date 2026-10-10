@@ -110,6 +110,11 @@ nonisolated final class FakeRemoteFileSystem: RemoteFileSystem, @unchecked Senda
         try finish(dropped)
     }
 
+    func setPermissions(_ permissions: UInt32, at path: String) async throws {
+        try record("setPermissions")
+        try fileManager.setAttributes([.posixPermissions: NSNumber(value: permissions)], ofItemAtPath: path)
+    }
+
     func createFile(_ path: String) async throws {
         try record("createFile")
         guard fileManager.createFile(atPath: path, contents: Data()) else { throw RemoteError.failed("create") }

@@ -34,6 +34,30 @@ struct FileTransfersTests {
         #expect(fm.fileExists(atPath: root.appendingPathComponent("file.txt").path))
     }
 
+    @Test func preparingTransferIsVisibleAndCancellationPreventsTheCopy() async throws {
+        let transfer = FileTransfer(kind: .copy, itemCount: 1, source: root, destination: root.appendingPathComponent("dest"))
+        let source = root.appendingPathComponent("file.txt"), destination = root.appendingPathComponent("dest/file.txt")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let task = Task {
+            try await FileTransfers.shared.track(transfer, preparing: { progress in
+                progress.setCurrentName("scanning")
+                release.wait()
+                return try CopyEngine.size(of: source, progress: progress)
+            }) { progress in
+                try CopyEngine.copy(source, to: destination, progress: progress, baseBytes: 0)
+            }
+        }
+        try await eventually { transfer.progress.currentName == "scanning" }
+        #expect(transfer.isPreparing && transfer.bytesPerSecond == 0)
+        #expect(FileTransfers.shared.active.contains { $0.id == transfer.id })
+        transfer.cancel()
+        release.signal()
+        await #expect(throws: CopyEngine.Cancelled.self) { try await task.value }
+        #expect(!FileOperations.exists(destination))
+        #expect(!FileTransfers.shared.active.contains { $0.id == transfer.id })
+    }
+
     @Test func failedSourceRemovalRecordsAuthoritativeCopy() throws {
         let locked = root.appendingPathComponent("locked")
         try fm.createDirectory(at: locked, withIntermediateDirectories: false)

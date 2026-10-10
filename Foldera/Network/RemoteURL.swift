@@ -79,6 +79,7 @@ nonisolated enum RemotePath {
 }
 
 extension Notification.Name {
+    static let hiddenFilesChanged = Notification.Name("Foldera.hiddenFilesChanged")
     /// Posted with `userInfo["url"]` when a transfer changes a server folder.
     static let remoteFolderChanged = Notification.Name("FolderaRemoteFolderChanged")
     /// Posted when the user disconnects from a server; userInfo["endpoint"] is its `RemoteEndpoint`.

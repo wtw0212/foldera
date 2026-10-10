@@ -11,6 +11,41 @@ struct RemoteEditingLifecycleTests {
         return RemoteEditing(connections: connections, folder: cache.url, openFile: { _ in }, retryDelay: 60)
     }
 
+    @Test func repeatedAndOverlappingOpensShareOneEditingCopy() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let started = EditingTestGate(), release = EditingTestGate()
+        let server = FakeRemoteFileSystem(beforeList: {
+            await started.open()
+            await release.wait()
+        })
+        let manager = editing(cache, server: server)
+        let original = try remote.file("shared.txt", contents: "v1")
+        let address = uniqueEndpoint().url(path: original.path)
+        let first = Task { try await manager.open(address) }
+        await started.wait()
+        let second = Task { try await manager.open(address) }
+        for _ in 0..<10 { await Task.yield() }
+        await release.open()
+        let local = try await first.value
+        #expect(try await second.value == local)
+        #expect(try await manager.open(address) == local)
+        #expect(manager.sessions.count == 1)
+        #expect(server.operations.filter { $0 == "download" }.count == 1)
+        manager.prepareToQuit()
+    }
+
+    @Test func symbolicLinksAreNotOpenedForEditing() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let original = try remote.file("target.txt", contents: "KEEP")
+        let link = remote.path("current.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+        let manager = editing(cache, server: FakeRemoteFileSystem())
+        await #expect(throws: RemoteError.self) { try await manager.open(uniqueEndpoint().url(path: link.path)) }
+        #expect(manager.sessions.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == original.path)
+        #expect(try String(contentsOf: original, encoding: .utf8) == "KEEP")
+    }
+
     @Test func finishingUploadsTheLastSaveThenRemovesItsDirectory() async throws {
         let cache = try TestDirectory(), remote = try TestDirectory()
         let server = FakeRemoteFileSystem()
@@ -91,6 +126,35 @@ struct RemoteEditingLifecycleTests {
         #expect(restored.sessions.isEmpty && !FileOperations.exists(local))
     }
 
+    @Test func reopeningARecoveredFileResumesOnlyItsEditingCopy() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let server = FakeRemoteFileSystem(), endpoint = uniqueEndpoint()
+        let manager = editing(cache, server: server)
+        let original = try remote.file("page.txt", contents: "SERVER")
+        let other = try remote.file("other.txt", contents: "OTHER")
+        let address = endpoint.url(path: original.path)
+        let local = try await manager.open(address)
+        let otherLocal = try await manager.open(endpoint.url(path: other.path))
+        try "UNSENT".write(to: local, atomically: true, encoding: .utf8)
+        try "OTHER UNSENT".write(to: otherLocal, atomically: true, encoding: .utf8)
+        manager.prepareToQuit()
+        let restored = editing(cache, server: server)
+        await restored.uploadNow()
+        #expect(try String(contentsOf: original, encoding: .utf8) == "SERVER")
+        let reopened = try await restored.open(address)
+        #expect(reopened.normalizedFileURL == local.normalizedFileURL)
+        #expect(try String(contentsOf: local, encoding: .utf8) == "UNSENT")
+        #expect(restored.sessions.first { $0.remote == address }?.isRecovered == false)
+        #expect(server.operations.filter { $0 == "download" }.count == 2)
+        try "NEW SAVE".write(to: local, atomically: true, encoding: .utf8)
+        await restored.finishEditing()
+        #expect(try String(contentsOf: original, encoding: .utf8) == "NEW SAVE")
+        #expect(try String(contentsOf: other, encoding: .utf8) == "OTHER")
+        #expect(restored.sessions.map { $0.local.normalizedFileURL } == [otherLocal.normalizedFileURL] && restored.hasRecoveredSessions)
+        #expect(try String(contentsOf: otherLocal, encoding: .utf8) == "OTHER UNSENT")
+        restored.prepareToQuit()
+    }
+
     /// Editors and tools can rewrite a file and set its modification date back. The bytes are still new, so
     /// they're uploaded, and the copy isn't deleted as if it were synchronized.
     @Test func rewritesThatKeepTheModificationDateAreStillUploaded() async throws {
@@ -150,9 +214,11 @@ struct RemoteEditingLifecycleTests {
         let server = FakeRemoteFileSystem()
         var manager: RemoteEditing? = editing(cache, server: server)
         let original = try remote.file("saved.txt", contents: "v1")
+        let other = try remote.file("other/saved.txt", contents: "v1")
         let endpoint = uniqueEndpoint()
         let unchanged = try #require(await manager?.open(endpoint.url(path: original.path)))
-        let dirty = try #require(await manager?.open(endpoint.url(path: original.path)))
+        let dirty = try #require(await manager?.open(endpoint.url(path: other.path)))
+        try #require(unchanged != dirty)
         for session in manager?.sessions ?? [] {
             let metadata = session.directory.appendingPathComponent("session.json")
             var record = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: Any])

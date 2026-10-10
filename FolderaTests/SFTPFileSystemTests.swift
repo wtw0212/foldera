@@ -114,6 +114,20 @@ struct SFTPFileSystemTests {
         await sftp.close()
     }
 
+    @Test(arguments: [UInt32(0o600), 0o755])
+    func replacementKeepsUnixPermissionsOverSFTP(permissions: UInt32) async throws {
+        let server = try LocalSSHServer(), local = try TestDirectory()
+        let sftp = try await server.connect()
+        let original = try local.file("original", contents: "OLD")
+        let replacement = try local.file("replacement", contents: "NEW")
+        try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: permissions)], ofItemAtPath: original.path)
+        let connections = RemoteConnections { _ in sftp }
+        try await connections.upload(replacement, replacing: original.path, on: server.endpoint) { _ in }
+        #expect(try await sftp.entry(at: original.path)?.permissions.map { $0 & 0o7777 } == permissions)
+        #expect(try String(contentsOf: original, encoding: .utf8) == "NEW")
+        await connections.disconnect(server.endpoint)
+    }
+
     @Test func browsesTransfersRenamesAndDeletesOverSFTP() async throws {
         let server = try LocalSSHServer()
         let local = try TestDirectory()

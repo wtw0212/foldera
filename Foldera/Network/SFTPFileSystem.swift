@@ -168,6 +168,14 @@ nonisolated final class SFTPFileSystem: RemoteFileSystem, @unchecked Sendable {
         }
     }
 
+    func setPermissions(_ permissions: UInt32, at path: String) async throws {
+        try await translate(path) {
+            var attributes = SFTPFileAttributes()
+            attributes.permissions = permissions
+            try await self.sftp.setAttributes(at: path, to: attributes)
+        }
+    }
+
     func createFile(_ path: String) async throws {
         try await translate(path) {
             nonisolated(unsafe) let file = try await self.sftp.openFile(filePath: path, flags: [.write, .create, .forceCreate])

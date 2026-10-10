@@ -70,6 +70,17 @@ struct SidebarTests {
         #expect(!tree.isExpanded("one") && tree.rows(under: directory.url, section: "one").isEmpty)
     }
 
+    @Test func anEmptyFolderCanBeCollapsedAndRescannedAfterItGainsChildren() throws {
+        let directory = try TestDirectory()
+        let tree = FolderTree()
+        tree.toggle("empty", url: directory.url)
+        #expect(tree.isExpanded("empty") && tree.knownChildren("empty") == [])
+        tree.toggle("empty", url: directory.url)
+        let child = try directory.folder("arrived")
+        tree.toggle("empty", url: directory.url)
+        #expect(tree.rows(under: directory.url, section: "empty").map(\.url) == [child])
+    }
+
     @Test func cloudDetectionExcludesHiddenFilesAndArchivedICloudFolders() throws {
         let directory = try TestDirectory(), preferences = try TestPreferences()
         let drive = try directory.folder("OneDrive-Personal")

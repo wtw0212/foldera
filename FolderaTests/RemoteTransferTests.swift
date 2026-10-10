@@ -20,6 +20,58 @@ struct RemoteTransferTests {
         return transfers
     }
 
+    @Test(arguments: [UInt32(0o600), 0o755])
+    func editingReplacementPreservesPermissions(permissions: UInt32) async throws {
+        let local = try TestDirectory(), remote = try TestDirectory()
+        let original = try remote.file("private.txt", contents: "OLD")
+        try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: permissions)], ofItemAtPath: original.path)
+        let replacement = try local.file("new.txt", contents: "NEW")
+        let endpoint = uniqueEndpoint(), server = FakeRemoteFileSystem()
+        let connections = RemoteConnections { _ in server }
+        try await connections.upload(replacement, replacing: original.path, on: endpoint) { _ in }
+        #expect(try String(contentsOf: original, encoding: .utf8) == "NEW")
+        #expect(try await server.entry(at: original.path)?.permissions == permissions)
+    }
+
+    @Test func permissionFailureKeepsTheOriginalAndCleansStaging() async throws {
+        let local = try TestDirectory(), remote = try TestDirectory()
+        let original = try remote.file("private.txt", contents: "KEEP")
+        let replacement = try local.file("new.txt", contents: "NEW")
+        let server = FakeRemoteFileSystem()
+        server.fail("setPermissions", with: RemoteError.failed("permission denied"))
+        let connections = RemoteConnections { _ in server }
+        await #expect(throws: RemoteError.self) {
+            try await connections.upload(replacement, replacing: original.path, on: uniqueEndpoint()) { _ in }
+        }
+        #expect(try String(contentsOf: original, encoding: .utf8) == "KEEP")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: remote.url.path) == ["private.txt"])
+    }
+
+    @Test func editingReplacementRefusesSymbolicLinks() async throws {
+        let local = try TestDirectory(), remote = try TestDirectory()
+        let original = try remote.file("target", contents: "KEEP")
+        let link = remote.path("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+        let replacement = try local.file("new", contents: "NEW")
+        let server = FakeRemoteFileSystem(), connections = RemoteConnections { _ in server }
+        await #expect(throws: RemoteError.self) {
+            try await connections.upload(replacement, replacing: link.path, on: uniqueEndpoint()) { _ in }
+        }
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == original.path)
+        #expect(try String(contentsOf: original, encoding: .utf8) == "KEEP")
+        #expect(!server.operations.contains("upload"))
+    }
+
+    @Test func remoteSizePreparationStopsAfterCancellation() async throws {
+        let remote = try TestDirectory()
+        try remote.file("nested/file.txt")
+        let progress = TransferProgress()
+        let server = FakeRemoteFileSystem(beforeList: { progress.cancel() })
+        let entry = try #require(try await server.entry(at: remote.url.path))
+        await #expect(throws: CopyEngine.Cancelled.self) { try await server.totalSize(entry, progress: progress) }
+        #expect(server.operations.filter { $0 == "list" }.count == 1)
+    }
+
     @Test func uploadsAndDownloadsFilesAndFolders() async throws {
         let endpoint = uniqueEndpoint(), local = try TestDirectory(), remote = try TestDirectory()
         let server = installFakeServer(endpoint)

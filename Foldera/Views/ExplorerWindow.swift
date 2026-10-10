@@ -320,6 +320,13 @@ private struct StatusBar: View {
                 }
             }
             Spacer()
+            if tab.searchReachedLimit {
+                Text(L10n.text("Result limit reached. Narrow your search."))
+                    .foregroundStyle(Theme.secondaryText.swiftUI)
+                    .lineLimit(1)
+                    .padding(.trailing, 8)
+                    .accessibilityIdentifier("search-result-limit")
+            }
             if tab.isSearching {
                 Text(L10n.text("Searching…")).foregroundStyle(Theme.secondaryText.swiftUI).padding(.trailing, 6)
             }

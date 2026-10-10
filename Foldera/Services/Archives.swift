@@ -116,11 +116,22 @@ nonisolated enum Archives {
         let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
         defer { try? fm.removeItem(at: staging) }
         try extract(archive, into: staging, password: password, progress: progress, totalBytes: totalBytes)
+        return try publishExtractedItems(fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil), into: folder, progress: progress)
+    }
+
+    /// A later failure must retain the receipts for files already moved out of staging.
+    static func publishExtractedItems(_ items: [URL], into folder: URL, progress: TransferProgress? = nil) throws -> [URL] {
         var added: [URL] = []
-        for item in try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil) {
-            let destination = FileOperations.uniqueURL(named: item.lastPathComponent, in: folder)
-            try fm.moveItem(at: item, to: destination)
-            added.append(destination)
+        do {
+            for item in items {
+                if progress?.isCancelled == true { throw CopyEngine.Cancelled() }
+                let destination = FileOperations.uniqueURL(named: item.lastPathComponent, in: folder)
+                try FileManager.default.moveItem(at: item, to: destination)
+                added.append(destination)
+            }
+        } catch {
+            if added.isEmpty { throw error }
+            throw FileChange.Failure(cause: error, remaining: .created(added))
         }
         return added
     }
@@ -287,7 +298,9 @@ nonisolated enum Archives {
         let output = staging.appendingPathComponent("archive." + options.format.fileExtension)
         let parent = first.deletingLastPathComponent()
         let sameParent = items.allSatisfy { $0.deletingLastPathComponent().path == parent.path }
-        let meter = progress.map { CompressionMeter(progress: $0, archive: output, total: items.reduce(0) { $0 + CopyEngine.size(of: $1) }, name: archive.lastPathComponent) }
+        let meter = try progress.map { progress in
+            CompressionMeter(progress: progress, archive: output, total: try items.reduce(0) { try $0 + CopyEngine.size(of: $1, progress: progress) }, name: archive.lastPathComponent)
+        }
         if sameParent {
             try compress(items.map(\.lastPathComponent), in: parent, options: options, to: output, meter: meter)
         } else {

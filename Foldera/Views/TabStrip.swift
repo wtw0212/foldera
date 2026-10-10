@@ -51,6 +51,32 @@ struct TabStrip: View {
             WindowDragArea()
         }
         .frame(height: 40, alignment: .bottom)
+        .background(WindowButtonAlignment())
+    }
+}
+
+/// Centers the native window controls in the custom title bar, including after a resize.
+private struct WindowButtonAlignment: NSViewRepresentable {
+    func makeNSView(context: Context) -> AlignmentView { AlignmentView() }
+    func updateNSView(_ view: AlignmentView, context: Context) { view.needsLayout = true }
+
+    final class AlignmentView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            needsLayout = true
+        }
+
+        override func layout() {
+            super.layout()
+            guard bounds.height > 0, let window, !window.styleMask.contains(.fullScreen) else { return }
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                guard let button = window.standardWindowButton(kind), let parent = button.superview else { continue }
+                let center = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: parent)
+                button.setFrameOrigin(NSPoint(x: button.frame.minX, y: center.y - button.frame.height / 2))
+            }
+        }
     }
 }
 
