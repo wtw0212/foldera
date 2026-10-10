@@ -102,7 +102,7 @@ targets:
         # A file manager needs unrestricted file system access, so the app is not sandboxed.
         ENABLE_APP_SANDBOX: NO
         COMBINE_HIDPI_IMAGES: YES
-        # make-dmg.sh swaps in Foldera-AdHoc.entitlements for ad-hoc signed builds.
+        # make-dmg.sh swaps in Foldera-NoTeam.entitlements for builds signed without a Team ID.
         FOLDERA_ENTITLEMENTS: Foldera/Foldera.entitlements
         CODE_SIGN_ENTITLEMENTS: $(FOLDERA_ENTITLEMENTS)
         INFOPLIST_KEY_NSDesktopFolderUsageDescription: Foldera shows and manages the files in your Desktop folder.

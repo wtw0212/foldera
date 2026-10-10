@@ -69,9 +69,35 @@ jobs:
           key: deriveddata-release-macos-26-xcode26.6-${{ hashFiles('project.yml') }}
           restore-keys: deriveddata-release-macos-26-xcode26.6-
 
+      - name: Import the release signing certificate
+        # Every release is signed with the same self-signed certificate, so macOS keeps Full Disk Access across
+        # updates (its designated requirement names the certificate, not one build). Other builds are ad-hoc signed.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          P12: ${{ secrets.FOLDERA_SIGNING_P12 }}
+          P12_PASSWORD: ${{ secrets.FOLDERA_SIGNING_P12_PASSWORD }}
+        run: |
+          if [[ -z "$P12" || -z "$P12_PASSWORD" ]]; then
+            echo "The FOLDERA_SIGNING_P12 and FOLDERA_SIGNING_P12_PASSWORD secrets are required. See RELEASING.md." >&2
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/release-signing.keychain-db"
+          keychain_password=$(uuidgen)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/release.p12"
+          security import "$RUNNER_TEMP/release.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/release.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          read -r -a keychains <<< "$(security list-keychains -d user | tr -d '"' | tr '\n' ' ')"
+          security list-keychains -d user -s "$keychain" "${keychains[@]}"
+          security find-identity -p codesigning "$keychain" | grep -q '"foldera-release"'
+          echo "SIGN_IDENTITY=foldera-release" >> "$GITHUB_ENV"
+
       - name: Build DMG
         env:
-          SIGN_IDENTITY: "-"
+          SIGN_IDENTITY: ${{ env.SIGN_IDENTITY || '-' }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/make-dmg.sh
 
@@ -81,6 +107,10 @@ jobs:
           test "$(lipo -archs "$app/Contents/MacOS/Foldera")" = arm64
           test "$(lipo -archs "$app/Contents/MacOS/7zz")" = arm64
           codesign --verify --deep --strict "$app"
+          if [[ "${SIGN_IDENTITY:-}" == "foldera-release" ]]; then
+            # A different certificate would make every installed copy lose Full Disk Access.
+            codesign -d -r- "$app" 2>&1 | grep -q 'certificate leaf = H"c6efa914a27106674473c4860c7992baaef77007"'
+          fi
           if otool -l "$app/Contents/MacOS/Foldera" | grep -E 'segname __LLVM_COV|sectname __llvm_prf'; then
             echo "Release contains coverage instrumentation" >&2
             exit 1

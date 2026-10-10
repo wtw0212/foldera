@@ -15,6 +15,12 @@ The Release workflow uses `scripts/test.sh unit`, including the same no-skips an
 
 Each release also carries `appcast.xml`, the feed installed copies read from `releases/latest/download/appcast.xml`. The workflow signs the DMG and the feed with the `SPARKLE_PRIVATE_KEY` repository secret, checks the DMG signature against the `SUPublicEDKey` built into the app, and fails without the secret. An installed copy rejects any update or feed not signed with that key.
 
+### Code signing certificate (one-time setup)
+
+`foldera-release` is a self-signed Code Signing certificate (20-year validity) created with Keychain Access ▸ Certificate Assistant ▸ Create a Certificate. Its SHA-1 is `c6efa914a27106674473c4860c7992baaef77007`; the workflow refuses a release signed with anything else. Export it from the login keychain as a `.p12` and store it, base64-encoded, in `FOLDERA_SIGNING_P12`, with its password in `FOLDERA_SIGNING_P12_PASSWORD`. Back up the `.p12` and password: a new certificate makes every installed copy ask for Full Disk Access again.
+
+To sign a local package with it: `SIGN_IDENTITY="foldera-release" bash scripts/make-dmg.sh`.
+
 ### Update signing key (one-time setup)
 
 The key pair was created with Sparkle's `generate_keys --account foldera`; the private key is in the release manager's login keychain and the public key is `SPARKLE_PUBLIC_KEY` in `project.yml`. Add the private key to the repository once:
@@ -27,7 +33,7 @@ rm sparkle-private-key
 
 (`generate_keys` appears there after one `scripts/make-dmg.sh` run.) Back up the private key somewhere safe: if it is lost, installed copies can't accept any further update and users must reinstall from a DMG built with a new key. Never change `SPARKLE_PUBLIC_KEY` without that in mind.
 
-The workflow uses GitHub's built-in token; no personal access token is needed. Published builds are **ad-hoc signed and not notarized by Apple**. Ad-hoc builds get `Foldera-AdHoc.entitlements`, which turns off library validation so the embedded Sparkle.framework can load without a Team ID; Developer ID builds keep it on. Developer ID signing and notarization require Apple Developer credentials and are not configured in this workflow. The local packaging script still supports `SIGN_IDENTITY` and `NOTARY_PROFILE` for signed and notarized builds.
+The workflow uses GitHub's built-in token; no personal access token is needed. Published builds are **signed with the self-signed `foldera-release` certificate and not notarized by Apple**. Because every release has the same designated requirement (bundle ID plus that certificate), macOS keeps Full Disk Access across updates. Builds without a Team ID (self-signed or ad-hoc) get `Foldera-NoTeam.entitlements`, which turns off library validation so the embedded Sparkle.framework can load; Developer ID builds keep it on. Developer ID signing and notarization require Apple Developer credentials and are not configured in this workflow. The local packaging script still supports `SIGN_IDENTITY` and `NOTARY_PROFILE` for signed and notarized builds.
 
 For a local CI-style package:
 

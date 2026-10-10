@@ -5,6 +5,7 @@
 # Optional, for sharing with other Macs (needs a paid Apple Developer account):
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"   sign the app and DMG for distribution
 #   NOTARY_PROFILE=foldera   notarize with a profile saved by `xcrun notarytool store-credentials foldera`
+#   SIGN_IDENTITY="foldera-release"   sign with the self-signed release certificate (see RELEASING.md)
 #   SIGN_IDENTITY=-   build with ad-hoc signing, without an Apple developer certificate
 #   VERSION=0.2.0 BUILD_NUMBER=42   override the version and build number for a release
 set -euo pipefail
@@ -28,14 +29,17 @@ APP="build.noindex/release/Build/Products/Release/Foldera.app"
 echo "▸ Building Foldera ${VERSION} (Release)"
 FOLDERA_INSTALLER_ID=$(uuidgen)
 xcodegen generate --quiet
+# Apple-issued identities end in "(TEAMID)"; ad-hoc and self-signed ones have no Team ID.
+HAS_TEAM=false
+if [[ "${SIGN_IDENTITY:-}" =~ \([A-Z0-9]{10}\)$ ]]; then HAS_TEAM=true; fi
 SIGN_ARGS=()
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     SIGN_ARGS=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=${SIGN_IDENTITY}")
-    if [[ "$SIGN_IDENTITY" == "-" ]]; then
-        # Without a Team ID, library validation would refuse the embedded Sparkle.framework at launch.
-        SIGN_ARGS+=(FOLDERA_ENTITLEMENTS=Foldera/Foldera-AdHoc.entitlements)
-    else
+    if [[ "$HAS_TEAM" == true ]]; then
         SIGN_ARGS+=(OTHER_CODE_SIGN_FLAGS=--timestamp)
+    else
+        # Without a Team ID, library validation would refuse the embedded Sparkle.framework at launch.
+        SIGN_ARGS+=(FOLDERA_ENTITLEMENTS=Foldera/Foldera-NoTeam.entitlements "DEVELOPMENT_TEAM=")
     fi
 fi
 # Re-link from cached object files: an incremental dSYM must not be regenerated
@@ -64,10 +68,10 @@ rm -f "$DMG"
 hdiutil create -volname "Foldera ${VERSION}" -srcfolder build.noindex/dmg -ov -format ULMO "$DMG" >/dev/null 2>&1
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
-    if [[ "$SIGN_IDENTITY" == "-" ]]; then
-        codesign --sign - "$DMG"
-    else
+    if [[ "$HAS_TEAM" == true ]]; then
         codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG"
+    else
+        codesign --sign "$SIGN_IDENTITY" "$DMG"
     fi
 fi
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
