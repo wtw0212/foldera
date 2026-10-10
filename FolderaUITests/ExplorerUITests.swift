@@ -214,6 +214,53 @@ final class ExplorerUITests: XCTestCase {
         }
     }
 
+    /// Explorer's slow double-click: click the selected item's name again to rename it.
+    func testClickingTheSelectedNameAgainRenamesIt() throws {
+        try withApp { app, root in
+            let list = app.tables["file-list"]
+            let name = list.staticTexts["note.txt"]
+            name.click()
+            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
+            XCTAssertEqual(list.textFields.count, 0, "the first click only selects")
+            name.click()
+            let field = list.textFields.firstMatch
+            XCTAssertTrue(field.waitForAppearance(timeout: NSEvent.doubleClickInterval + 3))
+            enter("renamed", into: field)
+            app.typeKey(.return, modifierFlags: [])
+            let renamed = NSPredicate { _, _ in FileManager.default.fileExists(atPath: root.appendingPathComponent("renamed.txt").path) }
+            expectation(for: renamed, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+
+            // A double-click on the selected folder opens it instead.
+            let folder = list.staticTexts["nested"]
+            folder.click()
+            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
+            folder.doubleClick()
+            XCTAssertTrue(list.staticTexts["report.txt"].waitForAppearance(timeout: 5))
+            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.5)
+            XCTAssertEqual(list.textFields.count, 0)
+        }
+    }
+
+    func testClickingTheSelectedNameAgainRenamesItInIconView() throws {
+        try withApp { app, root in
+            app.typeKey("=", modifierFlags: .command)
+            app.typeKey("=", modifierFlags: .command)
+            let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
+            expectation(for: gone, evaluatedWith: app)
+            waitForExpectations(timeout: 5)
+            let name = app.staticTexts["note.txt"]
+            XCTAssertTrue(name.waitForAppearance(timeout: 5))
+            name.click()
+            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
+            name.click()
+            let field = app.textFields.matching(NSPredicate(format: "value == %@", "note.txt")).firstMatch
+            XCTAssertTrue(field.waitForAppearance(timeout: NSEvent.doubleClickInterval + 3))
+            app.typeKey(.escape, modifierFlags: [])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("note.txt").path))
+        }
+    }
+
     func testCommandPlusAndMinusSwitchBetweenListAndIcons() throws {
         try withApp { app, _ in
             app.typeKey("=", modifierFlags: .command)

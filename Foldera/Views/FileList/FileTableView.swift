@@ -133,13 +133,50 @@ final class FileTableView: NSTableView {
         // Empty space (right of the columns or below the last row) starts a selection box, like Explorer.
         // It never reaches the table, so a double-click there doesn't open the row at the same height.
         if point.x > columnsMaxX || row(at: point) < 0 {
+            slowClick.cancel()
             if event.clickCount == 1 { trackSelectionBox(from: event) }
             return
         }
+        let row = row(at: point)
+        slowClick.mouseDown(event, wasOnlySelection: selectedRowIndexes == IndexSet(integer: row),
+                            onLabel: isOnNameLabel(point, row: row),
+                            wasFocused: window?.isKeyWindow == true && window?.firstResponder === self)
         super.mouseDown(with: event)
+        // The table tracks the press itself, so the release usually arrives here rather than in mouseUp.
+        if let release = NSApp.currentEvent, release.type == .leftMouseUp { slowClickReleased(release, row: row) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        if row >= 0 { slowClickReleased(event, row: row) }
+    }
+
+    // MARK: Slow click to rename
+
+    let slowClick = SlowClickRename()
+
+    private func slowClickReleased(_ event: NSEvent, row: Int) {
+        slowClick.mouseUp(at: event.locationInWindow) { [weak self] in
+            guard let self, selectedRowIndexes == IndexSet(integer: row), window?.firstResponder === self else { return }
+            commands?.beginRename()
+        }
+    }
+
+    /// Only the name text renames, like Explorer; the icon and the rest of the row just select.
+    func isOnNameLabel(_ point: NSPoint, row: Int) -> Bool {
+        let column = column(at: point)
+        guard column >= 0, let cell = view(atColumn: column, row: row, makeIfNecessary: false) as? NameCellView else { return false }
+        return cell.convert(cell.label.frame, to: self).contains(point)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        slowClick.cancel()
+        return super.resignFirstResponder()
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        slowClick.cancel()
         guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
         let row = rowInColumns(at: convert(event.locationInWindow, from: nil))
         if row >= 0 { commands?.openInBackgroundTab(index: row) }
@@ -237,11 +274,13 @@ final class FileTableView: NSTableView {
             if step != 0 { commands.zoom(in: step > 0) }
             return
         }
+        slowClick.cancel()
         super.scrollWheel(with: event)
         refreshHover()
     }
 
     override func reloadData() {
+        slowClick.cancel()
         super.reloadData()
         DispatchQueue.main.async { [weak self] in self?.refreshHover() }
     }
@@ -252,6 +291,7 @@ final class FileTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        slowClick.cancel()
         if let commands, FileKeys.handle(event, commands) { return }
         super.keyDown(with: event)
     }
@@ -265,6 +305,7 @@ final class FileTableView: NSTableView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        slowClick.cancel()
         let row = rowInColumns(at: convert(event.locationInWindow, from: nil))
         if row >= 0 {
             if !selectedRowIndexes.contains(row) {

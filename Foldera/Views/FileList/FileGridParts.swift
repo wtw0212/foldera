@@ -227,14 +227,43 @@ final class FileCollectionView: NSCollectionView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let indexPath = indexPathForItem(at: point)
+        slowClick.mouseDown(event, wasOnlySelection: indexPath.map { selectionIndexPaths == [$0] } ?? false,
+                            onLabel: indexPath.map { isOnNameLabel(point, at: $0) } ?? false,
+                            wasFocused: window?.isKeyWindow == true && window?.firstResponder === self)
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
-        if event.clickCount == 2, let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+        if event.clickCount == 2, let indexPath {
             onDoubleClick?(indexPath)
+        }
+        if let release = NSApp.currentEvent, release.type == .leftMouseUp, let indexPath { slowClickReleased(release, at: indexPath) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        if let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) { slowClickReleased(event, at: indexPath) }
+    }
+
+    // MARK: Slow click to rename
+
+    let slowClick = SlowClickRename()
+
+    private func slowClickReleased(_ event: NSEvent, at indexPath: IndexPath) {
+        slowClick.mouseUp(at: event.locationInWindow) { [weak self] in
+            guard let self, selectionIndexPaths == [indexPath], window?.firstResponder === self else { return }
+            commands?.beginRename()
         }
     }
 
+    /// Only the name renames, like Explorer; the icon and details just select.
+    func isOnNameLabel(_ point: NSPoint, at indexPath: IndexPath) -> Bool {
+        guard let cell = (item(at: indexPath) as? FileGridItem)?.cell else { return false }
+        return cell.convert(cell.nameLabel.frame, to: self).contains(point)
+    }
+
     override func otherMouseUp(with event: NSEvent) {
+        slowClick.cancel()
         guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
         if let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
             commands?.openInBackgroundTab(index: indexPath.item)
@@ -242,6 +271,7 @@ final class FileCollectionView: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
+        slowClick.cancel()
         if let commands, FileKeys.handle(event, commands) { return }
         super.keyDown(with: event)
     }
@@ -255,6 +285,7 @@ final class FileCollectionView: NSCollectionView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        slowClick.cancel()
         window?.makeFirstResponder(self)
         let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil))
         if let indexPath {
@@ -315,11 +346,13 @@ final class FileCollectionView: NSCollectionView {
             if step != 0 { commands.zoom(in: step > 0) }
             return
         }
+        slowClick.cancel()
         super.scrollWheel(with: event)
         refreshHover()
     }
 
     override func reloadData() {
+        slowClick.cancel()
         super.reloadData()
         DispatchQueue.main.async { [weak self] in self?.refreshHover() }
     }
@@ -335,6 +368,7 @@ final class FileCollectionView: NSCollectionView {
     }
 
     override func resignFirstResponder() -> Bool {
+        slowClick.cancel()
         visibleItems().forEach { $0.view.needsDisplay = true }
         return super.resignFirstResponder()
     }
