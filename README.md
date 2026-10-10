@@ -10,7 +10,7 @@ A native macOS file manager that looks and works like the Windows 11 File Explor
 **Highlights**
 
 - Tabs, breadcrumbs, back/forward history and an address bar that also runs commands
-- Eight layouts, thumbnails, a Details pane with live preview, Quick Look and recursive search
+- Eight layouts, saved folder sort and columns, thumbnails, a Details pane with live preview, Quick Look and recursive search with scope and metadata filters
 - Copy and move with progress, conflict handling and undo; Finder-style bulk rename
 - Extract and create zip, 7z and more, and browse archives without extracting them
 - Optional dual pane, with SFTP servers opening in normal tabs
@@ -52,7 +52,11 @@ The disk image is signed with your development certificate, so it runs on your o
 
 ## Working with files
 
-Copy and move show a progress window with Explorer-style conflict handling, and can be undone (⌘Z). Drag items onto folders, breadcrumbs or the navigation pane: the same drive moves, another drive copies; hold ⌥ to copy or ⌘ to move.
+Copy and move show a progress window with Explorer-style conflict handling, and can be undone (⌘Z). The cancellable **Preparing…** stage measures the files before byte progress starts. Drag items onto folders, breadcrumbs or the navigation pane: the same drive moves, another drive copies; hold ⌥ to copy or ⌘ to move.
+
+Use the search box's **Search options** to search this folder or include subfolders, and filter by Type, Date modified and Size. Filters also work with an empty search box. Searches stop at 10,000 matches and show a notice when that limit is reached. Server folders, archives and Recent filter their current listing.
+
+**View → Columns** chooses the columns in Details. Drag a header to reorder or resize it; each folder remembers its sort order, visible columns, order and widths.
 
 **Bulk rename.** Select several items and press F2 for Finder-style Replace / Add / Format renaming with a live preview.
 

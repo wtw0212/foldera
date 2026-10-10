@@ -11,6 +11,41 @@ struct RemoteEditingLifecycleTests {
         return RemoteEditing(connections: connections, folder: cache.url, openFile: { _ in }, retryDelay: 60)
     }
 
+    @Test func repeatedAndOverlappingOpensShareOneEditingCopy() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let started = EditingTestGate(), release = EditingTestGate()
+        let server = FakeRemoteFileSystem(beforeList: {
+            await started.open()
+            await release.wait()
+        })
+        let manager = editing(cache, server: server)
+        let original = try remote.file("shared.txt", contents: "v1")
+        let address = uniqueEndpoint().url(path: original.path)
+        let first = Task { try await manager.open(address) }
+        await started.wait()
+        let second = Task { try await manager.open(address) }
+        for _ in 0..<10 { await Task.yield() }
+        await release.open()
+        let local = try await first.value
+        #expect(try await second.value == local)
+        #expect(try await manager.open(address) == local)
+        #expect(manager.sessions.count == 1)
+        #expect(server.operations.filter { $0 == "download" }.count == 1)
+        manager.prepareToQuit()
+    }
+
+    @Test func symbolicLinksAreNotOpenedForEditing() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let original = try remote.file("target.txt", contents: "KEEP")
+        let link = remote.path("current.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+        let manager = editing(cache, server: FakeRemoteFileSystem())
+        await #expect(throws: RemoteError.self) { try await manager.open(uniqueEndpoint().url(path: link.path)) }
+        #expect(manager.sessions.isEmpty)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == original.path)
+        #expect(try String(contentsOf: original, encoding: .utf8) == "KEEP")
+    }
+
     @Test func finishingUploadsTheLastSaveThenRemovesItsDirectory() async throws {
         let cache = try TestDirectory(), remote = try TestDirectory()
         let server = FakeRemoteFileSystem()

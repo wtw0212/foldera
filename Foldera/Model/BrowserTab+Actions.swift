@@ -195,8 +195,11 @@ extension BrowserTab {
                             [try Archives.extractToFolder(archive, in: folder, password: password, progress: progress, totalBytes: total)]
                         }
                     }
-                    created += added ?? []
+                    guard let added else { break }
+                    created += added
                 } catch {
+                    if let partial = error as? FileChange.Failure { created += partial.remaining.createdURLs }
+                    if ((error as? FileChange.Failure)?.cause ?? error) is CopyEngine.Cancelled { break }
                     failure = failure ?? Archives.Failure(message: "“\(archive.lastPathComponent)”: \(error.localizedDescription)")
                 }
             }
@@ -307,8 +310,9 @@ extension BrowserTab {
         let transfer = FileTransfer(kind: .compress, itemCount: items.count, source: items[0].deletingLastPathComponent(), destination: folder)
         Task {
             do {
-                let total = await Task.detached { items.reduce(0) { $0 + CopyEngine.size(of: $1) } }.value
-                let archive = try await FileTransfers.shared.track(transfer, totalBytes: total, body)
+                let archive = try await FileTransfers.shared.track(transfer, preparing: { progress in
+                    try items.reduce(0) { try $0 + CopyEngine.size(of: $1, progress: progress) }
+                }, body)
                 finishArchiveJob(name: "Compress", created: [archive], error: nil)
             } catch is CopyEngine.Cancelled {
                 finishArchiveJob(name: "Compress", created: [], error: nil)
@@ -331,7 +335,7 @@ extension BrowserTab {
                 reload()
             }
         }
-        if let error { Self.present(error) }
+        if let error, !(((error as? FileChange.Failure)?.cause ?? error) is CopyEngine.Cancelled) { Self.present(error) }
     }
 
     /// Asks for an archive's password; `action` names the button. Nil when cancelled.

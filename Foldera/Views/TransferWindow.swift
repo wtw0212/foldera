@@ -81,7 +81,7 @@ struct TransferRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             HStack {
-                Text(L10n.format("%lld%% complete", Int(transfer.fraction * 100)))
+                Text(transfer.isPreparing ? L10n.text("Preparing…") : L10n.format("%lld%% complete", Int(transfer.fraction * 100)))
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Button {
@@ -94,9 +94,13 @@ struct TransferRow: View {
                 .hint(L10n.text("Cancel"))
                 .disabled(transfer.isCancelled)
             }
-            ProgressView(value: transfer.fraction)
-                .progressViewStyle(.linear)
-                .tint(Color(nsColor: .init(hex: 0x06B025)))
+            if transfer.isPreparing {
+                ProgressView().progressViewStyle(.linear)
+            } else {
+                ProgressView(value: transfer.fraction)
+                    .progressViewStyle(.linear)
+                    .tint(Color(nsColor: .init(hex: 0x06B025)))
+            }
             HStack {
                 Text(L10n.format("Name: %@", transfer.currentName))
                     .lineLimit(1)
@@ -115,6 +119,8 @@ struct TransferRow: View {
     }
 
     private var remainingText: String {
+        if transfer.isCancelled { return L10n.text("Cancelling…") }
+        if transfer.isPreparing { return L10n.text("Preparing…") }
         let remaining = max(0, transfer.totalBytes - transfer.completedBytes)
         var text = L10n.format("Remaining: %@", FileFormat.totalSize(remaining))
         if transfer.bytesPerSecond > 0 {
@@ -127,6 +133,6 @@ struct TransferRow: View {
             formatter.allowedUnits = seconds > 3600 ? [.hour, .minute] : [.minute, .second]
             if let time = formatter.string(from: seconds) { text += L10n.format(" · about %@ left", time) }
         }
-        return transfer.isCancelled ? L10n.text("Cancelling…") : text
+        return text
     }
 }

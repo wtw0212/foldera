@@ -116,7 +116,7 @@ struct CopyEngineTests {
 
         let progress = TransferProgress()
         let destination = root.appendingPathComponent("dst")
-        #expect(CopyEngine.size(of: root.appendingPathComponent("src")) == 12_000)
+        #expect(try CopyEngine.size(of: root.appendingPathComponent("src")) == 12_000)
         try CopyEngine.copy(root.appendingPathComponent("src"), to: destination, progress: progress, baseBytes: 0)
         #expect(fm.fileExists(atPath: destination.appendingPathComponent("inner/a.bin").path))
         #expect(fm.fileExists(atPath: destination.appendingPathComponent("b.bin").path))

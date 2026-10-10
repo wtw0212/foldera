@@ -19,23 +19,7 @@ struct FileListView: NSViewRepresentable {
     let openInBackgroundTab: (URL) -> Void
     var onFocus: () -> Void = {}
 
-    private enum Column: String, CaseIterable {
-        case name, location, dateModified, kind, size
-
-        var field: SortField? { SortField(rawValue: rawValue) }
-
-        var title: String { field?.title ?? L10n.text("Folder") }
-
-        var width: CGFloat {
-            switch self {
-            case .name: 320
-            case .dateModified: 160
-            case .kind: 150
-            case .size: 100
-            case .location: 280
-            }
-        }
-    }
+    private typealias Column = FileColumn
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -82,8 +66,6 @@ struct FileListView: NSViewRepresentable {
         for column in Column.allCases where column != .location {
             table.addTableColumn(Self.makeColumn(column))
         }
-        table.autosaveName = "FileList"
-        table.autosaveTableColumns = true
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -107,14 +89,24 @@ struct FileListView: NSViewRepresentable {
         let tabChanged = coordinator.tabID != tab.id
         coordinator.tabID = tab.id
         if table.rowHeight != rowHeight { table.rowHeight = rowHeight }
-        // The "Folder" column only exists while showing search results.
-        let locationID = NSUserInterfaceItemIdentifier(Column.location.rawValue)
-        let locationColumn = table.tableColumn(withIdentifier: locationID)
-        if isSearchResults, locationColumn == nil {
-            table.addTableColumn(Self.makeColumn(.location))
-            table.moveColumn(table.numberOfColumns - 1, toColumn: min(1, table.numberOfColumns - 1))
-        } else if !isSearchResults, let locationColumn {
-            table.removeTableColumn(locationColumn)
+        coordinator.syncing {
+            let locationID = NSUserInterfaceItemIdentifier(Column.location.rawValue)
+            let locationColumn = table.tableColumn(withIdentifier: locationID)
+            if isSearchResults, locationColumn == nil {
+                table.addTableColumn(Self.makeColumn(.location))
+            } else if !isSearchResults, let locationColumn {
+                table.removeTableColumn(locationColumn)
+            }
+            for (index, column) in tab.columns.ordered.filter({ $0 != .location || isSearchResults }).enumerated() {
+                let id = NSUserInterfaceItemIdentifier(column.rawValue)
+                let current = table.column(withIdentifier: id)
+                if current != index { table.moveColumn(current, toColumn: index) }
+                if let view = table.tableColumn(withIdentifier: id) {
+                    view.isHidden = column != .name && tab.columns.hidden.contains(column)
+                    let width = tab.columns.width(of: column)
+                    if view.width != width { view.width = width }
+                }
+            }
         }
         for column in table.tableColumns {
             if let field = Column(rawValue: column.identifier.rawValue) {
@@ -213,6 +205,19 @@ struct FileListView: NSViewRepresentable {
             tab?.sort = SortOrder(field: field, ascending: descriptor.ascending)
         }
 
+        func tableViewColumnDidMove(_ notification: Notification) { saveColumns() }
+        func tableViewColumnDidResize(_ notification: Notification) { saveColumns() }
+
+        private func saveColumns() {
+            guard !isSyncing, let table, let tab else { return }
+            var columns = tab.columns
+            let shown = table.tableColumns.compactMap { Column(rawValue: $0.identifier.rawValue) }
+            var reordered = shown.makeIterator()
+            columns.order = columns.ordered.map { shown.contains($0) ? (reordered.next() ?? $0) : $0 }
+            for column in table.tableColumns { columns.widths[column.identifier.rawValue] = Double(column.width) }
+            tab.columns = columns
+        }
+
         // MARK: Drop
 
         /// Dropping on a folder row targets that folder; anywhere else targets the current folder.
@@ -304,7 +309,8 @@ struct FileListView: NSViewRepresentable {
         func beginEditing(row: Int) {
             guard let table, let tab, row < items.count else { return }
             table.scrollRowToVisible(row)
-            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCellView else { return }
+            let column = table.column(withIdentifier: NSUserInterfaceItemIdentifier(Column.name.rawValue))
+            guard column >= 0, let cell = table.view(atColumn: column, row: row, makeIfNecessary: true) as? NameCellView else { return }
             renamer.begin(field: cell.label, item: items[row], showExtensions: presentation.showExtensions, tab: tab) { editing in
                 cell.setEditing(editing)
             }

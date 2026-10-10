@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-enum SortField: String, CaseIterable, Identifiable {
+enum SortField: String, CaseIterable, Identifiable, Codable {
     case name, dateModified, kind, size
 
     var id: String { rawValue }
@@ -16,7 +16,7 @@ enum SortField: String, CaseIterable, Identifiable {
     }
 }
 
-struct SortOrder: Equatable {
+struct SortOrder: Equatable, Codable {
     var field: SortField = .name
     var ascending = true
 }
@@ -47,15 +47,24 @@ final class BrowserTab: Identifiable {
         didSet { selectAfterLoad = [] }
     }
     var sort = SortOrder() {
-        didSet { if isRecent && sort != oldValue { keepsRecentOrder = false } }
+        didSet {
+            if sort != oldValue, !isRestoringView {
+                if isRecent { keepsRecentOrder = false }
+                saveDetailsView()
+            }
+        }
     }
+    var columns = DetailColumns() { didSet { if columns != oldValue, !isRestoringView { saveDetailsView() } } }
+    @ObservationIgnored private var isRestoringView = false
     /// Recent lists newest first until a sort is chosen.
     private var keepsRecentOrder = true
     /// Layout for this folder; remembered per folder.
     var viewMode: ViewMode {
-        didSet { if viewMode != oldValue { FolderViewModes.set(viewMode, for: url, defaults: settings.defaults) } }
+        didSet { if viewMode != oldValue, !isRestoringView { FolderViewModes.set(viewMode, for: url, defaults: settings.defaults) } }
     }
     var searchText = "" { didSet { if searchText != oldValue { scheduleSearch() } } }
+    var searchScope: FileSearch.Scope = .subfolders { didSet { if searchScope != oldValue { scheduleSearch() } } }
+    var searchFilters = FileSearch.Filters() { didSet { if searchFilters != oldValue { scheduleSearch() } } }
     /// Matches from the recursive search while the search box has text.
     private(set) var searchResults: [FileItem] = []
     private(set) var isSearching = false
@@ -83,10 +92,12 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     /// Leaves a server's folders for the Network page when the user disconnects from it.
     @ObservationIgnored nonisolated(unsafe) private var disconnectObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var hiddenFilesObserver: NSObjectProtocol?
 
     deinit {
         if let remoteChangeObserver { NotificationCenter.default.removeObserver(remoteChangeObserver) }
         if let disconnectObserver { NotificationCenter.default.removeObserver(disconnectObserver) }
+        if let hiddenFilesObserver { NotificationCenter.default.removeObserver(hiddenFilesObserver) }
     }
 
     init(url: URL, settings: AppSettings = .shared) {
@@ -94,6 +105,10 @@ final class BrowserTab: Identifiable {
         let url = url.normalizedFileURL
         self.url = url
         self.viewMode = FolderViewModes.mode(for: url, defaults: settings.defaults)
+        let details = FolderViewModes.details(for: url, defaults: settings.defaults)
+        self.sort = details.sort
+        self.columns = details.columns
+        if url.isRemote || url.isInArchive || url == Self.recentURL { searchScope = .folder }
         load(selecting: [])
         remoteChangeObserver = NotificationCenter.default.addObserver(forName: .remoteFolderChanged, object: nil, queue: .main) { [weak self] note in
             let changed = note.userInfo?["url"] as? URL
@@ -107,6 +122,13 @@ final class BrowserTab: Identifiable {
             MainActor.assumeIsolated {
                 guard let self, let endpoint, self.url.remoteEndpoint == endpoint else { return }
                 self.navigate(to: Self.networkURL)
+            }
+        }
+        hiddenFilesObserver = NotificationCenter.default.addObserver(forName: .hiddenFilesChanged, object: nil, queue: .main) { [weak self] note in
+            let changed = note.object as? AppSettings
+            MainActor.assumeIsolated {
+                guard let self, changed === self.settings, self.isSearchActive else { return }
+                self.scheduleSearch()
             }
         }
     }
@@ -147,7 +169,9 @@ final class BrowserTab: Identifiable {
     var backHistory: [URL] { backStack.reversed() }
     var forwardHistory: [URL] { forwardStack.reversed() }
 
-    var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
+    var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty || !searchFilters.isEmpty }
+    var canSearchRecursively: Bool { !isPage && !isRemote && !isRecent && !isInsideArchive }
+    var searchReachedLimit: Bool { searchResults.count >= FileSearch.maxResults }
 
     var selectedItems: [FileItem] { visibleItems.filter { selection.contains($0.url) } }
 
@@ -251,30 +275,36 @@ final class BrowserTab: Identifiable {
     /// Restarts the recursive search (debounced) for the current query, or clears results when it is empty.
     private func scheduleSearch() {
         searchTask?.cancel()
+        watcher?.includesDescendants = isSearchActive && canSearchRecursively && searchScope == .subfolders
         let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty, !isPage else {
+        guard isSearchActive, !isPage else {
             searchTask = nil
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
             itemsVersion += 1
+            selection.formIntersection(Set(items.map(\.url)))
             return
         }
         if isRemote || isRecent || isInsideArchive {
             // Searching a server recursively would be slow and costly, and Recent and archives aren't folders on disk:
             // filter the listing instead.
-            searchResults = items.filter { $0.name.localizedStandardContains(query) }
+            let matcher = FileSearch.Matcher(query)
+            searchResults = items.filter { matcher.matches($0.name) && searchFilters.matches($0) }
             itemsVersion += 1
             isSearching = false
+            selection.formIntersection(Set(searchResults.map(\.url)))
             return
         }
         let root = url
         let includeHidden = settings.showHiddenFiles
+        let scope = searchScope
+        let filters = searchFilters
         isSearching = true
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             var found: [FileItem] = []
-            for await batch in FileSearch.run(in: root, query: query, includeHidden: includeHidden) {
+            for await batch in FileSearch.run(in: root, query: query, includeHidden: includeHidden, scope: scope, filters: filters) {
                 guard let self, !Task.isCancelled else { return }
                 found += batch
                 self.searchResults = found
@@ -286,6 +316,7 @@ final class BrowserTab: Identifiable {
                 self.itemsVersion += 1
             }
             self.isSearching = false
+            self.selection.formIntersection(Set(found.map(\.url)))
         }
     }
 
@@ -293,14 +324,29 @@ final class BrowserTab: Identifiable {
         focusListToken += 1
     }
 
+    func clearSearch() {
+        searchText = ""
+        searchFilters = FileSearch.Filters()
+    }
+
+    private func saveDetailsView() {
+        FolderViewModes.setDetails(FolderDetails(sort: sort, columns: columns), for: url, defaults: settings.defaults)
+    }
+
     @ObservationIgnored private var selectAfterLoad: Set<URL> = []
 
     private func move(to destination: URL, selecting: Set<URL>) {
+        isRestoringView = true
         url = destination
         keepsRecentOrder = true
         let mode = FolderViewModes.mode(for: destination, defaults: settings.defaults)
         if viewMode != mode { viewMode = mode }
-        searchText = ""
+        let details = FolderViewModes.details(for: destination, defaults: settings.defaults)
+        sort = details.sort
+        columns = details.columns
+        isRestoringView = false
+        clearSearch()
+        if !canSearchRecursively { searchScope = .folder }
         selection = []
         items = []
         itemsVersion += 1
@@ -332,6 +378,7 @@ final class BrowserTab: Identifiable {
             watcherURL = nil
         } else if watcher == nil || watcherURL != target {
             watcher = DirectoryWatcher(directory: target) { [weak self] in self?.reload() }
+            watcher?.includesDescendants = isSearchActive && searchScope == .subfolders
             watcherURL = target
         }
         loadTask?.cancel()
@@ -376,7 +423,7 @@ final class BrowserTab: Identifiable {
         if (isRemote || isInsideArchive) && isSearchActive { scheduleSearch() }
         let present = Set(loaded.map(\.url))
         let wanted = selectAfterLoad.isEmpty ? selection : selectAfterLoad
-        selection = wanted.intersection(present)
+        selection = isSearchActive ? wanted : wanted.intersection(present)
         selectAfterLoad = []
     }
 

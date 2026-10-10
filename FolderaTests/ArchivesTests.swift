@@ -47,6 +47,22 @@ struct ArchivesTests {
         #expect(try String(contentsOf: root.appendingPathComponent("b.txt"), encoding: .utf8) == "world")
     }
 
+    @Test func partialPublicationRetainsUndoReceipts() throws {
+        let source = try TestDirectory(), destination = try TestDirectory()
+        let first = try source.file("first.txt", contents: "KEEP")
+        do {
+            _ = try Archives.publishExtractedItems([first, source.path("missing.txt")], into: destination.url)
+            Issue.record("The missing second item must fail")
+        } catch let partial as FileChange.Failure {
+            let published = destination.path("first.txt")
+            #expect(partial.remaining.createdURLs == [published])
+            #expect(try String(contentsOf: published, encoding: .utf8) == "KEEP")
+            let undo = FileUndo()
+            undo.record(partial.remaining, name: "Extract")
+            #expect(undo.undo() == nil && !FileOperations.exists(published))
+        }
+    }
+
     @Test(arguments: [(Archives.Format.zip, 1), (.zip, 2), (.sevenZip, 2)])
     func compressingReportsProgress(format: Archives.Format, itemCount: Int) throws {
         let root = try makeFolder()

@@ -271,12 +271,6 @@ nonisolated enum ArchiveDirectory {
         let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true)
         defer { try? fm.removeItem(at: staging) }
         try extract(locations, from: archive, into: staging, catalog: catalog, progress: progress, totalBytes: totalBytes)
-        var created: [URL] = []
-        for location in locations {
-            let destination = FileOperations.uniqueURL(named: location.name, in: folder)
-            try fm.moveItem(at: staging.appendingPathComponent(location.path), to: destination)
-            created.append(destination)
-        }
-        return created
+        return try Archives.publishExtractedItems(locations.map { staging.appendingPathComponent($0.path) }, into: folder, progress: progress)
     }
 }

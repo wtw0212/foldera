@@ -81,6 +81,7 @@ final class RemoteEditing {
     private let retryDelay: TimeInterval
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
+    @ObservationIgnored private var opening: [URL: Task<URL, Error>] = [:]
 
     init(
         connections: RemoteConnections = .shared,
@@ -124,6 +125,27 @@ final class RemoteEditing {
     @discardableResult
     func open(_ remote: URL) async throws -> URL {
         guard let endpoint = remote.remoteEndpoint else { throw RemoteError.failed(L10n.text("This address is missing a user name.")) }
+        let remote = endpoint.url(path: remote.remotePath)
+        if let session = sessions.first(where: { $0.remote == remote && FileOperations.exists($0.local) }) {
+            openFile(session.local)
+            startWatching()
+            return session.local
+        }
+        if let pending = opening[remote] {
+            let local = try await pending.value
+            openFile(local)
+            return local
+        }
+        let pending = Task { try await download(remote, endpoint: endpoint) }
+        opening[remote] = pending
+        defer { opening[remote] = nil }
+        let local = try await pending.value
+        openFile(local)
+        startWatching()
+        return local
+    }
+
+    private func download(_ remote: URL, endpoint: RemoteEndpoint) async throws -> URL {
         let name = RemotePath.name(of: remote.remotePath)
         guard Self.validName(name) else { throw FileOperations.OperationError.invalidName(name) }
         try prepareFolder()
@@ -132,7 +154,12 @@ final class RemoteEditing {
         try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let local = files.appendingPathComponent(name)
         do {
-            try await connections.read(endpoint) { try await $0.download(remote.remotePath, to: local) { _ in } }
+            try await connections.read(endpoint) { system in
+                if try await system.unfollowedEntry(at: remote.remotePath)?.isSymlink == true {
+                    throw RemoteError.failed(L10n.text("Editing symbolic links on a server isn’t supported."))
+                }
+                try await system.download(remote.remotePath, to: local) { _ in }
+            }
             let session = Session(remote: endpoint.url(path: remote.remotePath), local: local, uploadedVersion: Version(of: local))
             try persist(session)
             sessions.append(session)
@@ -140,8 +167,6 @@ final class RemoteEditing {
             try? FileManager.default.removeItem(at: directory)
             throw error
         }
-        openFile(local)
-        startWatching()
         return local
     }
 

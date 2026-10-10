@@ -11,7 +11,8 @@ final class FileTransfer: Identifiable {
     let itemCount: Int
     let source: URL
     let destination: URL
-    let startedAt = Date()
+    private var startedAt = Date()
+    var isPreparing = false
     var totalBytes: Int64 = 0
     private(set) var completedBytes: Int64 = 0
     private(set) var currentName = ""
@@ -46,6 +47,7 @@ final class FileTransfer: Identifiable {
     }
 
     var bytesPerSecond: Double {
+        guard !isPreparing else { return 0 }
         let elapsed = Date().timeIntervalSince(startedAt)
         return elapsed > 0.5 ? Double(completedBytes) / elapsed : 0
     }
@@ -53,6 +55,12 @@ final class FileTransfer: Identifiable {
     var isCancelled: Bool { progress.isCancelled }
 
     func cancel() { progress.cancel() }
+
+    func startProgress(totalBytes: Int64) {
+        self.totalBytes = totalBytes
+        startedAt = Date()
+        isPreparing = false
+    }
 
     func refresh() {
         completedBytes = progress.completedBytes
@@ -102,8 +110,8 @@ final class FileTransfers {
         return PlanItem(source: source, destination: destination, isRename: rename, deleteSourceAfterCopy: kind == .move && !rename, replaceExisting: replaceExisting)
     }
 
-    nonisolated static func totalBytes(_ plan: [PlanItem]) -> Int64 {
-        plan.filter { !$0.isRename }.reduce(0) { $0 + CopyEngine.size(of: $1.source) }
+    nonisolated static func totalBytes(_ plan: [PlanItem], progress: TransferProgress? = nil) throws -> Int64 {
+        try plan.filter { !$0.isRename }.reduce(0) { try $0 + CopyEngine.size(of: $1.source, progress: progress) }
     }
 
     /// Copies or moves `sources` into `directory`, returning committed changes alongside any failure.
@@ -146,28 +154,18 @@ final class FileTransfers {
         guard !plan.isEmpty else { return empty }
 
         let transfer = FileTransfer(kind: kind, itemCount: plan.count, source: sources[0].deletingLastPathComponent(), destination: directory)
-        begin(transfer)
-        defer { end(transfer) }
-
-        transfer.totalBytes = await Task.detached { Self.totalBytes(plan) }.value
-
-        let worker = Task.detached { [plan, progress = transfer.progress] in
-            Self.execute(plan, progress: progress)
-        }
-        let ticker = Task {
-            while !Task.isCancelled {
-                transfer.refresh()
-                try? await Task.sleep(for: .milliseconds(100))
+        do {
+            let result = try await track(transfer, preparing: { [plan] progress in
+                try Self.totalBytes(plan, progress: progress)
+            }) { [plan] progress in
+                Self.execute(plan, progress: progress)
             }
+            if let error = result.error, !(error is CopyEngine.Cancelled) { BrowserTab.present(error) }
+            return result
+        } catch {
+            if !(error is CopyEngine.Cancelled) { BrowserTab.present(error) }
+            return TransferResult(error: error)
         }
-        let result = await worker.value
-        ticker.cancel()
-        transfer.refresh()
-
-        if let error = result.error, !(error is CopyEngine.Cancelled) {
-            BrowserTab.present(error)
-        }
-        return result
     }
 
     nonisolated static func execute(_ plan: [PlanItem], progress: TransferProgress, fileManager: FileManager = .default) -> TransferResult {
@@ -192,7 +190,7 @@ final class FileTransfers {
                     }
                 }
                 if progress.isCancelled { throw CopyEngine.Cancelled() }
-                let size = item.isRename ? 0 : CopyEngine.size(of: item.source)
+                let size = item.isRename ? 0 : try CopyEngine.size(of: item.source, progress: progress)
                 if item.isRename || item.deleteSourceAfterCopy {
                     try FileOperations.moveItem(item.source, to: item.destination, progress: progress, baseBytes: base, allowRename: item.isRename, fileManager: fileManager)
                     result.moved.append((item.source, item.destination))
@@ -216,6 +214,7 @@ final class FileTransfers {
                     destinationCreated = true
                     result.moveCleanups.append((source, completeCopy))
                     result.results.append(completeCopy)
+                    result.consumedCutSources.append(source)
                 }
                 if let replacement, !destinationCreated {
                     do {
@@ -240,18 +239,23 @@ final class FileTransfers {
     }
 
     /// Runs `work` off the main actor while the progress window shows `transfer`.
-    func track<T: Sendable>(_ transfer: FileTransfer, totalBytes: Int64, _ work: @escaping @Sendable (TransferProgress) throws -> T) async throws -> T {
-        transfer.totalBytes = totalBytes
+    func track<T: Sendable>(_ transfer: FileTransfer, totalBytes: Int64 = 0, preparing: (@Sendable (TransferProgress) throws -> Int64)? = nil, _ work: @escaping @Sendable (TransferProgress) throws -> T) async throws -> T {
+        transfer.isPreparing = preparing != nil
         begin(transfer)
         defer { end(transfer) }
-        let worker = Task.detached(priority: .userInitiated) { [progress = transfer.progress] in try work(progress) }
         let ticker = Task {
             while !Task.isCancelled {
                 transfer.refresh()
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
-        defer { ticker.cancel() }
+        defer { ticker.cancel(); transfer.refresh() }
+        let total = if let preparing {
+            try await Task.detached(priority: .userInitiated) { [progress = transfer.progress] in try preparing(progress) }.value
+        } else { totalBytes }
+        if transfer.isCancelled { throw CopyEngine.Cancelled() }
+        transfer.startProgress(totalBytes: total)
+        let worker = Task.detached(priority: .userInitiated) { [progress = transfer.progress] in try work(progress) }
         return try await worker.value
     }
 

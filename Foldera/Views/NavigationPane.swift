@@ -272,9 +272,8 @@ struct NavigationPane: View {
             ))
     }
 
-    /// Chevron state for a folder; hidden once it's known to have no subfolders.
+    /// Rescan on expansion: a folder that was empty may have gained subfolders.
     private func expansion(key: String, url: URL) -> Binding<Bool>? {
-        if let children = tree.knownChildren(key), children.isEmpty, !tree.isExpanded(key) { return nil }
         return Binding(
             get: { tree.isExpanded(key) },
             set: { _ in tree.toggle(key, url: url) }

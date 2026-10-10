@@ -111,6 +111,38 @@ struct HostedViewTests {
         #expect(table.rowInColumns(at: NSPoint(x: table.columnsMaxX + 1, y: 10)) == -1)
     }
 
+    @Test func reorderedColumnsKeepInlineRenameAndPersistTheirWidths() async throws {
+        let directory = try TestDirectory(), preferences = try TestPreferences()
+        let file = try directory.file("note.txt")
+        let settings = AppSettings(defaults: preferences.defaults)
+        let tab = BrowserTab(url: directory.url, settings: settings)
+        try await eventually { !tab.isLoading }
+        let host = TestHost(list(tab))
+        try await eventually { host.descendants(FileTableView.self).first?.numberOfRows == 1 }
+        let table = try #require(host.descendants(FileTableView.self).first)
+        let coordinator = try #require(table.delegate as? FileListView.Coordinator)
+        table.moveColumn(table.column(withIdentifier: .init("size")), toColumn: 0)
+        coordinator.tableViewColumnDidMove(Notification(name: NSTableView.columnDidMoveNotification, object: table))
+        let name = try #require(table.tableColumn(withIdentifier: .init("name")))
+        name.width = 451
+        coordinator.tableViewColumnDidResize(Notification(name: NSTableView.columnDidResizeNotification, object: table))
+        #expect(tab.columns.ordered.first == .size && tab.columns.widths["name"] == 451)
+        let reopened = BrowserTab(url: directory.url, settings: settings)
+        #expect(reopened.columns == tab.columns)
+        coordinator.beginEditing(row: 0)
+        let cell = try #require(table.view(atColumn: table.column(withIdentifier: .init("name")), row: 0, makeIfNecessary: true) as? NameCellView)
+        #expect(cell.label.isEditable && cell.label.currentEditor() != nil)
+        #expect(cell.label.stringValue == file.lastPathComponent)
+        cell.label.currentEditor()?.string = "renamed.txt"
+        host.window.makeFirstResponder(table)
+        try await eventually { FileOperations.exists(directory.path("renamed.txt")) }
+        #expect(!FileOperations.exists(file))
+        tab.columns.toggle(.kind)
+        host.view.rootView = list(tab)
+        host.view.layoutSubtreeIfNeeded()
+        try await eventually { table.tableColumn(withIdentifier: .init("kind"))?.isHidden == true }
+    }
+
     @Test func explorerSwitchesBetweenDetailsIconsDualPaneAndDrives() async throws {
         let directory = try TestDirectory(), preferences = try TestPreferences()
         let settings = AppSettings(defaults: preferences.defaults)

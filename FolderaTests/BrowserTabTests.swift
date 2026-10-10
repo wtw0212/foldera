@@ -168,4 +168,63 @@ struct BrowserTabTests {
         try directory.file("arrived.txt")
         try await eventually(timeout: .seconds(10)) { tab.items.contains { $0.name == "arrived.txt" } }
     }
+
+    @Test func recursiveSearchKeepsDescendantSelectionAfterRefreshAndRename() async throws {
+        let file = try directory.file("nested/report.txt")
+        let tab = try await loadedTab()
+        tab.searchText = "report"
+        try await eventually { !tab.isSearching }
+        tab.selection = [file]
+        tab.reload()
+        try await eventually { !tab.isLoading && !tab.isSearching }
+        #expect(tab.selection == [file] && tab.selectedItems.map(\.url) == [file])
+        tab.commitRename(of: file, to: "report renamed.txt")
+        let renamed = directory.path("nested/report renamed.txt")
+        try await eventually { !tab.isLoading && !tab.isSearching && tab.visibleItems.contains { $0.url == renamed } }
+        #expect(tab.selection == [renamed] && tab.selectedItems.map(\.url) == [renamed])
+    }
+
+    @Test func hiddenSearchResultsUpdateInEveryTabSharingSettings() async throws {
+        let visible = try directory.file("nested/report.txt")
+        let hidden = try directory.file("nested/.report.txt")
+        let settings = AppSettings(defaults: preferences.defaults)
+        let tabs = (0..<2).map { _ in BrowserTab(url: directory.url, settings: settings) }
+        try await eventually { tabs.allSatisfy { !$0.isLoading } }
+        tabs.forEach { $0.searchText = "report" }
+        try await eventually { tabs.allSatisfy { !$0.isSearching } }
+        #expect(tabs.allSatisfy { $0.visibleItems.map(\.url) == [visible] })
+        settings.showHiddenFiles = true
+        try await eventually { tabs.allSatisfy { !$0.isSearching && Set($0.visibleItems.map(\.url)) == [visible, hidden] } }
+        tabs.forEach { $0.selection = [hidden] }
+        settings.showHiddenFiles = false
+        try await eventually { tabs.allSatisfy { !$0.isSearching && $0.selection.isEmpty && $0.visibleItems.map(\.url) == [visible] } }
+    }
+
+    @Test func recursiveSearchWatchesNestedCreatesAndDeletes() async throws {
+        try directory.folder("nested/deep")
+        let tab = try await loadedTab()
+        tab.searchText = "arrived"
+        try await eventually { !tab.isSearching }
+        let file = try directory.file("nested/deep/arrived.txt")
+        try await eventually(timeout: .seconds(10)) { !tab.isSearching && tab.visibleItems.map(\.url) == [file] }
+        tab.selection = [file]
+        try FileManager.default.removeItem(at: file)
+        try await eventually(timeout: .seconds(10)) { !tab.isSearching && tab.visibleItems.isEmpty && tab.selection.isEmpty }
+    }
+
+    @Test func filtersWorkWithoutTextAndScopeCanExcludeDescendants() async throws {
+        let top = try directory.file("top.txt")
+        try directory.file("nested/deep.txt")
+        try directory.file("photo.png")
+        let tab = try await loadedTab()
+        tab.searchScope = .folder
+        tab.searchFilters.kind = .documents
+        try await eventually { !tab.isSearching }
+        #expect(tab.isSearchActive && tab.visibleItems.map(\.url) == [top])
+        tab.searchScope = .subfolders
+        try await eventually { !tab.isSearching }
+        #expect(Set(tab.visibleItems.map(\.name)) == ["top.txt", "deep.txt"])
+        tab.clearSearch()
+        #expect(!tab.isSearchActive && tab.searchFilters.isEmpty)
+    }
 }

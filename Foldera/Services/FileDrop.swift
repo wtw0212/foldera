@@ -48,7 +48,10 @@ enum FileDrop {
                     let created = try await ArchiveExtraction.items(urls.compactMap(\.archiveLocation), from: archive, into: directory) ?? []
                     FileUndo.shared.record(.created(created), name: "Extract")
                 } catch {
-                    BrowserTab.present(error)
+                    if let partial = error as? FileChange.Failure {
+                        FileUndo.shared.record(partial.remaining, name: "Extract")
+                    }
+                    if !(((error as? FileChange.Failure)?.cause ?? error) is CopyEngine.Cancelled) { BrowserTab.present(error) }
                 }
             }
             return true

@@ -1,8 +1,9 @@
 import CoreServices
 import Foundation
 
-/// Watches one directory with FSEvents and reports changes to its direct children.
+/// Watches direct children, or the whole tree while recursive search is active.
 final class DirectoryWatcher {
+    var includesDescendants = false
     private let directory: URL
     private let onChange: () -> Void
     private var stream: FSEventStreamRef?
@@ -59,10 +60,9 @@ final class DirectoryWatcher {
 
     private func handle(paths: [String]) {
         let watched = directory.path
-        // Ignore activity deeper in the tree; only direct children (or the folder itself) affect the listing.
         let relevant = paths.contains { path in
             let parent = (path as NSString).deletingLastPathComponent
-            return parent == watched || path == watched
+            return parent == watched || path == watched || (includesDescendants && path.hasPrefix(watched == "/" ? "/" : watched + "/"))
         }
         if relevant { onChange() }
     }

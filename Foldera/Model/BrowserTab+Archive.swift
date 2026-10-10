@@ -141,7 +141,7 @@ extension BrowserTab {
                 finishArchiveJob(name: "Extract", created: created, error: nil)
                 if opens { revealExtracted(created, insideNewFolder: false) }
             } catch {
-                finishArchiveJob(name: "Extract", created: [], error: error)
+                finishArchiveJob(name: "Extract", created: (error as? FileChange.Failure)?.remaining.createdURLs ?? [], error: error)
             }
         }
     }

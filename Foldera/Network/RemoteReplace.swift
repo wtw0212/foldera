@@ -46,10 +46,20 @@ extension RemoteConnections {
     /// Uploads `local` under a hidden staging name, then commits it over `path`, so a failed upload leaves
     /// the server's copy as it was.
     func upload(_ local: URL, replacing path: String, on endpoint: RemoteEndpoint, written: @Sendable (Int) throws -> Void) async throws {
+        let original = try await read(endpoint) { try await $0.unfollowedEntry(at: path) }
+        if original?.isSymlink == true {
+            throw RemoteError.failed(L10n.text("Editing symbolic links on a server isn’t supported."))
+        }
+        if original != nil, original?.permissions == nil {
+            throw RemoteError.failed(L10n.text("The original file’s permissions could not be read. The file was not replaced."))
+        }
         let directory = try await reserveTemporaryDirectory(beside: path, suffix: "part", on: endpoint)
         let staging = RemotePath.join(directory, "payload")
         do {
             try await perform(endpoint) { try await $0.upload(local, to: staging, written: written) }
+            if let permissions = original?.permissions {
+                try await perform(endpoint) { try await $0.setPermissions(permissions & 0o7777, at: staging) }
+            }
             try await commit(staging, to: path, on: endpoint, replacing: true, isStaging: true, stagingDirectory: directory)
         } catch {
             try? await discardTemporaryDirectory(directory, on: endpoint)
