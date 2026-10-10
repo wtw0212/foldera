@@ -28,3 +28,5 @@ __pycache__/
 
 # Exported Sparkle update-signing key (see RELEASING.md); never commit
 sparkle-private-key
+# Exported release signing certificate (see RELEASING.md); never commit
+*.p12

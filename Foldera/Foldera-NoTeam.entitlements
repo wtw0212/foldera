@@ -5,8 +5,8 @@
 	<!-- Used to open Finder's Get Info window (Properties). -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
-	<!-- Ad-hoc builds only: without a Team ID, library validation refuses the embedded Sparkle.framework.
-	     Developer ID builds use Foldera.entitlements, which keeps library validation on. -->
+	<!-- Builds without a Team ID only (ad-hoc or the self-signed release certificate): library validation would
+	     refuse the embedded Sparkle.framework. Developer ID builds use Foldera.entitlements, which keeps it on. -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
 </dict>

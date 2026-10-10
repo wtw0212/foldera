@@ -65,8 +65,9 @@ private struct WindowButtonAlignment: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        /// AppKit lays the title bar out again on its own (resizing, key changes), moving the buttons back to
-        /// their default spot, so re-center whenever one of them moves.
+        /// AppKit lays the title bar out again on its own (resizing, becoming key, navigating), moving the buttons back
+        /// to their default spot. A move made during that layout pass is overwritten before it ends, so re-center
+        /// once the pass is over.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver)
@@ -76,7 +77,7 @@ private struct WindowButtonAlignment: NSViewRepresentable {
                 button.postsFrameChangedNotifications = true
                 observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button,
                                                                         queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.align() }
+                    MainActor.assumeIsolated { self?.scheduleAlign() }
                 })
             }
             needsLayout = true
@@ -85,6 +86,18 @@ private struct WindowButtonAlignment: NSViewRepresentable {
         override func layout() {
             super.layout()
             align()
+            scheduleAlign()
+        }
+
+        private var alignScheduled = false
+
+        private func scheduleAlign() {
+            guard !alignScheduled else { return }
+            alignScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.alignScheduled = false
+                self?.align()
+            }
         }
 
         private func buttons(in window: NSWindow) -> [NSButton] {
