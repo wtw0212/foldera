@@ -171,7 +171,7 @@ final class BrowserTab: Identifiable {
 
     var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty || !searchFilters.isEmpty }
     var canSearchRecursively: Bool { !isPage && !isRemote && !isRecent && !isInsideArchive }
-    var searchReachedLimit: Bool { searchResults.count >= FileSearch.maxResults }
+    var searchReachedLimit: Bool { canSearchRecursively && searchResults.count >= FileSearch.maxResults }
 
     var selectedItems: [FileItem] { visibleItems.filter { selection.contains($0.url) } }
 
@@ -289,7 +289,7 @@ final class BrowserTab: Identifiable {
             // Searching a server recursively would be slow and costly, and Recent and archives aren't folders on disk:
             // filter the listing instead.
             let matcher = FileSearch.Matcher(query)
-            searchResults = items.filter { matcher.matches($0.name) && searchFilters.matches($0) }
+            searchResults = items.filter { (settings.showHiddenFiles || !$0.isHidden) && matcher.matches($0.name) && searchFilters.matches($0) }
             itemsVersion += 1
             isSearching = false
             selection.formIntersection(Set(searchResults.map(\.url)))

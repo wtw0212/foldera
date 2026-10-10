@@ -52,6 +52,24 @@ struct RemoteBrowsingTests {
         #expect(tab.visibleItems.map(\.name) == ["report-new.txt"])
     }
 
+    @Test func remoteSearchFiltersAndHiddenSelectionsUseTheCurrentListing() async throws {
+        let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
+        installFakeServer(endpoint)
+        try directory.file("note.txt")
+        let image = try directory.file("photo.png"), hidden = try directory.file(".private.png")
+        let tab = try await remoteTab(endpoint, directory, preferences: preferences)
+        tab.searchFilters.kind = .images
+        #expect(tab.visibleItems.map(\.name) == [image.lastPathComponent])
+        #expect(!tab.canSearchRecursively && tab.searchScope == .folder && !tab.searchReachedLimit)
+        tab.settings.showHiddenFiles = true
+        #expect(Set(tab.visibleItems.map(\.name)) == [image.lastPathComponent, hidden.lastPathComponent])
+        tab.selection = [endpoint.url(path: hidden.path)]
+        tab.settings.showHiddenFiles = false
+        #expect(tab.selection.isEmpty && tab.visibleItems.map(\.name) == [image.lastPathComponent])
+        tab.clearSearch()
+        #expect(!tab.isSearchActive && tab.visibleItems.count == 2)
+    }
+
     @Test func remoteSearchBeforeLoadingUsesTheNewListing() async throws {
         let endpoint = uniqueEndpoint(), directory = try TestDirectory(), preferences = try TestPreferences()
         installFakeServer(endpoint)

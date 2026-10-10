@@ -42,7 +42,7 @@ struct FileTransfersTests {
         let task = Task {
             try await FileTransfers.shared.track(transfer, preparing: { progress in
                 progress.setCurrentName("scanning")
-                _ = release.wait(timeout: .now() + 5)
+                release.wait()
                 return try CopyEngine.size(of: source, progress: progress)
             }) { progress in
                 try CopyEngine.copy(source, to: destination, progress: progress, baseBytes: 0)

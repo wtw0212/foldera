@@ -185,9 +185,11 @@ struct RemoteEditingLifecycleTests {
         let server = FakeRemoteFileSystem()
         var manager: RemoteEditing? = editing(cache, server: server)
         let original = try remote.file("saved.txt", contents: "v1")
+        let other = try remote.file("other/saved.txt", contents: "v1")
         let endpoint = uniqueEndpoint()
         let unchanged = try #require(await manager?.open(endpoint.url(path: original.path)))
-        let dirty = try #require(await manager?.open(endpoint.url(path: original.path)))
+        let dirty = try #require(await manager?.open(endpoint.url(path: other.path)))
+        try #require(unchanged != dirty)
         for session in manager?.sessions ?? [] {
             let metadata = session.directory.appendingPathComponent("session.json")
             var record = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: Any])
