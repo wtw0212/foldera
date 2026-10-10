@@ -424,3 +424,8 @@
 "Result limit reached. Narrow your search." = "已達搜尋結果上限，請縮小搜尋範圍。";
 "Columns" = "欄位";
 "Preparing…" = "正在準備…";
+"Check for Updates…" = "檢查更新…";
+"Updates:" = "更新：";
+"Check for updates automatically" = "自動檢查更新";
+"Download and install updates automatically" = "自動下載並安裝更新";
+"Check Now" = "立即檢查";

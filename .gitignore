@@ -25,3 +25,6 @@ Config/Local.xcconfig
 
 # Python CI-tool test caches
 __pycache__/
+
+# Exported Sparkle update-signing key (see RELEASING.md); never commit
+sparkle-private-key

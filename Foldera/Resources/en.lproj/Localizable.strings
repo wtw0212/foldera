@@ -424,3 +424,8 @@
 "Result limit reached. Narrow your search." = "Result limit reached. Narrow your search.";
 "Columns" = "Columns";
 "Preparing…" = "Preparing…";
+"Check for Updates…" = "Check for Updates…";
+"Updates:" = "Updates:";
+"Check for updates automatically" = "Check for updates automatically";
+"Download and install updates automatically" = "Download and install updates automatically";
+"Check Now" = "Check Now";

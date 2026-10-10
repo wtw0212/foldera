@@ -11,6 +11,10 @@ packages:
   # for Citadel too. See ThirdParty/swift-nio-ssh/PATCHES.md.
   swift-nio-ssh:
     path: ThirdParty/swift-nio-ssh
+  # Installs new GitHub releases. Every update must carry an EdDSA signature matching SUPublicEDKey.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
   # Already pulled in by Citadel; Foldera uses _CryptoExtras for RSA signatures with SHA-2.
   swift-crypto:
     url: https://github.com/apple/swift-crypto.git
@@ -73,6 +77,7 @@ targets:
         product: _CryptoExtras
       - package: swift-nio-ssh
         product: NIOSSH
+      - package: Sparkle
       - sdk: NetFS.framework
     settings:
       configs:
@@ -82,6 +87,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wtw0212.foldera
         PRODUCT_NAME: Foldera
+        # Public half of the release-signing key (private half: the SPARKLE_PRIVATE_KEY repository secret). See RELEASING.md.
+        SPARKLE_PUBLIC_KEY: 5Iwf9WVJ5Lym2DF1TOyCEdzmDxFcrjPUi0nZbymTddE=
         GENERATE_INFOPLIST_FILE: YES
         # Merged with the generated keys: Bonjour service types and Foldera's pasteboard type.
         INFOPLIST_FILE: Config/Foldera-Info.plist
@@ -95,7 +102,9 @@ targets:
         # A file manager needs unrestricted file system access, so the app is not sandboxed.
         ENABLE_APP_SANDBOX: NO
         COMBINE_HIDPI_IMAGES: YES
-        CODE_SIGN_ENTITLEMENTS: Foldera/Foldera.entitlements
+        # make-dmg.sh swaps in Foldera-AdHoc.entitlements for ad-hoc signed builds.
+        FOLDERA_ENTITLEMENTS: Foldera/Foldera.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(FOLDERA_ENTITLEMENTS)
         INFOPLIST_KEY_NSDesktopFolderUsageDescription: Foldera shows and manages the files in your Desktop folder.
         INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Foldera shows and manages the files in your Documents folder.
         INFOPLIST_KEY_NSDownloadsFolderUsageDescription: Foldera shows and manages the files in your Downloads folder.

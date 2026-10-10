@@ -4,6 +4,18 @@
 <dict>
 	<key>FolderaInstallerID</key>
 	<string>$(FOLDERA_INSTALLER_ID)</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/wtw0212/foldera/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_KEY)</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smb._tcp</string>
