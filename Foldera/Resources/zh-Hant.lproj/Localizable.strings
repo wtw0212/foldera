@@ -403,3 +403,8 @@
 "Extract everything in this archive to a folder you choose" = "將此壓縮檔的所有內容解壓縮到你選擇的資料夾";
 "%@ (archive)" = "%@（壓縮檔）";
 "Open the extracted folder when done" = "完成後開啟解壓縮的資料夾";
+"Check for Updates…" = "檢查更新…";
+"Updates:" = "更新：";
+"Check for updates automatically" = "自動檢查更新";
+"Download and install updates automatically" = "自動下載並安裝更新";
+"Check Now" = "立即檢查";

@@ -31,7 +31,10 @@ xcodegen generate --quiet
 SIGN_ARGS=()
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     SIGN_ARGS=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=${SIGN_IDENTITY}")
-    if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    if [[ "$SIGN_IDENTITY" == "-" ]]; then
+        # Without a Team ID, library validation would refuse the embedded Sparkle.framework at launch.
+        SIGN_ARGS+=(FOLDERA_ENTITLEMENTS=Foldera/Foldera-AdHoc.entitlements)
+    else
         SIGN_ARGS+=(OTHER_CODE_SIGN_FLAGS=--timestamp)
     fi
 fi

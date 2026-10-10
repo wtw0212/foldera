@@ -7,10 +7,16 @@ struct FolderaCommands: Commands {
     @State private var settings = AppSettings.shared
     @State private var undo = FileUndo.shared
     @State private var editing = RemoteEditing.shared
+    @State private var updater = AppUpdater.shared
 
     private var tab: BrowserTab? { explorer?.activeTab }
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button(L10n.text("Check for Updates…")) { updater.checkForUpdates() }
+                .disabled(!updater.canCheckForUpdates)
+        }
+
         CommandGroup(after: .newItem) {
             Button(L10n.text("New Tab")) { explorer?.newTab() }
                 .keyboardShortcut("t")
