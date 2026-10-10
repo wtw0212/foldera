@@ -126,6 +126,35 @@ struct RemoteEditingLifecycleTests {
         #expect(restored.sessions.isEmpty && !FileOperations.exists(local))
     }
 
+    @Test func reopeningARecoveredFileResumesOnlyItsEditingCopy() async throws {
+        let cache = try TestDirectory(), remote = try TestDirectory()
+        let server = FakeRemoteFileSystem(), endpoint = uniqueEndpoint()
+        let manager = editing(cache, server: server)
+        let original = try remote.file("page.txt", contents: "SERVER")
+        let other = try remote.file("other.txt", contents: "OTHER")
+        let address = endpoint.url(path: original.path)
+        let local = try await manager.open(address)
+        let otherLocal = try await manager.open(endpoint.url(path: other.path))
+        try "UNSENT".write(to: local, atomically: true, encoding: .utf8)
+        try "OTHER UNSENT".write(to: otherLocal, atomically: true, encoding: .utf8)
+        manager.prepareToQuit()
+        let restored = editing(cache, server: server)
+        await restored.uploadNow()
+        #expect(try String(contentsOf: original, encoding: .utf8) == "SERVER")
+        let reopened = try await restored.open(address)
+        #expect(reopened.normalizedFileURL == local.normalizedFileURL)
+        #expect(try String(contentsOf: local, encoding: .utf8) == "UNSENT")
+        #expect(restored.sessions.first { $0.remote == address }?.isRecovered == false)
+        #expect(server.operations.filter { $0 == "download" }.count == 2)
+        try "NEW SAVE".write(to: local, atomically: true, encoding: .utf8)
+        await restored.finishEditing()
+        #expect(try String(contentsOf: original, encoding: .utf8) == "NEW SAVE")
+        #expect(try String(contentsOf: other, encoding: .utf8) == "OTHER")
+        #expect(restored.sessions.map { $0.local.normalizedFileURL } == [otherLocal.normalizedFileURL] && restored.hasRecoveredSessions)
+        #expect(try String(contentsOf: otherLocal, encoding: .utf8) == "OTHER UNSENT")
+        restored.prepareToQuit()
+    }
+
     /// Editors and tools can rewrite a file and set its modification date back. The bytes are still new, so
     /// they're uploaded, and the copy isn't deleted as if it were synchronized.
     @Test func rewritesThatKeepTheModificationDateAreStillUploaded() async throws {

@@ -98,6 +98,64 @@ final class ExplorerUITests: XCTestCase {
         }
     }
 
+    func testSearchOptionsStayOpenAcrossFilterChanges() throws {
+        try withApp { app, _ in
+            app.buttons["search-options"].click()
+            let scope = app.popUpButtons["search-scope"]
+            XCTAssertTrue(scope.waitForAppearance(timeout: 5))
+            scope.click()
+            scope.menuItems["Only this folder"].click()
+            let kind = app.popUpButtons["search-kind"]
+            XCTAssertTrue(kind.exists)
+            kind.click()
+            kind.menuItems["Documents"].click()
+            XCTAssertTrue(scope.exists)
+            XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
+            XCTAssertFalse(app.tables["file-list"].staticTexts["report.txt"].exists)
+            scope.click()
+            scope.menuItems["Include subfolders"].click()
+            XCTAssertTrue(app.tables["file-list"].staticTexts["report.txt"].waitForAppearance(timeout: 5))
+            app.popUpButtons["search-size"].click()
+            app.popUpButtons["search-size"].menuItems["Under 1 MB"].click()
+            app.popUpButtons["search-modified"].click()
+            app.popUpButtons["search-modified"].menuItems["Today"].click()
+            XCTAssertTrue(scope.exists)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Search filters stay open"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            let clear = app.buttons["clear-search-filters"]
+            clear.click()
+            XCTAssertTrue(scope.exists)
+            XCTAssertFalse(clear.isEnabled)
+            app.textFields["search-field"].click()
+            XCTAssertFalse(scope.exists)
+            app.buttons["search-options"].click()
+            XCTAssertTrue(scope.waitForAppearance(timeout: 5))
+            XCTAssertEqual(kind.value as? String, "Any type")
+            XCTAssertEqual(app.popUpButtons["search-size"].value as? String, "Any size")
+            app.typeKey(.escape, modifierFlags: [])
+            XCTAssertFalse(scope.exists)
+        }
+    }
+
+    func testWindowButtonsAreCenteredInTheTabStripAfterResize() throws {
+        try withApp { app, _ in
+            let window = app.windows.firstMatch
+            let close = window.buttons[XCUIIdentifierCloseWindow]
+            XCTAssertTrue(close.exists)
+            func checkPosition() {
+                XCTAssertEqual(close.frame.midY - window.frame.minY, 20, accuracy: 1)
+                XCTAssertLessThan(abs(close.frame.midY - app.staticTexts["tab-title"].frame.midY), 5)
+            }
+            checkPosition()
+            let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+            corner.withOffset(CGVector(dx: -2, dy: -2)).press(forDuration: 0.1,
+                thenDragTo: corner.withOffset(CGVector(dx: -120, dy: -80)))
+            checkPosition()
+        }
+    }
+
     func testNewAndCloseTabKeyboardShortcuts() throws {
         try withApp { app, root in
             XCTAssertEqual(app.staticTexts.matching(identifier: "tab-title").count, 1)

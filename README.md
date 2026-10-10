@@ -54,7 +54,7 @@ The disk image is signed with your development certificate, so it runs on your o
 
 Copy and move show a progress window with Explorer-style conflict handling, and can be undone (⌘Z). The cancellable **Preparing…** stage measures the files before byte progress starts. Drag items onto folders, breadcrumbs or the navigation pane: the same drive moves, another drive copies; hold ⌥ to copy or ⌘ to move.
 
-Use the search box's **Search options** to search this folder or include subfolders, and filter by Type, Date modified and Size. Filters also work with an empty search box. Searches stop at 10,000 matches and show a notice when that limit is reached. Server folders, archives and Recent filter their current listing.
+Use the search box's **Search options** to choose **Only this folder** or **Include subfolders**, and filter by Type, Date modified and Size. The panel stays open while you change filters; click outside it or press Escape to close it. Filters also work with an empty search box. Searches stop at 10,000 matches and show a notice when that limit is reached. Server folders, archives and Recent filter their current listing.
 
 **View → Columns** chooses the columns in Details. Drag a header to reorder or resize it; each folder remembers its sort order, visible columns, order and widths.
 
@@ -93,7 +93,7 @@ SFTP folders open in normal tabs, so dual pane gives a WinSCP-style local/remote
 - Browse, filter the current folder, rename, delete (permanently, after confirming), and create folders and text files.
 - Drag, or copy and paste, between local and server panes to upload and download, with progress and conflict handling. Moves within one server are renames.
 - Copies leave out directory symlinks; a move that would leave one out stops before removing its source. If a copy succeeds but deleting the source fails, the complete copy is kept and the source is taken off Cut, so a retry can't destroy anything.
-- Opening a server file downloads a private editing copy into its app, and each save uploads it again. **File ▸ Server Files ▸ Finish Editing Server Files** uploads the last save and removes synchronized copies. Quitting removes synchronized copies too; unsent edits stay in Application Support. After reopening Foldera, choose **Resume Recovered Edits** to reopen them and resume uploading, or **Show Server Files** to get a copy by hand.
+- Opening a server file downloads a private editing copy into its app, and each save uploads it again. **File ▸ Server Files ▸ Finish Editing Server Files** uploads the last save and removes synchronized copies. Quitting removes synchronized copies too; unsent edits stay in Application Support. After reopening Foldera, opening the same server file reuses its recovered copy and resumes uploading that file. Choose **Resume Recovered Edits** to reopen and resume all recovered files, or **Show Server Files** to get a copy by hand.
 - **Open in Terminal (SSH)** opens an `ssh` session in the current server folder.
 
 Sites sign in with a password or an Ed25519/RSA private key in OpenSSH format. Passwords and key passphrases are kept in the macOS Keychain, never in preferences. The first connection shows the server's SHA-256 key fingerprint to confirm, and a changed key is reported before anything is sent. Server changes can't be undone, and Quick Look, thumbnails and archive commands work on local files only.

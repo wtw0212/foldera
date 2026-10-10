@@ -282,7 +282,7 @@ final class BrowserTab: Identifiable {
             isSearching = false
             if !searchResults.isEmpty { searchResults = [] }
             itemsVersion += 1
-            selection.formIntersection(Set(items.map(\.url)))
+            if !isLoading { selection.formIntersection(Set(items.map(\.url))) }
             return
         }
         if isRemote || isRecent || isInsideArchive {
@@ -292,7 +292,7 @@ final class BrowserTab: Identifiable {
             searchResults = items.filter { (settings.showHiddenFiles || !$0.isHidden) && matcher.matches($0.name) && searchFilters.matches($0) }
             itemsVersion += 1
             isSearching = false
-            selection.formIntersection(Set(searchResults.map(\.url)))
+            if !isLoading { selection.formIntersection(Set(searchResults.map(\.url))) }
             return
         }
         let root = url
@@ -420,11 +420,11 @@ final class BrowserTab: Identifiable {
             items = loaded
             itemsVersion += 1
         }
-        if (isRemote || isInsideArchive) && isSearchActive { scheduleSearch() }
         let present = Set(loaded.map(\.url))
         let wanted = selectAfterLoad.isEmpty ? selection : selectAfterLoad
         selection = isSearchActive ? wanted : wanted.intersection(present)
         selectAfterLoad = []
+        if (isRemote || isInsideArchive) && isSearchActive { scheduleSearch() }
     }
 
     // MARK: Helpers

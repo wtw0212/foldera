@@ -391,6 +391,7 @@ private struct SearchBox: View {
     let model: ExplorerWindowModel
     @Bindable var tab: BrowserTab
     @FocusState private var isFocused: Bool
+    @State private var showsOptions = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -417,35 +418,50 @@ private struct SearchBox: View {
                 .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)))
                 .hint(L10n.text("Clear search"))
             }
-            Menu {
-                if tab.canSearchRecursively {
-                    Picker(L10n.text("Search scope"), selection: $tab.searchScope) {
-                        ForEach(FileSearch.Scope.allCases, id: \.rawValue) { Text($0.title).tag($0) }
-                    }
-                }
-                Picker(L10n.text("Type"), selection: $tab.searchFilters.kind) {
-                    ForEach(FileSearch.Filters.Kind.allCases, id: \.rawValue) { Text($0.title).tag($0) }
-                }
-                Picker(L10n.text("Date modified"), selection: $tab.searchFilters.modified) {
-                    ForEach(FileSearch.Filters.Modified.allCases, id: \.rawValue) { Text($0.title).tag($0) }
-                }
-                Picker(L10n.text("Size"), selection: $tab.searchFilters.size) {
-                    ForEach(FileSearch.Filters.Size.allCases, id: \.rawValue) { Text($0.title).tag($0) }
-                }
-                Divider()
-                Button(L10n.text("Clear filters")) { tab.searchFilters = FileSearch.Filters() }
-                    .disabled(tab.searchFilters.isEmpty)
+            Button {
+                showsOptions.toggle()
             } label: {
                 Image(systemName: "line.3.horizontal.decrease.circle")
                     .foregroundStyle(tab.searchFilters.isEmpty ? Theme.secondaryText.swiftUI : Theme.accent.swiftUI)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
             .fixedSize()
             .disabled(tab.isPage)
             .accessibilityIdentifier("search-options")
             .accessibilityLabel(L10n.text("Search options"))
             .hint(L10n.text("Search options"))
+            .popover(isPresented: $showsOptions, arrowEdge: .bottom) {
+                VStack(alignment: .trailing, spacing: 12) {
+                    Form {
+                        if tab.canSearchRecursively {
+                            Picker(L10n.text("Search scope"), selection: $tab.searchScope) {
+                                ForEach(FileSearch.Scope.allCases, id: \.rawValue) { Text($0.title).tag($0) }
+                            }
+                            .accessibilityIdentifier("search-scope")
+                        }
+                        Picker(L10n.text("Type"), selection: $tab.searchFilters.kind) {
+                            ForEach(FileSearch.Filters.Kind.allCases, id: \.rawValue) { Text($0.title).tag($0) }
+                        }
+                        .accessibilityIdentifier("search-kind")
+                        Picker(L10n.text("Date modified"), selection: $tab.searchFilters.modified) {
+                            ForEach(FileSearch.Filters.Modified.allCases, id: \.rawValue) { Text($0.title).tag($0) }
+                        }
+                        .accessibilityIdentifier("search-modified")
+                        Picker(L10n.text("Size"), selection: $tab.searchFilters.size) {
+                            ForEach(FileSearch.Filters.Size.allCases, id: \.rawValue) { Text($0.title).tag($0) }
+                        }
+                        .accessibilityIdentifier("search-size")
+                    }
+                    .formStyle(.columns)
+                    .pickerStyle(.menu)
+                    Divider()
+                    Button(L10n.text("Clear filters")) { tab.searchFilters = FileSearch.Filters() }
+                        .disabled(tab.searchFilters.isEmpty)
+                        .accessibilityIdentifier("clear-search-filters")
+                }
+                .padding(16)
+                .frame(width: 340)
+            }
         }
         .padding(.leading, 10)
         .padding(.trailing, 8)

@@ -126,10 +126,13 @@ final class RemoteEditing {
     func open(_ remote: URL) async throws -> URL {
         guard let endpoint = remote.remoteEndpoint else { throw RemoteError.failed(L10n.text("This address is missing a user name.")) }
         let remote = endpoint.url(path: remote.remotePath)
-        if let session = sessions.first(where: { $0.remote == remote && FileOperations.exists($0.local) }) {
-            openFile(session.local)
+        if let index = sessions.firstIndex(where: { $0.remote == remote && FileOperations.exists($0.local) }) {
+            let local = sessions[index].local
+            // Explicitly reopening this file resumes its recovered edits, leaving other recoveries paused.
+            sessions[index].isRecovered = false
+            openFile(local)
             startWatching()
-            return session.local
+            return local
         }
         if let pending = opening[remote] {
             let local = try await pending.value

@@ -403,8 +403,8 @@
 "Open the extracted folder when done" = "Open the extracted folder when done";
 "Editing symbolic links on a server isn’t supported." = "Editing symbolic links on a server isn’t supported.";
 "The original file’s permissions could not be read. The file was not replaced." = "The original file’s permissions could not be read. The file was not replaced.";
-"This folder" = "This folder";
-"Subfolders" = "Subfolders";
+"This folder" = "Only this folder";
+"Subfolders" = "Include subfolders";
 "Search scope" = "Search scope";
 "Search options" = "Search options";
 "Any type" = "Any type";
