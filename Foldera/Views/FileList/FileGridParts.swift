@@ -229,9 +229,7 @@ final class FileCollectionView: NSCollectionView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let indexPath = indexPathForItem(at: point)
-        slowClick.mouseDown(event, wasOnlySelection: indexPath.map { selectionIndexPaths == [$0] } ?? false,
-                            onLabel: indexPath.map { isOnNameLabel(point, at: $0) } ?? false,
-                            wasFocused: window?.isKeyWindow == true && window?.firstResponder === self)
+        slowClick.mouseDown(event, in: self, target: indexPath, isOnlySelection: isOnlySelection, isOnLabel: { self.isOnNameLabel(point, at: $0) })
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
         if event.clickCount == 2, let indexPath {
@@ -250,16 +248,14 @@ final class FileCollectionView: NSCollectionView {
     let slowClick = SlowClickRename()
 
     private func slowClickReleased(_ event: NSEvent, at indexPath: IndexPath) {
-        slowClick.mouseUp(at: event.locationInWindow) { [weak self] in
-            guard let self, selectionIndexPaths == [indexPath], window?.firstResponder === self else { return }
-            commands?.beginRename()
-        }
+        slowClick.released(event, in: self, target: indexPath, isOnlySelection: isOnlySelection) { [weak self] in self?.commands?.beginRename() }
     }
+
+    private func isOnlySelection(_ indexPath: IndexPath) -> Bool { selectionIndexPaths == [indexPath] }
 
     /// Only the name renames, like Explorer; the icon and details just select.
     func isOnNameLabel(_ point: NSPoint, at indexPath: IndexPath) -> Bool {
-        guard let cell = (item(at: indexPath) as? FileGridItem)?.cell else { return false }
-        return cell.convert(cell.nameLabel.frame, to: self).contains(point)
+        SlowClickRename.hits(point, label: (item(at: indexPath) as? FileGridItem)?.cell.nameLabel, in: self)
     }
 
     override func otherMouseUp(with event: NSEvent) {

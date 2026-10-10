@@ -138,9 +138,7 @@ final class FileTableView: NSTableView {
             return
         }
         let row = row(at: point)
-        slowClick.mouseDown(event, wasOnlySelection: selectedRowIndexes == IndexSet(integer: row),
-                            onLabel: isOnNameLabel(point, row: row),
-                            wasFocused: window?.isKeyWindow == true && window?.firstResponder === self)
+        slowClick.mouseDown(event, in: self, target: row, isOnlySelection: isOnlySelection, isOnLabel: { self.isOnNameLabel(point, row: $0) })
         super.mouseDown(with: event)
         // The table tracks the press itself, so the release usually arrives here rather than in mouseUp.
         if let release = NSApp.currentEvent, release.type == .leftMouseUp { slowClickReleased(release, row: row) }
@@ -157,17 +155,16 @@ final class FileTableView: NSTableView {
     let slowClick = SlowClickRename()
 
     private func slowClickReleased(_ event: NSEvent, row: Int) {
-        slowClick.mouseUp(at: event.locationInWindow) { [weak self] in
-            guard let self, selectedRowIndexes == IndexSet(integer: row), window?.firstResponder === self else { return }
-            commands?.beginRename()
-        }
+        slowClick.released(event, in: self, target: row, isOnlySelection: isOnlySelection) { [weak self] in self?.commands?.beginRename() }
     }
+
+    private func isOnlySelection(_ row: Int) -> Bool { selectedRowIndexes == IndexSet(integer: row) }
 
     /// Only the name text renames, like Explorer; the icon and the rest of the row just select.
     func isOnNameLabel(_ point: NSPoint, row: Int) -> Bool {
         let column = column(at: point)
-        guard column >= 0, let cell = view(atColumn: column, row: row, makeIfNecessary: false) as? NameCellView else { return false }
-        return cell.convert(cell.label.frame, to: self).contains(point)
+        let cell = column >= 0 ? view(atColumn: column, row: row, makeIfNecessary: false) as? NameCellView : nil
+        return SlowClickRename.hits(point, label: cell?.label, in: self)
     }
 
     override func resignFirstResponder() -> Bool {

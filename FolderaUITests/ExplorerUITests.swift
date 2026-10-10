@@ -145,8 +145,14 @@ final class ExplorerUITests: XCTestCase {
             let close = window.buttons[XCUIIdentifierCloseWindow]
             XCTAssertTrue(close.exists)
             func checkPosition() {
-                XCTAssertEqual(close.frame.midY - window.frame.minY, 20, accuracy: 1)
-                XCTAssertLessThan(abs(close.frame.midY - app.staticTexts["tab-title"].frame.midY), 5)
+                // The title bar settles a layout pass after the window changes size.
+                func centered() -> Bool {
+                    abs(close.frame.midY - window.frame.minY - 20) <= 1
+                        && abs(close.frame.midY - app.staticTexts["tab-title"].frame.midY) < 5
+                }
+                let deadline = Date().addingTimeInterval(3)
+                while !centered(), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+                XCTAssertTrue(centered(), "close button at \(close.frame.midY - window.frame.minY), expected 20")
             }
             checkPosition()
             let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
@@ -214,17 +220,21 @@ final class ExplorerUITests: XCTestCase {
         }
     }
 
-    /// Explorer's slow double-click: click the selected item's name again to rename it.
+    /// Explorer's slow double-click: selects `name`, waits past the double-click interval and clicks it again.
+    private func slowClick(_ name: XCUIElement, until field: XCUIElement) {
+        XCTAssertTrue(name.waitForAppearance(timeout: 5))
+        name.click()
+        Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
+        XCTAssertFalse(field.exists, "the first click only selects")
+        name.click()
+        XCTAssertTrue(field.waitForAppearance(timeout: NSEvent.doubleClickInterval + 3))
+    }
+
     func testClickingTheSelectedNameAgainRenamesIt() throws {
         try withApp { app, root in
             let list = app.tables["file-list"]
-            let name = list.staticTexts["note.txt"]
-            name.click()
-            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
-            XCTAssertEqual(list.textFields.count, 0, "the first click only selects")
-            name.click()
             let field = list.textFields.firstMatch
-            XCTAssertTrue(field.waitForAppearance(timeout: NSEvent.doubleClickInterval + 3))
+            slowClick(list.staticTexts["note.txt"], until: field)
             enter("renamed", into: field)
             app.typeKey(.return, modifierFlags: [])
             let renamed = NSPredicate { _, _ in FileManager.default.fileExists(atPath: root.appendingPathComponent("renamed.txt").path) }
@@ -246,16 +256,8 @@ final class ExplorerUITests: XCTestCase {
         try withApp { app, root in
             app.typeKey("=", modifierFlags: .command)
             app.typeKey("=", modifierFlags: .command)
-            let gone = NSPredicate { _, _ in !app.tables["file-list"].exists }
-            expectation(for: gone, evaluatedWith: app)
-            waitForExpectations(timeout: 5)
-            let name = app.staticTexts["note.txt"]
-            XCTAssertTrue(name.waitForAppearance(timeout: 5))
-            name.click()
-            Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.3)
-            name.click()
-            let field = app.textFields.matching(NSPredicate(format: "value == %@", "note.txt")).firstMatch
-            XCTAssertTrue(field.waitForAppearance(timeout: NSEvent.doubleClickInterval + 3))
+            XCTAssertTrue(app.tables["file-list"].waitForNonExistence(timeout: 5))
+            slowClick(app.staticTexts["note.txt"], until: app.textFields.matching(NSPredicate(format: "value == %@", "note.txt")).firstMatch)
             app.typeKey(.escape, modifierFlags: [])
             XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("note.txt").path))
         }

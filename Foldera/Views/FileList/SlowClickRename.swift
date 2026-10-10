@@ -38,6 +38,29 @@ final class SlowClickRename {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay(), execute: work)
     }
 
+    /// Wires a view's press and release: `target` returns the item under the press (nil for empty space),
+    /// `isOnlySelection` and `isOnLabel` describe it, and `rename` runs if the item is still the only selection.
+    func mouseDown<Item: Equatable>(_ event: NSEvent, in view: NSView, target: Item?, isOnlySelection: (Item) -> Bool,
+                                    isOnLabel: (Item) -> Bool) {
+        mouseDown(event, wasOnlySelection: target.map(isOnlySelection) ?? false, onLabel: target.map(isOnLabel) ?? false,
+                  wasFocused: view.window?.isKeyWindow == true && view.window?.firstResponder === view)
+    }
+
+    /// Release half of `mouseDown(_:in:target:...)`.
+    func released<Item: Equatable>(_ event: NSEvent, in view: NSView, target: Item, isOnlySelection: @escaping (Item) -> Bool,
+                                   rename: @escaping () -> Void) {
+        mouseUp(at: event.locationInWindow) { [weak view] in
+            guard let view, isOnlySelection(target), view.window?.firstResponder === view else { return }
+            rename()
+        }
+    }
+
+    /// Whether `point` (in `view`) falls on `label`, a subview of `cell`.
+    static func hits(_ point: NSPoint, label: NSView?, in view: NSView) -> Bool {
+        guard let label, let superview = label.superview else { return false }
+        return superview.convert(label.frame, to: view).contains(point)
+    }
+
     /// Any other click, key press, scroll or focus change keeps the item from going into rename.
     func cancel() {
         pending?.cancel()
