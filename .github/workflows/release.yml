@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/make-dmg.sh
+      - scripts/make-appcast.py
+      - scripts/verify-update-signature.swift
       - scripts/optimize-release-helper.sh
       - project.yml
   workflow_dispatch:
@@ -96,6 +98,11 @@ jobs:
             test -f "$app/Contents/Resources/$language.lproj/Localizable.strings"
           done
           hdiutil verify dist/Foldera-*.dmg
+          # dyld stops the app at launch if the embedded Sparkle.framework fails library validation.
+          "$app/Contents/MacOS/Foldera" -initialPath /tmp &
+          pid=$!
+          sleep 5
+          kill "$pid"
 
       - name: Smoke-test Release archive helper
         run: |
@@ -113,6 +120,27 @@ jobs:
             echo "Verified Release helper $format round-trip"
           done
 
+      - name: Sign the update and write the appcast
+        # Installed copies download a release only through this signed feed, and install it only if the DMG's
+        # signature matches the public key built into them. The private key is the SPARKLE_PRIVATE_KEY secret.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          if [[ -z "$SPARKLE_PRIVATE_KEY" ]]; then
+            echo "The SPARKLE_PRIVATE_KEY repository secret is missing. See RELEASING.md." >&2
+            exit 1
+          fi
+          sign_update=build.noindex/release/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update
+          app=build.noindex/release/Build/Products/Release/Foldera.app
+          dmg="dist/Foldera-$VERSION.dmg"
+          signature=$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - -p "$dmg")
+          xcrun swift scripts/verify-update-signature.swift "$app" "$dmg" "$signature"
+          python3 scripts/make-appcast.py "$GITHUB_REPOSITORY" "$VERSION" "$BUILD_NUMBER" "$dmg" "$signature"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - dist/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sign_update" --ed-key-file - --verify dist/appcast.xml
+
       - name: Create checksum
         working-directory: dist
         run: shasum -a 256 Foldera-*.dmg Foldera-*.dSYM.zip > SHA256SUMS.txt
@@ -125,6 +153,7 @@ jobs:
             dist/Foldera-*.dmg
             dist/SHA256SUMS.txt
             dist/Foldera-*.dSYM.zip
+            dist/appcast.xml
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -166,15 +195,17 @@ jobs:
           name: foldera-release
           path: dist
 
-      - name: Verify checksum
+      - name: Verify checksum and appcast
         working-directory: dist
-        run: sha256sum --check SHA256SUMS.txt
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          test -s appcast.xml
 
       - name: Publish release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt dist/Foldera-*.dSYM.zip \
+          gh release create "$GITHUB_REF_NAME" dist/Foldera-*.dmg dist/SHA256SUMS.txt dist/Foldera-*.dSYM.zip dist/appcast.xml \
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Foldera $GITHUB_REF_NAME" \
             --notes "DMG for Apple Silicon Macs running macOS 26 or later. This build is ad-hoc signed and is not notarized by Apple."

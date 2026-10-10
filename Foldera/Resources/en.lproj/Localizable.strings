@@ -403,3 +403,8 @@
 "Extract everything in this archive to a folder you choose" = "Extract everything in this archive to a folder you choose";
 "%@ (archive)" = "%@ (archive)";
 "Open the extracted folder when done" = "Open the extracted folder when done";
+"Check for Updates…" = "Check for Updates…";
+"Updates:" = "Updates:";
+"Check for updates automatically" = "Check for updates automatically";
+"Download and install updates automatically" = "Download and install updates automatically";
+"Check Now" = "Check Now";

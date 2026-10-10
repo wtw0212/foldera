@@ -30,6 +30,12 @@ Then give Foldera **Full Disk Access** once, so it can open folders macOS protec
 
 The disk image is signed with your development certificate, so it runs on your own Macs. To share it with others, see [Signing](#signing).
 
+### Updates
+
+Copies installed from a [GitHub release](https://github.com/wtw0212/foldera/releases) update themselves. Once a day Foldera checks the latest release, downloads it in the background and installs it when you quit. Foldera ▸ **Check for Updates…** checks right away, and Settings ▸ General ▸ Updates turns automatic checks or installs off. An update is installed only if it carries a signature made with Foldera's release key. Builds you make yourself never check for updates.
+
+Release builds are ad-hoc signed, so macOS treats each version as a new app: after an update, grant Full Disk Access again if a protected folder stops opening.
+
 ## Browsing
 
 **Tabs and breadcrumbs.** Click through folders, jump back with the breadcrumb, and middle-click a folder to open it in a background tab. Tabs can be dragged to reorder; middle-click a tab to close it.
@@ -220,5 +226,7 @@ Then resize it into `Foldera/Resources/Assets.xcassets/AppIcon.appiconset` (16�
 Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) by Microsoft, under the MIT License (see `ThirdParty/FluentUI-System-Icons-LICENSE.txt`).
 
 Archive extraction and 7z creation use [7-Zip](https://www.7-zip.org/) by Igor Pavlov (unmodified `7zz` 26.03), under the GNU LGPL 2.1 with the unRAR restriction plus BSD parts (see `ThirdParty/7-Zip/7-Zip-License.txt`, also inside the app).
+
+Updates use [Sparkle](https://sparkle-project.org) 2.10.0 (MIT).
 
 SFTP uses [Citadel](https://github.com/orlandos-nl/Citadel) 0.12.0 (MIT), pinned because 0.12.1 replaced its SSH dependency with an unvetted fork. Its SSH layer, [swift-nio-ssh](https://github.com/Joannis/swift-nio-ssh) 0.3.5 (Apache 2.0), is vendored in `ThirdParty/swift-nio-ssh` with a small patch so RSA keys sign in with SHA-2 as RFC 8332 specifies (see `PATCHES.md` there).

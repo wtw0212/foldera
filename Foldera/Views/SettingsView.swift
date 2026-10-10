@@ -20,8 +20,12 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @State private var settings = AppSettings.shared
+    @State private var updater = AppUpdater.shared
 
-    init(settings: AppSettings = .shared) { _settings = State(initialValue: settings) }
+    init(settings: AppSettings = .shared, updater: AppUpdater = .shared) {
+        _settings = State(initialValue: settings)
+        _updater = State(initialValue: updater)
+    }
 
     var body: some View {
         Form {
@@ -52,6 +56,15 @@ struct GeneralSettings: View {
                 .font(.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
+            LabeledContent(L10n.text("Updates:")) {
+                VStack(alignment: .leading) {
+                    Toggle(L10n.text("Check for updates automatically"), isOn: $updater.automaticallyChecks)
+                    Toggle(L10n.text("Download and install updates automatically"), isOn: $updater.automaticallyInstalls)
+                        .disabled(!updater.automaticallyChecks)
+                    Button(L10n.text("Check Now")) { updater.checkForUpdates() }
+                        .disabled(!updater.canCheckForUpdates)
+                }
+            }
         }
     }
 
