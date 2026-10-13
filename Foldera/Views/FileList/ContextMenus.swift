@@ -65,6 +65,8 @@ enum ContextMenus {
         menu.add(L10n.text("Copy as path"), symbol: "link") { tab.copyPathOfSelection() }
         if !tab.isRemote {
             menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
+            // The system Share submenu (AirDrop, Mail, Messages, …), titled and localized by AppKit.
+            menu.addItem(NSSharingServicePicker(items: items.map(\.url)).standardShareMenuItem)
         }
         menu.addSeparator()
         menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
