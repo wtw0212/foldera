@@ -184,6 +184,22 @@ struct BrowserTabTests {
         #expect(tab.selection == [renamed] && tab.selectedItems.map(\.url) == [renamed])
     }
 
+    @Test func reloadingDuringSearchKeepsResultsOnScreen() async throws {
+        let file = try directory.file("nested/report.txt")
+        let tab = try await loadedTab()
+        tab.searchText = "report"
+        try await eventually { !tab.isSearching && tab.visibleItems.map(\.url) == [file] }
+        tab.reload()
+        // A refresh searches in the background; the list must never empty or show the busy state meanwhile.
+        for _ in 0..<25 {
+            #expect(!tab.isSearching && tab.visibleItems.map(\.url) == [file])
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let added = try directory.file("nested/report 2.txt")
+        tab.reload()
+        try await eventually { Set(tab.visibleItems.map(\.url)) == [file, added] }
+    }
+
     @Test func hiddenSearchResultsUpdateInEveryTabSharingSettings() async throws {
         let visible = try directory.file("nested/report.txt")
         let hidden = try directory.file("nested/.report.txt")

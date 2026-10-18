@@ -86,6 +86,7 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var visibleCache: (key: VisibleKey, items: [FileItem])?
     private var itemsVersion = 0
     @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var searchRefreshTask: Task<Void, Never>?
     let settings: AppSettings
 
     /// Reloads when a transfer changes the server folder shown here (servers aren't watched).
@@ -269,12 +270,28 @@ final class BrowserTab: Identifiable {
     func reload() {
         // A reload while a navigation is loading (a watcher firing at once) keeps the selection it asked for.
         load(selecting: selection.union(selectAfterLoad))
-        if isSearchActive { scheduleSearch() }
+        if isSearchActive { scheduleSearch(quiet: true) }
+    }
+
+    /// Something below the searched folder changed. Busy trees (e.g. `~/Library/Containers`) change constantly, so
+    /// search again at most every few seconds, and without touching the list unless the results differ.
+    private func searchTreeChanged() {
+        guard isSearchActive, canSearchRecursively, searchScope == .subfolders, !isSearching, searchRefreshTask == nil else { return }
+        searchRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, !Task.isCancelled else { return }
+            self.searchRefreshTask = nil
+            self.scheduleSearch(quiet: true)
+        }
     }
 
     /// Restarts the recursive search (debounced) for the current query, or clears results when it is empty.
-    private func scheduleSearch() {
+    /// A `quiet` search refreshes the results already shown: they stay put and are replaced once, when it finishes.
+    private func scheduleSearch(quiet: Bool = false) {
         searchTask?.cancel()
+        searchRefreshTask?.cancel()
+        searchRefreshTask = nil
+        let quiet = quiet && !isSearching && !searchResults.isEmpty
         watcher?.includesDescendants = isSearchActive && canSearchRecursively && searchScope == .subfolders
         let query = searchText.trimmingCharacters(in: .whitespaces)
         guard isSearchActive, !isPage else {
@@ -299,19 +316,28 @@ final class BrowserTab: Identifiable {
         let includeHidden = settings.showHiddenFiles
         let scope = searchScope
         let filters = searchFilters
-        isSearching = true
+        isSearching = !quiet
         searchTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
+            if !quiet {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+            }
             var found: [FileItem] = []
             for await batch in FileSearch.run(in: root, query: query, includeHidden: includeHidden, scope: scope, filters: filters) {
                 guard let self, !Task.isCancelled else { return }
                 found += batch
+                if !quiet {
+                    self.searchResults = found
+                    self.itemsVersion += 1
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            if quiet {
+                guard found != self.searchResults else { return }
                 self.searchResults = found
                 self.itemsVersion += 1
             }
-            guard let self, !Task.isCancelled else { return }
-            if found.isEmpty {
+            if found.isEmpty, !quiet {
                 self.searchResults = []
                 self.itemsVersion += 1
             }
@@ -377,7 +403,9 @@ final class BrowserTab: Identifiable {
             watcher = nil
             watcherURL = nil
         } else if watcher == nil || watcherURL != target {
-            watcher = DirectoryWatcher(directory: target) { [weak self] in self?.reload() }
+            watcher = DirectoryWatcher(directory: target) { [weak self] direct in
+                if direct { self?.reload() } else { self?.searchTreeChanged() }
+            }
             watcher?.includesDescendants = isSearchActive && searchScope == .subfolders
             watcherURL = target
         }
