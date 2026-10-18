@@ -5,10 +5,11 @@ import Foundation
 final class DirectoryWatcher {
     var includesDescendants = false
     private let directory: URL
-    private let onChange: () -> Void
+    /// Called with `true` when the folder itself changed, `false` when only something deeper did.
+    private let onChange: (_ direct: Bool) -> Void
     private var stream: FSEventStreamRef?
 
-    init(directory: URL, onChange: @escaping () -> Void) {
+    init(directory: URL, onChange: @escaping (_ direct: Bool) -> Void) {
         self.directory = Self.realPath(directory)
         self.onChange = onChange
         start()
@@ -60,11 +61,12 @@ final class DirectoryWatcher {
 
     private func handle(paths: [String]) {
         let watched = directory.path
-        let relevant = paths.contains { path in
-            let parent = (path as NSString).deletingLastPathComponent
-            return parent == watched || path == watched || (includesDescendants && path.hasPrefix(watched == "/" ? "/" : watched + "/"))
+        let direct = paths.contains { path in
+            (path as NSString).deletingLastPathComponent == watched || path == watched
         }
-        if relevant { onChange() }
+        if direct { return onChange(true) }
+        let prefix = watched == "/" ? "/" : watched + "/"
+        if includesDescendants, paths.contains(where: { $0.hasPrefix(prefix) }) { onChange(false) }
     }
 
     private static let callback: FSEventStreamCallback = { _, info, _, eventPaths, _, _ in
