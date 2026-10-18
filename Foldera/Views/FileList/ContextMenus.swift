@@ -65,12 +65,38 @@ enum ContextMenus {
         menu.add(L10n.text("Copy as path"), symbol: "link") { tab.copyPathOfSelection() }
         if !tab.isRemote {
             menu.add(L10n.text("Show in Finder"), symbol: "macwindow") { tab.showInFinder() }
-            // The system Share submenu (AirDrop, Mail, Messages, …), titled and localized by AppKit.
-            menu.addItem(NSSharingServicePicker(items: items.map(\.url)).standardShareMenuItem)
+            // The system share picker (AirDrop, Mail, Messages, …) opened by hand: the standard Share submenu
+            // shows its panel at the top of the window, while this one points at the item.
+            let urls = items.map(\.url)
+            let clicked = NSEvent.mouseLocation
+            menu.add(L10n.text("Share"), symbol: "square.and.arrow.up") { showSharePicker(for: urls, near: clicked) }
         }
         menu.addSeparator()
         menu.add(L10n.text("Properties"), symbol: "info.circle") { tab.showProperties() }
         return menu
+    }
+
+    /// Opens the share picker pointing at the row or item under `screenPoint`.
+    private static func showSharePicker(for urls: [URL], near screenPoint: NSPoint) {
+        guard let window = NSApp.keyWindow, let content = window.contentView else { return }
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        var view: NSView? = content.hitTest(content.convert(windowPoint, from: nil))
+        while let current = view, !(current is NSTableView || current is NSCollectionView) { view = current.superview }
+        let picker = NSSharingServicePicker(items: urls)
+        guard let list = view else {
+            let point = content.convert(windowPoint, from: nil)
+            picker.show(relativeTo: NSRect(x: point.x - 1, y: point.y - 1, width: 2, height: 2), of: content, preferredEdge: .maxY)
+            return
+        }
+        let point = list.convert(windowPoint, from: nil)
+        var rect = NSRect(x: point.x - 1, y: point.y - 1, width: 2, height: 2)
+        if let table = list as? NSTableView, table.row(at: point) >= 0 {
+            rect = table.rect(ofRow: table.row(at: point))
+        } else if let collection = list as? NSCollectionView, let path = collection.indexPathForItem(at: point),
+                  let frame = collection.layoutAttributesForItem(at: path)?.frame {
+            rect = frame
+        }
+        picker.show(relativeTo: rect, of: list, preferredEdge: .maxY)
     }
 
     static func backgroundMenu(tab: BrowserTab, quickAccess: QuickAccess = .shared, settings: AppSettings = .shared) -> NSMenu {
