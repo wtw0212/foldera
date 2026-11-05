@@ -79,6 +79,8 @@ final class FileGridCell: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         iconView.imageScaling = .scaleProportionallyUpOrDown
+        // NSImageView registers as a drop target even when not editable, so drags over an icon never reached the grid.
+        iconView.unregisterDraggedTypes()
         addSubview(iconView)
         for label in [nameLabel] + detailLabels {
             label.font = Theme.nsFont
