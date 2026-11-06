@@ -28,7 +28,8 @@ fi
 
 # UI tests run sandboxed and can't listen on a port, so the SFTP UI test's throwaway OpenSSH server
 # (key login on 127.0.0.1 only) starts here. xcodebuild hands TEST_RUNNER_* variables to the tests.
-if [[ "$SUITE" == ui && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then
+# Its random port and paths would miss SwiftPM's manifest cache, so CI starts it only for the shard that uses it.
+if [[ "$SUITE" == ui && "${FOLDERA_UI_SHARD:-localization-network}" == localization-network && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then
     SFTP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/foldera-sftp.XXXXXX")
     trap 'if [[ -f "$SFTP_DIR/sshd.pid" ]]; then kill "$(cat "$SFTP_DIR/sshd.pid")" 2>/dev/null || true; fi; rm -rf "$SFTP_DIR"' EXIT
     ssh-keygen -q -t ed25519 -N "" -f "$SFTP_DIR/host"
@@ -75,6 +76,13 @@ run_xcodebuild() {
         CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= "$@"
 }
 
+# TEMPORARY: shows whether the manifest cache hits.
+if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
+    ls -la ~/Library/Caches/ | grep swiftpm || true
+    echo "manifests before: $(sqlite3 ~/Library/Caches/org.swift.swiftpm/manifests/manifest.db 'select count(*) from MANIFEST_CACHE' 2>&1)"
+    printf '%s\n' "${KEPT[@]}" | cut -c1-300 | sed 's/^/kept: /'
+    printf '%s\n' "${KEPT[@]}" | shasum | sed 's/^/kept hash: /'
+fi
 if [[ "$SUITE" == unit && $# -eq 0 ]]; then
     # These suites use disks, servers and archives, but no windows or shared preferences, so a second process can run them
     # alongside the rest. Tests in one process can't run in parallel: they share static hooks and the key window.
@@ -97,6 +105,9 @@ else
     run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RESULT" "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 fi
 
+if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
+    echo "manifests after: $(sqlite3 ~/Library/Caches/org.swift.swiftpm/manifests/manifest.db 'select count(*) from MANIFEST_CACHE' 2>&1)"
+fi
 DESCRIPTIONS=$(ls -dt "$DERIVED_DATA"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
 echo "Build descriptions: $(echo "$DESCRIPTIONS" | wc -l)"
 n=0; for d in $(echo "$DESCRIPTIONS" | head -2); do n=$((n + 1)); cp "$d/manifest.json" "$RUN/manifest-$n.json" 2>/dev/null || true; done
