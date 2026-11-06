@@ -150,9 +150,6 @@ schemes:
       targets:
         Foldera: all
         FolderaTests: [test]
-    run:
-      # Its priority-inversion warnings count as issues, so xcodebuild collects a 360 MB log archive on passing runs.
-      disableThreadPerformanceChecker: true
     test:
       config: Testing
       gatherCoverageData: true
@@ -168,9 +165,6 @@ schemes:
       targets:
         Foldera: all
         FolderaUITests: [test]
-    run:
-      # Its priority-inversion warnings count as issues, so xcodebuild collects a 360 MB log archive on passing runs.
-      disableThreadPerformanceChecker: true
     test:
       config: Testing
       targets:
