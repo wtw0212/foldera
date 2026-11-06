@@ -56,6 +56,13 @@ if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
 for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) > /dev/null 2>&1 &
     ( end=$((SECONDS + 45)); while (( SECONDS < end )); do echo "--- $(date +%T)"; ps -axo pid,ppid,pcpu,etime,args | grep -E 'swift|git |sandbox-exec|SWBBuild|xcodebuild|xcrun' | grep -v grep | cut -c1-170; sleep 1; done > "$RUN/ps.log" ) > /dev/null 2>&1 &
 fi
+# Test products under these folders make macOS ask for access after every build, which stalls UI tests.
+DERIVED_DATA=${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}
+case "$PWD" in
+    "$HOME"/Documents/*|"$HOME"/Desktop/*|"$HOME"/Downloads/*)
+        DERIVED_DATA=${FOLDERA_TEST_DERIVED_DATA:-$HOME/Library/Caches/foldera-tests/$(basename "$PWD")} ;;
+esac
+
 # SwiftPM keys its manifest cache by the environment, and CI's changes with every run.
 KEPT=()
 while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(HOME|PATH|TMPDIR|USER|DEVELOPER_DIR|NSUnbufferedIO|TEST_RUNNER_[A-Z_]+)=')
@@ -63,7 +70,7 @@ while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(H
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
 run_xcodebuild() {
     env -i "${KEPT[@]}" xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
-        -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
+        -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED_DATA" \
         -enableCodeCoverage "$COVERAGE" -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
         CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= "$@"
 }
@@ -90,7 +97,7 @@ else
     run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RESULT" "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 fi
 
-DESCRIPTIONS=$(ls -dt "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
+DESCRIPTIONS=$(ls -dt "$DERIVED_DATA"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
 echo "Build descriptions: $(echo "$DESCRIPTIONS" | wc -l)"
 n=0; for d in $(echo "$DESCRIPTIONS" | head -2); do n=$((n + 1)); cp "$d/manifest.json" "$RUN/manifest-$n.json" 2>/dev/null || true; done
 awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST|Test Suite .(All|Selected) tests. started/ { print }' "$RUN/test.log"
