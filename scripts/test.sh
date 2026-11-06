@@ -55,27 +55,40 @@ if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
     ( tail -F -n +1 "$RUN/test.log" | python3 -uc 'import sys, time
 for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) > /dev/null 2>&1 &
     ( end=$((SECONDS + 45)); while (( SECONDS < end )); do echo "--- $(date +%T)"; ps -axo pid,ppid,pcpu,etime,args | grep -E 'swift|git |sandbox-exec|SWBBuild|xcodebuild|xcrun' | grep -v grep | cut -c1-170; sleep 1; done > "$RUN/ps.log" ) > /dev/null 2>&1 &
-    if [[ "${FOLDERA_UI_SHARD:-}" == options-rename ]]; then
-        ( until pgrep -x xcodebuild; do sleep 0.1; done; sudo sample xcodebuild 25 20 -file "$RUN/xcodebuild.txt" ) > /dev/null 2>&1 &
-    fi
-    if [[ "${FOLDERA_UI_SHARD:-}" == tabs-search ]]; then
-        ( until pid=$(pgrep -nx Foldera); do sleep 0.1; done; sudo sample "$pid" 80 20 -mayDie -file "$RUN/long.txt" ) > /dev/null 2>&1 &
-    fi
-    if [[ "$SUITE" == unit ]]; then
-        ( while sleep 15; do
-            if (( $(date +%s) - $(stat -f %m "$RUN/test.log") > 100 )); then
-                sudo sample Foldera 5 10 -file "$RUN/hang.txt"; sudo pkill -x xcodebuild; sudo pkill -x Foldera; break
-            fi
-        done ) > /dev/null 2>&1 &
-    fi
 fi
+# SwiftPM keys its manifest cache by the environment, and CI's changes with every run.
+KEPT=()
+while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(HOME|PATH|TMPDIR|USER|DEVELOPER_DIR|NSUnbufferedIO|TEST_RUNNER_[A-Z_]+)=')
+
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
-xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
-    -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
-    -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" -collect-test-diagnostics "$DIAGNOSTICS" \
-    -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-    "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
+run_xcodebuild() {
+    env -i "${KEPT[@]}" xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
+        -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
+        -enableCodeCoverage "$COVERAGE" -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= "$@"
+}
+
+if [[ "$SUITE" == unit && $# -eq 0 ]]; then
+    # These suites use disks, servers and archives, but no windows or shared preferences, so a second process can run them
+    # alongside the rest. Tests in one process can't run in parallel: they share static hooks and the key window.
+    ONLY=(); SKIP=()
+    for suite in VolumeTests InstallerDiskTests SFTPFileSystemTests ArchivesTests FileSearchTests; do
+        ONLY+=("-only-testing:FolderaTests/$suite"); SKIP+=("-skip-testing:FolderaTests/$suite")
+    done
+    run_xcodebuild build-for-testing > "$RUN/test.log" 2>&1 || STATUS=$?
+    if [[ "$STATUS" -eq 0 ]]; then
+        run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RUN/first.xcresult" "${SKIP[@]}" test-without-building > "$RUN/first.log" 2>&1 &
+        FIRST=$!
+        run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RUN/second.xcresult" "${ONLY[@]}" test-without-building > "$RUN/second.log" 2>&1 &
+        SECOND=$!
+        wait "$FIRST" || STATUS=$?
+        wait "$SECOND" || STATUS=$?
+        cat "$RUN/first.log" "$RUN/second.log" >> "$RUN/test.log"
+        xcrun xcresulttool merge "$RUN/first.xcresult" "$RUN/second.xcresult" --output-path "$RESULT" > /dev/null || STATUS=$?
+    fi
+else
+    run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RESULT" "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
+fi
 
 DESCRIPTIONS=$(ls -dt "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
 echo "Build descriptions: $(echo "$DESCRIPTIONS" | wc -l)"

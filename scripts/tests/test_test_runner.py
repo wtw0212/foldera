@@ -25,12 +25,16 @@ class TestRunnerTests(unittest.TestCase):
         self.tool("xcodegen", "pass")
         self.tool("xcodebuild", """
 from pathlib import Path
-Path(sys.argv[sys.argv.index('-resultBundlePath') + 1]).mkdir()
+if '-resultBundlePath' in sys.argv:
+    Path(sys.argv[sys.argv.index('-resultBundlePath') + 1]).mkdir()
 print('** TEST SUCCEEDED **')
-sys.exit(int(os.environ.get('FAKE_BUILD_STATUS', '0')))
+sys.exit(int(os.environ.get('TEST_RUNNER_FAKE_STATUS', '0')))
 """)
         self.tool("xcrun", """
-if sys.argv[1] == 'xcresulttool':
+from pathlib import Path
+if sys.argv[2] == 'merge':
+    Path(sys.argv[sys.argv.index('--output-path') + 1]).mkdir()
+elif sys.argv[1] == 'xcresulttool':
     print(os.environ['FAKE_SUMMARY'])
 else:
     print(os.environ['FAKE_COVERAGE'])
@@ -59,7 +63,7 @@ else:
             self.assertTrue((output / name).exists(), name)
 
     def test_build_failure_is_not_hidden_by_success_text(self):
-        self.env["FAKE_BUILD_STATUS"] = "65"
+        self.env["TEST_RUNNER_FAKE_STATUS"] = "65"
         self.assertEqual(self.run_suite().returncode, 65)
 
     def test_skipped_tests_fail_even_when_xcode_exits_successfully(self):
@@ -80,7 +84,10 @@ else:
 
     def test_missing_coverage_report_fails_even_with_passing_tests(self):
         self.tool("xcrun", """
-if sys.argv[1] == 'xcresulttool':
+from pathlib import Path
+if sys.argv[2] == 'merge':
+    Path(sys.argv[sys.argv.index('--output-path') + 1]).mkdir()
+elif sys.argv[1] == 'xcresulttool':
     print(os.environ['FAKE_SUMMARY'])
 else:
     sys.exit(1)
