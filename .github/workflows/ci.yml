@@ -71,11 +71,13 @@ jobs:
         run: |
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          echo "RUNNER_IMAGE=$ImageVersion" >> "$GITHUB_ENV"
 
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused, as long as the step before makes unchanged files look unchanged to the build system.
         # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # Each runner image stamps Xcode's files with new mtimes, which invalidates everything built on another image.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -83,9 +85,10 @@ jobs:
             build.noindex/tests/DerivedData
             !build.noindex/tests/DerivedData/Logs
             !build.noindex/tests/DerivedData/Index.noindex
-          key: deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-${{ hashFiles('Foldera/**', 'FolderaTests/**', 'ThirdParty/**') }}
+          key: deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ env.RUNNER_IMAGE }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-${{ hashFiles('Foldera/**', 'FolderaTests/**', 'ThirdParty/**') }}
           restore-keys: |
-            deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-
+            deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ env.RUNNER_IMAGE }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-
+            deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ env.RUNNER_IMAGE }}-
             deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-
 
       # TEMPORARY: explains why tasks re-run on CI. Remove before merging.
@@ -172,11 +175,13 @@ jobs:
         run: |
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          echo "RUNNER_IMAGE=$ImageVersion" >> "$GITHUB_ENV"
 
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused, as long as the step before makes unchanged files look unchanged to the build system.
         # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # Each runner image stamps Xcode's files with new mtimes, which invalidates everything built on another image.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -184,9 +189,10 @@ jobs:
             build.noindex/tests/DerivedData
             !build.noindex/tests/DerivedData/Logs
             !build.noindex/tests/DerivedData/Index.noindex
-          key: deriveddata-ui-macos-26-xcode26.6-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-${{ hashFiles('Foldera/**', 'FolderaUITests/**', 'ThirdParty/**') }}
+          key: deriveddata-ui-macos-26-xcode26.6-${{ env.RUNNER_IMAGE }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-${{ hashFiles('Foldera/**', 'FolderaUITests/**', 'ThirdParty/**') }}
           restore-keys: |
-            deriveddata-ui-macos-26-xcode26.6-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-
+            deriveddata-ui-macos-26-xcode26.6-${{ env.RUNNER_IMAGE }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-
+            deriveddata-ui-macos-26-xcode26.6-${{ env.RUNNER_IMAGE }}-
             deriveddata-ui-macos-26-xcode26.6-
 
       - name: Run native UI tests
