@@ -79,7 +79,8 @@ final class ExplorerUITests: XCTestCase {
             screenshot.lifetime = .keepAlways
             add(screenshot)
             closeSystemSettingsOpenedByTests()
-            if testRun?.hasSucceeded == true { Self.running = (app, language) } else { app.terminate() }
+            // hasSucceeded stays false until the test has stopped.
+            if testRun?.totalFailureCount == 0 { Self.running = (app, language) } else { app.terminate() }
         }
         XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
         XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
