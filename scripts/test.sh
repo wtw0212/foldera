@@ -47,7 +47,7 @@ export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
     -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
-    -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" \
+    -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" -collect-test-diagnostics on-failure \
     -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
