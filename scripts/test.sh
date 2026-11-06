@@ -49,6 +49,23 @@ fi
 
 STATUS=0
 export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
+# TEMPORARY: timeline, cold start, launch samples and build descriptions. Remove before merging.
+export NSUnbufferedIO=YES
+time xcodebuild -version
+time xcodebuild -version
+: > "$RUN/test.log"
+( tail -F -n +1 "$RUN/test.log" 2>/dev/null | python3 -uc 'import sys, time
+for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) &
+if [[ "$SUITE" == ui ]]; then
+    ( last=""; n=0; while [[ $n -lt 2 ]]; do
+        pid=$(pgrep -nx Foldera || true)
+        if [[ -n "$pid" && "$pid" != "$last" ]]; then
+            last=$pid; n=$((n + 1)); echo "sampling launch $n at $(date +%T)"
+            sudo sample "$pid" 10 10 -mayDie -file "$RUN/sample-$n.txt" > /dev/null 2>&1 &
+        fi
+        sleep 0.1
+    done ) &
+fi
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
     -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
@@ -57,6 +74,9 @@ xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsF
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 
+DESCRIPTIONS=$(ls -dt "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
+echo "Build descriptions: $(echo "$DESCRIPTIONS" | wc -l)"
+n=0; for d in $(echo "$DESCRIPTIONS" | head -2); do n=$((n + 1)); cp "$d/manifest.json" "$RUN/manifest-$n.json" 2>/dev/null || true; done
 awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST|Test Suite .(All|Selected) tests. started/ { print }' "$RUN/test.log"
 echo "Swift modules compiled: $(grep -cE '^SwiftDriver ' "$RUN/test.log" || true)"
 if [[ "$STATUS" -ne 0 ]]; then tail -n 60 "$RUN/test.log"; fi
