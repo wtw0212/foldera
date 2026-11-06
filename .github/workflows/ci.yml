@@ -77,7 +77,7 @@ jobs:
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused, as long as the step before makes unchanged files look unchanged to the build system.
-        # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # Only main saves: a save takes up to a minute, and the cache is limited to 10 GB. Pull requests compile what differs from main.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -93,8 +93,8 @@ jobs:
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
 
-      - name: Save compiled packages for test retries
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+      - name: Save compiled packages
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
@@ -142,7 +142,7 @@ jobs:
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
         # reused, as long as the step before makes unchanged files look unchanged to the build system.
-        # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # Only main saves: a save takes up to a minute, and the cache is limited to 10 GB. Pull requests compile what differs from main.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -174,8 +174,8 @@ jobs:
           for test in $tests; do args+=("$flag:FolderaUITests/$test"); done
           bash scripts/test.sh ui "${args[@]}"
 
-      - name: Save compiled packages for test retries
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+      - name: Save compiled packages
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
