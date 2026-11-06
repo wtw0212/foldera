@@ -90,48 +90,8 @@ jobs:
             deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-${{ hashFiles('project.yml', 'Config/**', '**/Package.resolved', 'scripts/test.sh') }}-
             deriveddata-unit-${{ matrix.runner }}-xcode${{ matrix.xcode }}-
 
-      # TEMPORARY: explains why tasks re-run on CI. Remove before merging.
-      - name: Enable build debugging
-        run: |
-          defaults write com.apple.dt.XCBuild EnableBuildDebugging -bool YES
-          defaults write com.apple.dt.SWBBuildService EnableBuildDebugging -bool YES
-          (while sleep 2; do f=$(find build.noindex/test-results/unit -name test.log 2>/dev/null | head -1); if [ -n "$f" ]; then echo "$(date +%T) $(wc -l < "$f") $(tail -n 1 "$f" | cut -c1-70)"; fi; done) > "$RUNNER_TEMP/progress.log" 2>&1 &
-
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
-
-      # TEMPORARY: explains why tasks re-run on CI. Remove before merging.
-      - name: Report why tasks re-ran
-        if: always()
-        run: |
-          grep -hE '^SwiftDriver ' build.noindex/test-results/unit/run.*/test.log | awk '{print $2}' | sort -u | tr '\n' ' ' || true
-          awk '$2 != last { print; last = $2 }' "$RUNNER_TEMP/progress.log" | head -90 || true
-          echo
-          stat -f '%d %i %m %z %N' "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/module.modulemap" || true
-          python3 - <<'PY'
-          import collections, glob, os, re
-          traces = sorted(glob.glob("build.noindex/tests/DerivedData/**/build.trace", recursive=True), key=os.path.getmtime)
-          print("traces:", traces[-3:])
-          if traces:
-              names, why = {}, {}
-              for line in open(traces[-1], errors="replace"):
-                  parts = re.findall(r'"((?:[^"\\]|\\.)*)"', line)
-                  if len(parts) >= 3 and parts[0] == "new-rule":
-                      names[parts[1]] = parts[2]
-                  elif len(parts) >= 3 and parts[0] == "rule-needs-to-run":
-                      why.setdefault(parts[1], parts[2:])
-              print("reasons:", collections.Counter(w[0] for w in why.values()))
-              roots = collections.Counter()
-              for rule, reason in why.items():
-                  seen = set()
-                  while reason[0] == "input-rebuilt" and len(reason) > 1 and reason[1] in why and rule not in seen:
-                      seen.add(rule)
-                      rule = reason[1]
-                      reason = why[rule]
-                  roots[(reason[0], names.get(rule, rule)[:170])] += 1
-              for (reason, name), count in roots.most_common(40):
-                  print(count, reason, name)
-          PY
 
       - name: Save compiled packages for test retries
         if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
