@@ -49,22 +49,26 @@ fi
 
 STATUS=0
 export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
-# TEMPORARY: timeline, cold start, launch samples and build descriptions. Remove before merging.
+# TEMPORARY: timeline, samples and hang stacks. Remove before merging.
 export NSUnbufferedIO=YES
-time xcodebuild -version
-time xcodebuild -version
-: > "$RUN/test.log"
-( tail -F -n +1 "$RUN/test.log" 2>/dev/null | python3 -uc 'import sys, time
-for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) &
-if [[ "$SUITE" == ui ]]; then
-    ( last=""; n=0; while [[ $n -lt 2 ]]; do
-        pid=$(pgrep -nx Foldera || true)
-        if [[ -n "$pid" && "$pid" != "$last" ]]; then
-            last=$pid; n=$((n + 1)); echo "sampling launch $n at $(date +%T)"
-            sudo sample "$pid" 10 10 -mayDie -file "$RUN/sample-$n.txt" > /dev/null 2>&1 &
-        fi
-        sleep 0.1
-    done ) &
+if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
+    : > "$RUN/test.log"
+    ( tail -F -n +1 "$RUN/test.log" | python3 -uc 'import sys, time
+for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) > /dev/null 2>&1 &
+    ( end=$((SECONDS + 45)); while (( SECONDS < end )); do echo "--- $(date +%T)"; ps -axo pid,ppid,pcpu,etime,args | grep -E 'swift|git |sandbox-exec|SWBBuild|xcodebuild|xcrun' | grep -v grep | cut -c1-170; sleep 1; done > "$RUN/ps.log" ) > /dev/null 2>&1 &
+    if [[ "${FOLDERA_UI_SHARD:-}" == options-rename ]]; then
+        ( until pgrep -x xcodebuild; do sleep 0.1; done; sudo sample xcodebuild 25 20 -file "$RUN/xcodebuild.txt" ) > /dev/null 2>&1 &
+    fi
+    if [[ "${FOLDERA_UI_SHARD:-}" == tabs-search ]]; then
+        ( until pid=$(pgrep -nx Foldera); do sleep 0.1; done; sudo sample "$pid" 80 20 -mayDie -file "$RUN/long.txt" ) > /dev/null 2>&1 &
+    fi
+    if [[ "$SUITE" == unit ]]; then
+        ( while sleep 15; do
+            if (( $(date +%s) - $(stat -f %m "$RUN/test.log") > 100 )); then
+                sudo sample Foldera 5 10 -file "$RUN/hang.txt"; sudo pkill -x xcodebuild; sudo pkill -x Foldera; break
+            fi
+        done ) > /dev/null 2>&1 &
+    fi
 fi
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \

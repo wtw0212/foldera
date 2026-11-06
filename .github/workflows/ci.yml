@@ -96,7 +96,7 @@ jobs:
         run: bash scripts/test.sh unit
 
       - name: Save compiled packages
-        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
@@ -179,7 +179,7 @@ jobs:
           bash scripts/test.sh ui "${args[@]}"
 
       - name: Save compiled packages
-        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
