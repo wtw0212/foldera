@@ -366,4 +366,3 @@ final class NetworkUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["item-count"].value as? String, "1 item")
     }
 }
-// TEMPORARY: measures CI with a source change.

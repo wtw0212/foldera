@@ -365,4 +365,3 @@ final class SelectionBoxView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-// TEMPORARY: measures CI with a source change.
