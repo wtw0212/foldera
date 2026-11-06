@@ -248,7 +248,6 @@ private struct Segment: View {
                 tab.navigate(to: url)
             }
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)))
-            .folderDropTarget(url)
             .onMiddleClick { model.newTab(url: url, activate: false) }
 
             Button {
@@ -264,6 +263,8 @@ private struct Segment: View {
             .buttonStyle(SubtleButtonStyle(padding: EdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4)))
             .hint(L10n.format("Show folders in “%@”", BrowserTab.pathName(of: url)))
         }
+        // The chevron counts too, so the path has no dead spots between folder names.
+        .folderDropTarget(url)
     }
 }
 
