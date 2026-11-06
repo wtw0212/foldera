@@ -100,7 +100,7 @@ jobs:
         run: bash scripts/test.sh unit
 
       - name: Save compiled packages
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
@@ -173,8 +173,8 @@ jobs:
         # Subsets are balanced by measured duration; move tests between them if one job grows much longer.
         run: |
           tabs_search="ExplorerUITests/testNewAndCloseTabKeyboardShortcuts ExplorerUITests/testRecursiveSearchAndEscapeRestoreTheListing"
-          options_rename="ExplorerUITests/testSearchOptionsStayOpenAcrossFilterChanges ExplorerUITests/testClickingTheSelectedNameAgainRenamesIt ExplorerUITests/testWindowButtonsAreCenteredInTheTabStripAfterResize"
-          localization_network="NetworkUITests ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions"
+          options_rename="ExplorerUITests/testSearchOptionsStayOpenAcrossFilterChanges ExplorerUITests/testClickingTheSelectedNameAgainRenamesIt"
+          localization_network="NetworkUITests ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions ExplorerUITests/testWindowButtonsAreCenteredInTheTabStripAfterResize"
           flag=-only-testing
           case "$FOLDERA_UI_SHARD" in
             tabs-search) tests=$tabs_search ;;
@@ -187,7 +187,7 @@ jobs:
           bash scripts/test.sh ui "${args[@]}"
 
       - name: Save compiled packages
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
