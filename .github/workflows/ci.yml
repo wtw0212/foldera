@@ -110,7 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [navigation, localization-network]
+        shard: [navigation, tabs-search, options-rename, localization-network]
     runs-on: macos-26
     timeout-minutes: 15
     env:
@@ -142,20 +142,23 @@ jobs:
             deriveddata-ui-macos-26-xcode26.6-
 
       - name: Run native UI tests
-        # The navigation shard runs every test except the other shard's explicit subset, so new tests
+        # The navigation shard runs every test except the other shards' explicit subsets, so new tests
         # automatically remain covered. Each runner keeps UI execution serial on its own desktop.
+        # Subsets are balanced by measured duration; move tests between them if one job grows much longer.
         run: |
-          if [[ "$FOLDERA_UI_SHARD" == localization-network ]]; then
-            bash scripts/test.sh ui \
-              -only-testing:FolderaUITests/NetworkUITests \
-              -only-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
-              -only-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
-          else
-            bash scripts/test.sh ui \
-              -skip-testing:FolderaUITests/NetworkUITests \
-              -skip-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
-              -skip-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
-          fi
+          tabs_search="ExplorerUITests/testNewAndCloseTabKeyboardShortcuts ExplorerUITests/testRecursiveSearchAndEscapeRestoreTheListing"
+          options_rename="ExplorerUITests/testSearchOptionsStayOpenAcrossFilterChanges ExplorerUITests/testClickingTheSelectedNameAgainRenamesIt ExplorerUITests/testWindowButtonsAreCenteredInTheTabStripAfterResize"
+          localization_network="NetworkUITests ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions"
+          flag=-only-testing
+          case "$FOLDERA_UI_SHARD" in
+            tabs-search) tests=$tabs_search ;;
+            options-rename) tests=$options_rename ;;
+            localization-network) tests=$localization_network ;;
+            *) flag=-skip-testing; tests="$tabs_search $options_rename $localization_network" ;;
+          esac
+          args=()
+          for test in $tests; do args+=("$flag:FolderaUITests/$test"); done
+          bash scripts/test.sh ui "${args[@]}"
 
       - name: Save compiled packages for test retries
         if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
