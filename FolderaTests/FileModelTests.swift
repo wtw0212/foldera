@@ -112,7 +112,10 @@ struct DirectoryLoadingPerformanceTests {
         let compact = try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
         #expect(compact.bitsPerPixel == 32 && compact.width == 6 && compact.height == 4)
         #expect(image.size == NSSize(width: 3, height: 2))
-        #expect(Thumbnails.cost(of: image) == 6 * 4 * 4)
+        let bytes = compact.bytesPerRow * compact.height
+        #expect(Thumbnails.cost(of: image) == bytes)
+        // A size that doesn't match the main screen's scale, as for a window on another display.
+        #expect(Thumbnails.cost(of: NSImage(cgImage: compact, size: NSSize(width: 6, height: 4))) == bytes)
         // Still the same red: bytes are BGRA in memory.
         let pixel = try #require(CFDataGetBytePtr(compact.dataProvider?.data))
         #expect((pixel[0], pixel[1], pixel[2], pixel[3]) == (0, 0, 255, 255))

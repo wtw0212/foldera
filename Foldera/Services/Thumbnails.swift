@@ -18,10 +18,13 @@ final class Thumbnails {
         cache.totalCostLimit = Self.memoryLimit
     }
 
-    /// Approximate decoded size in bytes.
+    /// Decoded size in bytes. Not from the image's representations: they report its size times the main screen's scale,
+    /// which is wrong for a thumbnail made for a window on another display.
     static func cost(of image: NSImage) -> Int {
-        let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
-        return max(pixels, Int(image.size.width * image.size.height)) * 4
+        guard let bitmap = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return Int(image.size.width * image.size.height) * 4
+        }
+        return bitmap.bytesPerRow * bitmap.height
     }
 
     private func key(_ item: FileItem, _ size: CGFloat) -> String {
