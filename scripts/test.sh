@@ -7,8 +7,9 @@ SUITE=${1:-unit}
 if [[ $# -gt 0 ]]; then shift; fi
 case "$SUITE" in
     # Unit tests print their failures, and their SwiftUI runtime warnings would trigger a log archive on every run.
-    unit) SCHEME=Foldera; COVERAGE=YES; DIAGNOSTICS=never ;;
-    ui) SCHEME=FolderaUI; COVERAGE=NO; DIAGNOSTICS=on-failure ;;
+    unit) SCHEME=Foldera; COVERAGE=YES; DIAGNOSTICS=never; PARALLEL=YES ;;
+    # UI tests need the desktop to themselves.
+    ui) SCHEME=FolderaUI; COVERAGE=NO; DIAGNOSTICS=on-failure; PARALLEL=NO ;;
     *) echo "Usage: bash scripts/test.sh [unit|ui] [xcodebuild test options]" >&2; exit 2 ;;
 esac
 
@@ -52,7 +53,7 @@ export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
 xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
     -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
     -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" -collect-test-diagnostics "$DIAGNOSTICS" \
-    -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+    -parallel-testing-enabled "$PARALLEL" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 
