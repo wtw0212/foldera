@@ -49,7 +49,6 @@ final class ExplorerUITests: XCTestCase {
         }
         app.launchArguments = [
             "-ApplePersistenceIgnoreState", "YES",
-            "-NSAutoFillHeuristicsEnabled", "NO", "-NSAutoFillPanelEnabled", "NO",
             "-initialPath", root.path, "-appLanguage", language,
             "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
             "-defaultViewMode", "details", "-folderViewModes", "{}",
@@ -334,7 +333,6 @@ final class NetworkUITests: XCTestCase {
         }
         app.launchArguments = [
             "-ApplePersistenceIgnoreState", "YES",
-            "-NSAutoFillHeuristicsEnabled", "NO", "-NSAutoFillPanelEnabled", "NO",
             "-initialPath", NSTemporaryDirectory(), "-appLanguage", "en",
             "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
             "-defaultViewMode", "details", "-folderViewModes", "{}",
