@@ -94,6 +94,37 @@ struct DirectoryLoadingPerformanceTests {
         let retina = NSImage(size: NSSize(width: 100, height: 50))
         retina.addRepresentation(bitmap)
         #expect(Thumbnails.cost(of: retina) == 200 * 100 * 4)
-        #expect(Thumbnails.memoryLimit == 96 * 1024 * 1024)
+        #expect(Thumbnails.memoryLimit == 64 * 1024 * 1024)
+    }
+
+    @Test func wideColorThumbnailsAreCachedAtEightBitsPerChannel() throws {
+        let space = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let context = try #require(CGContext(
+            data: nil, width: 6, height: 4, bitsPerComponent: 16, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+        ))
+        context.setFillColor(CGColor(colorSpace: space, components: [1, 0, 0, 1])!)
+        context.fill(CGRect(x: 0, y: 0, width: 6, height: 4))
+        let source = try #require(context.makeImage())
+        #expect(source.bitsPerPixel == 64)
+
+        let image = try #require(Thumbnails.compact(source, size: NSSize(width: 3, height: 2)))
+        let compact = try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        #expect(compact.bitsPerPixel == 32 && compact.width == 6 && compact.height == 4)
+        #expect(image.size == NSSize(width: 3, height: 2))
+        #expect(Thumbnails.cost(of: image) == 6 * 4 * 4)
+        // Still the same red: bytes are BGRA in memory.
+        let pixel = try #require(CFDataGetBytePtr(compact.dataProvider?.data))
+        #expect((pixel[0], pixel[1], pixel[2], pixel[3]) == (0, 0, 255, 255))
+    }
+
+    @Test func shownThumbnailsDontShareTheirCGImageWithTheCache() throws {
+        let symbol = try #require(NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?
+            .cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let cached = try #require(Thumbnails.compact(symbol, size: NSSize(width: 16, height: 16)))
+        let shown = Thumbnails.forDisplay(cached)
+        let a = try #require(cached.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let b = try #require(shown.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        #expect(a !== b && a.width == b.width && a.height == b.height && shown.size == cached.size)
     }
 }
