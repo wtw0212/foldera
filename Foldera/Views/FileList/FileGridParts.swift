@@ -63,6 +63,7 @@ final class FileGridCell: NSView {
     var isSelected = false { didSet { needsDisplay = true } }
     /// Set by the collection view, which tracks the single item under the pointer.
     var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
+    var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     private var isEditingName = false
 
     override var isFlipped: Bool { true }
@@ -177,7 +178,10 @@ final class FileGridCell: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let rect = mode == .content ? bounds.insetBy(dx: 2, dy: 1) : bounds
         let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-        if isSelected {
+        if isDropTarget {
+            Theme.selection.setFill()
+            path.fill()
+        } else if isSelected {
             let focused = window?.isKeyWindow == true && window?.firstResponder is FileCollectionView
             (focused ? (isHovered ? Theme.selectionHover : Theme.selection) : Theme.selectionInactive).setFill()
             path.fill()
@@ -208,11 +212,16 @@ final class FileGridItem: NSCollectionViewItem {
         didSet { cell.isSelected = isSelected }
     }
 
+    override var highlightState: NSCollectionViewItem.HighlightState {
+        didSet { cell.isDropTarget = highlightState == .asDropTarget }
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         representedURL = nil
         cell.setEditing(false)
         cell.isHovered = false
+        cell.isDropTarget = false
     }
 }
 
