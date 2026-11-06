@@ -31,57 +31,31 @@ private func enter(_ text: String, into field: XCUIElement) {
 
 @MainActor
 final class ExplorerUITests: XCTestCase {
-    /// Tests share one app per language, because launching takes 7 to 16 seconds on CI. A failed test doesn't hand it on.
-    private static var running: (app: XCUIApplication, language: String)?
-    private static let root = FileManager.default.temporaryDirectory.appendingPathComponent("FolderaUI-\(UUID())")
-
-    override class func tearDown() {
-        running?.app.terminate()
-        running = nil
-        try? FileManager.default.removeItem(at: root)
-        super.tearDown()
-    }
-
     private func withApp(language: String = "en", _ test: (XCUIApplication, URL) throws -> Void) throws {
         continueAfterFailure = false
-        let root = Self.root
-        for item in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
-            try FileManager.default.removeItem(at: item)
-        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FolderaUI-\(UUID())")
         try FileManager.default.createDirectory(at: root.appendingPathComponent("nested"), withIntermediateDirectories: true)
         try Data("note".utf8).write(to: root.appendingPathComponent("note.txt"))
         try Data("report".utf8).write(to: root.appendingPathComponent("nested/report.txt"))
-        let app: XCUIApplication
-        if let running = Self.running, running.language == language {
-            app = running.app
-            // A new window starts at the root with fresh tabs, history and size. The old one is now behind it.
-            app.typeKey("n", modifierFlags: .command)
-            expectation(for: NSPredicate { _, _ in self.windows(of: app).count == 2 }, evaluatedWith: app)
-            waitForExpectations(timeout: 10)
-            windows(of: app).element(boundBy: 1).buttons[XCUIIdentifierCloseWindow].click()
-        } else {
-            Self.running?.app.terminate()
-            app = XCUIApplication()
-            app.launchArguments = [
-                "-ApplePersistenceIgnoreState", "YES",
-                "-initialPath", root.path, "-appLanguage", language,
-                "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
-                "-defaultViewMode", "details", "-folderViewModes", "{}",
-                "-showNavigationPane", "NO", "-sidePane", "none", "-showHiddenFiles", "NO",
-                "-showExtensions", "YES",
-            ]
-            app.launch()
-        }
-        Self.running = nil
+        let app = XCUIApplication()
         defer {
             let screenshot = XCTAttachment(screenshot: app.screenshot())
             screenshot.name = "Explorer"
             screenshot.lifetime = .keepAlways
             add(screenshot)
+            app.terminate()
             closeSystemSettingsOpenedByTests()
-            // hasSucceeded stays false until the test has stopped.
-            if testRun?.totalFailureCount == 0 { Self.running = (app, language) } else { app.terminate() }
+            try? FileManager.default.removeItem(at: root)
         }
+        app.launchArguments = [
+            "-ApplePersistenceIgnoreState", "YES",
+            "-initialPath", root.path, "-appLanguage", language,
+            "-hasSeenWelcome", "YES", "-fullDiskAccessBannerDismissed", "YES",
+            "-defaultViewMode", "details", "-folderViewModes", "{}",
+            "-showNavigationPane", "NO", "-sidePane", "none", "-showHiddenFiles", "NO",
+            "-showExtensions", "YES",
+        ]
+        app.launch()
         XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
         XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
         XCTAssertEqual(windows(of: app).count, 1)
@@ -291,9 +265,6 @@ final class ExplorerUITests: XCTestCase {
             slowClick(app.staticTexts["note.txt"], until: app.textFields.matching(NSPredicate(format: "value == %@", "note.txt")).firstMatch)
             app.typeKey(.escape, modifierFlags: [])
             XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("note.txt").path))
-            // The next test shares this folder's saved view mode.
-            app.typeKey("-", modifierFlags: .command)
-            app.typeKey("-", modifierFlags: .command)
         }
     }
 
