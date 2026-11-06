@@ -52,7 +52,8 @@ xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsF
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 
-awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST/ { print }' "$RUN/test.log"
+awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST|Test Suite .(All|Selected) tests. started/ { print }' "$RUN/test.log"
+echo "Swift modules compiled: $(grep -cE '^SwiftDriver ' "$RUN/test.log" || true)"
 if [[ "$STATUS" -ne 0 ]]; then tail -n 60 "$RUN/test.log"; fi
 
 REPORT_STATUS=0
