@@ -72,11 +72,8 @@ jobs:
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
-          xcodebuild -showComponent metalToolchain || true
-          xcodebuild -deleteComponent metalToolchain || sudo env DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild -deleteComponent metalToolchain || true
-          xcodebuild -showComponent metalToolchain || true
-          ls /var/run/com.apple.security.cryptexd/mnt/ || true
-          # Compiling package manifests takes most of the 20 seconds that resolving takes. This caches them with the build.
+          xcodebuild -deleteComponent metalToolchain || true
+          # Compiling package manifests takes most of the 15 to 30 seconds that resolving takes. This caches them with the build.
           mkdir -p build.noindex/tests/DerivedData/SwiftPMCache
           rm -rf ~/Library/Caches/org.swift.swiftpm
           ln -s "$PWD/build.noindex/tests/DerivedData/SwiftPMCache" ~/Library/Caches/org.swift.swiftpm
@@ -146,11 +143,8 @@ jobs:
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
-          xcodebuild -showComponent metalToolchain || true
-          xcodebuild -deleteComponent metalToolchain || sudo env DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild -deleteComponent metalToolchain || true
-          xcodebuild -showComponent metalToolchain || true
-          ls /var/run/com.apple.security.cryptexd/mnt/ || true
-          # Compiling package manifests takes most of the 20 seconds that resolving takes. This caches them with the build.
+          xcodebuild -deleteComponent metalToolchain || true
+          # Compiling package manifests takes most of the 15 to 30 seconds that resolving takes. This caches them with the build.
           mkdir -p build.noindex/tests/DerivedData/SwiftPMCache
           rm -rf ~/Library/Caches/org.swift.swiftpm
           ln -s "$PWD/build.noindex/tests/DerivedData/SwiftPMCache" ~/Library/Caches/org.swift.swiftpm

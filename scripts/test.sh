@@ -49,14 +49,6 @@ fi
 
 STATUS=0
 export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
-# TEMPORARY: timeline, samples and hang stacks. Remove before merging.
-export NSUnbufferedIO=YES
-if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
-    : > "$RUN/test.log"
-    ( tail -F -n +1 "$RUN/test.log" | python3 -uc 'import sys, time
-for line in sys.stdin: print(f"{time.time():.1f} {line}", end="", flush=True)' > "$RUN/timeline.log" ) > /dev/null 2>&1 &
-    ( end=$((SECONDS + 45)); while (( SECONDS < end )); do echo "--- $(date +%T)"; ps -axo pid,ppid,pcpu,etime,args | grep -E 'swift|git |sandbox-exec|SWBBuild|xcodebuild|xcrun' | grep -v grep | cut -c1-170; sleep 1; done > "$RUN/ps.log" ) > /dev/null 2>&1 &
-fi
 # Test products under these folders make macOS ask for access after every build, which stalls UI tests.
 DERIVED_DATA=${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}
 case "$PWD" in
@@ -66,7 +58,7 @@ esac
 
 # SwiftPM keys its manifest cache by the environment, and CI's changes with every run.
 KEPT=()
-while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(HOME|PATH|TMPDIR|USER|DEVELOPER_DIR|NSUnbufferedIO|TEST_RUNNER_[A-Z_]+)=')
+while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(HOME|PATH|USER|DEVELOPER_DIR|TEST_RUNNER_[A-Z_]+)=')
 
 # -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
 run_xcodebuild() {
@@ -76,13 +68,6 @@ run_xcodebuild() {
         CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= "$@"
 }
 
-# TEMPORARY: shows whether the manifest cache hits.
-if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
-    ls -la ~/Library/Caches/ | grep swiftpm || true
-    echo "manifests before: $(sqlite3 ~/Library/Caches/org.swift.swiftpm/manifests/manifest.db 'select count(*) from MANIFEST_CACHE' 2>&1)"
-    printf '%s\n' "${KEPT[@]}" | cut -c1-300 | sed 's/^/kept: /'
-    printf '%s\n' "${KEPT[@]}" | shasum | sed 's/^/kept hash: /'
-fi
 if [[ "$SUITE" == unit && $# -eq 0 ]]; then
     # These suites use disks, servers and archives, but no windows or shared preferences, so a second process can run them
     # alongside the rest. Tests in one process can't run in parallel: they share static hooks and the key window.
@@ -105,12 +90,6 @@ else
     run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RESULT" "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
 fi
 
-if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname)" == Darwin ]]; then
-    echo "manifests after: $(sqlite3 ~/Library/Caches/org.swift.swiftpm/manifests/manifest.db 'select count(*) from MANIFEST_CACHE' 2>&1)"
-fi
-DESCRIPTIONS=$(ls -dt "$DERIVED_DATA"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata 2>/dev/null || true)
-echo "Build descriptions: $(echo "$DESCRIPTIONS" | wc -l)"
-n=0; for d in $(echo "$DESCRIPTIONS" | head -2); do n=$((n + 1)); cp "$d/manifest.json" "$RUN/manifest-$n.json" 2>/dev/null || true; done
 awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST|Test Suite .(All|Selected) tests. started/ { print }' "$RUN/test.log"
 echo "Swift modules compiled: $(grep -cE '^SwiftDriver ' "$RUN/test.log" || true)"
 if [[ "$STATUS" -ne 0 ]]; then tail -n 60 "$RUN/test.log"; fi
