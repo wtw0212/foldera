@@ -12,6 +12,8 @@ struct AppUpdaterTests {
         #expect(Data(base64Encoded: key)?.count == 32)
         #expect(info["SURequireSignedFeed"] as? Bool == true)
         #expect(info["SUVerifyUpdateBeforeExtraction"] as? Bool == true)
+        // New versions ask first; installing silently on quit is opt-in.
+        #expect(info["SUAutomaticallyUpdate"] as? Bool == false)
         #expect(!AppUpdater.startsAutomatically)
         #expect(!AppUpdater(starting: false).canCheckForUpdates)
     }

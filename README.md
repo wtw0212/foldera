@@ -32,7 +32,7 @@ The disk image is signed with your development certificate, so it runs on your o
 
 ### Updates
 
-Copies installed from a [GitHub release](https://github.com/wtw0212/foldera/releases) update themselves. Once a day Foldera checks the latest release, downloads it in the background and installs it when you quit. Foldera ▸ **Check for Updates…** checks right away, and Settings ▸ General ▸ Updates turns automatic checks or installs off. An update is installed only if it carries a signature made with Foldera's release key. Builds you make yourself never check for updates.
+Copies installed from a [GitHub release](https://github.com/wtw0212/foldera/releases) keep up to date. Once a day Foldera checks the latest release and asks before installing a new one. Foldera ▸ **Check for Updates…** checks right away. Settings ▸ General ▸ Updates turns the daily check off, or downloads updates in the background and installs them when you quit, without asking. An update is installed only if it carries a signature made with Foldera's release key. Builds you make yourself never check for updates.
 
 Releases from 0.3.4 on are all signed with the same certificate, so Full Disk Access stays granted across updates. Updating from 0.3.3 or earlier asks for it once more.
 
