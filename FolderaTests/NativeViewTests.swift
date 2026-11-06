@@ -61,6 +61,11 @@ struct NativeViewTests {
             let hovered = try rendered(cell)
             cell.isSelected = true
             #expect(try rendered(cell) != hovered)
+            cell.isSelected = false
+            cell.isDropTarget = true
+            #expect(try rendered(cell) != hovered)
+            cell.isDropTarget = false
+            cell.isSelected = true
             cell.setEditing(true)
             cell.layout()
             #expect(cell.nameLabel.isEditable && cell.nameLabel.isSelectable && cell.nameLabel.maximumNumberOfLines == 1)
@@ -85,8 +90,13 @@ struct NativeViewTests {
         item.cell.isHovered = true
         item.cell.setEditing(true)
         #expect(item.cell.isSelected)
+        item.highlightState = .asDropTarget
+        #expect(item.cell.isDropTarget)
+        item.highlightState = .none
+        #expect(!item.cell.isDropTarget)
+        item.highlightState = .asDropTarget
         item.prepareForReuse()
-        #expect(item.representedURL == nil && !item.cell.isHovered && !item.cell.nameLabel.isEditable)
+        #expect(item.representedURL == nil && !item.cell.isHovered && !item.cell.nameLabel.isEditable && !item.cell.isDropTarget)
         let row = FileRowView()
         row.isHovered = true
         row.prepareForReuse()
