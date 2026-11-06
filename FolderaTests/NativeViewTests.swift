@@ -188,4 +188,3 @@ struct NativeViewTests {
         #expect(try draw(selection: true) != active)
     }
 }
-// TEMPORARY: measures CI with a source change.
