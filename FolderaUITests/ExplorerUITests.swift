@@ -58,9 +58,14 @@ final class ExplorerUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tables["file-list"].waitForAppearance(timeout: 10))
         XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].waitForAppearance(timeout: 5))
-        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertEqual(windows(of: app).count, 1)
         if language == "en" { XCTAssertEqual(app.menuBars.menuBarItems.matching(identifier: "Go").count, 1) }
         try test(app, root)
+    }
+
+    /// Leaves out the AutoFill panel, which AppKit can leave open and blank over a text field.
+    private func windows(of app: XCUIApplication) -> XCUIElementQuery {
+        app.windows.matching(NSPredicate(format: "identifier != %@", "SafariPlatformSupportAutoCompleteWindow"))
     }
 
     private func navigate(_ app: XCUIApplication, to path: String) {
@@ -190,16 +195,16 @@ final class ExplorerUITests: XCTestCase {
             archiveRow.doubleClick()
             let archiveWindow = app.windows.containing(.staticText, identifier: "notes.zip (archive)").firstMatch
             XCTAssertTrue(archiveWindow.waitForAppearance(timeout: 5))
-            XCTAssertEqual(app.windows.count, 2)
+            XCTAssertEqual(windows(of: app).count, 2)
             app.typeKey("t", modifierFlags: .command)
             expectation(for: NSPredicate { _, _ in archiveWindow.staticTexts.matching(identifier: "tab-title").count == 2 }, evaluatedWith: app)
             waitForExpectations(timeout: 5)
             app.typeKey("w", modifierFlags: .command)
             expectation(for: NSPredicate { _, _ in archiveWindow.staticTexts.matching(identifier: "tab-title").count == 1 }, evaluatedWith: app)
             waitForExpectations(timeout: 5)
-            XCTAssertEqual(app.windows.count, 2)
+            XCTAssertEqual(windows(of: app).count, 2)
             app.typeKey("w", modifierFlags: .command)
-            expectation(for: NSPredicate { _, _ in app.windows.count == 1 }, evaluatedWith: app)
+            expectation(for: NSPredicate { _, _ in self.windows(of: app).count == 1 }, evaluatedWith: app)
             waitForExpectations(timeout: 5)
             XCTAssertTrue(app.tables["file-list"].staticTexts["note.txt"].exists)
         }
