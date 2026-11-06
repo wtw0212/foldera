@@ -71,6 +71,8 @@ jobs:
         run: |
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
+          mount | awk '/MetalToolchain/ {print $3}' | xargs sudo umount || true
           # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
           find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
 
@@ -136,6 +138,8 @@ jobs:
         run: |
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
+          mount | awk '/MetalToolchain/ {print $3}' | xargs sudo umount || true
           # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
           find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
 
