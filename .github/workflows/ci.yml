@@ -93,7 +93,6 @@ jobs:
         run: |
           defaults write com.apple.dt.XCBuild EnableBuildDebugging -bool YES
           defaults write com.apple.dt.SWBBuildService EnableBuildDebugging -bool YES
-          ls -la build.noindex/tests/DerivedData/Build/Intermediates.noindex/XCBuildData | head -12 || true
 
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
@@ -104,7 +103,7 @@ jobs:
         run: |
           grep -hE '^SwiftDriver ' build.noindex/test-results/unit/run.*/test.log | awk '{print $2}' | sort -u | tr '\n' ' ' || true
           echo
-          ls -la build.noindex/tests/DerivedData/Build/Intermediates.noindex/XCBuildData | head -12 || true
+          stat -f '%d %i %m %z %N' "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/clang/include/module.modulemap" || true
           python3 - <<'PY'
           import collections, glob, os, re
           traces = sorted(glob.glob("build.noindex/tests/DerivedData/**/build.trace", recursive=True), key=os.path.getmtime)
