@@ -72,7 +72,7 @@ jobs:
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
-          sudo find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -exec touch -h -t 200001010000 {} +
+          find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
 
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
@@ -180,7 +180,7 @@ jobs:
           python3 scripts/stable-mtimes.py
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
-          sudo find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -exec touch -h -t 200001010000 {} +
+          find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
 
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is

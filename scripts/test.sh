@@ -12,6 +12,9 @@ case "$SUITE" in
 esac
 
 xcodegen generate --quiet
+# XcodeGen can't set this on the test action. The checker's priority-inversion warnings count as issues, so xcodebuild
+# otherwise collects a 360 MB log archive even when every test passes.
+sed -i '' 's/<TestAction/<TestAction disablePerformanceAntipatternChecker = "YES"/' Foldera.xcodeproj/xcshareddata/xcschemes/*.xcscheme 2>/dev/null || true
 OUTPUT="build.noindex/test-results/$SUITE"
 mkdir -p "$OUTPUT"
 RUN=$(mktemp -d "$OUTPUT/run.XXXXXX")
