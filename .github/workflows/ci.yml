@@ -67,10 +67,23 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Make unchanged files look unchanged to the build system
+        run: |
+          python3 scripts/stable-mtimes.py
+          defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
+          xcodebuild -deleteComponent metalToolchain || true
+          # Compiling package manifests takes most of the 15 to 30 seconds that resolving takes. This caches them with the build.
+          mkdir -p build.noindex/tests/DerivedData/SwiftPMCache
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          ln -s "$PWD/build.noindex/tests/DerivedData/SwiftPMCache" ~/Library/Caches/org.swift.swiftpm
+          # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
+          find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
+
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
-        # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
-        # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # reused, as long as the step before makes unchanged files look unchanged to the build system.
+        # Only main saves: a save takes up to a minute, and the cache is limited to 10 GB. Pull requests compile what differs from main.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -86,8 +99,8 @@ jobs:
       - name: Run unit and filesystem integration tests with coverage
         run: bash scripts/test.sh unit
 
-      - name: Save compiled packages for test retries
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+      - name: Save compiled packages
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}
@@ -110,7 +123,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [navigation, localization-network]
+        shard: [navigation, tabs-search, options-rename, localization-network]
     runs-on: macos-26
     timeout-minutes: 15
     env:
@@ -125,10 +138,23 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Make unchanged files look unchanged to the build system
+        run: |
+          python3 scripts/stable-mtimes.py
+          defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          # The Metal toolchain mounts at a random path that reaches every linker's PATH, which relinks everything. Nothing here uses it.
+          xcodebuild -deleteComponent metalToolchain || true
+          # Compiling package manifests takes most of the 15 to 30 seconds that resolving takes. This caches them with the build.
+          mkdir -p build.noindex/tests/DerivedData/SwiftPMCache
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          ln -s "$PWD/build.noindex/tests/DerivedData/SwiftPMCache" ~/Library/Caches/org.swift.swiftpm
+          # Each runner image stamps Xcode's files with new mtimes, which would invalidate everything built on another image.
+          find "$DEVELOPER_DIR/Toolchains" "$DEVELOPER_DIR/Platforms/MacOSX.platform" -print0 | sudo xargs -0 -n 2000 -P 3 touch -h -t 200001010000
+
       - name: Restore compiled packages
         # Swift packages (SwiftNIO, swift-crypto, Citadel) take most of a cold build. Their compiled output is
-        # reused; the app's own sources are rebuilt because a fresh checkout makes them newer than the cache.
-        # Cache entries are immutable: refresh for changed inputs, restoring the closest prior build first.
+        # reused, as long as the step before makes unchanged files look unchanged to the build system.
+        # Only main saves: a save takes up to a minute, and the cache is limited to 10 GB. Pull requests compile what differs from main.
         id: compiled-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -142,23 +168,26 @@ jobs:
             deriveddata-ui-macos-26-xcode26.6-
 
       - name: Run native UI tests
-        # The navigation shard runs every test except the other shard's explicit subset, so new tests
+        # The navigation shard runs every test except the other shards' explicit subsets, so new tests
         # automatically remain covered. Each runner keeps UI execution serial on its own desktop.
+        # Subsets are balanced by measured duration; move tests between them if one job grows much longer.
         run: |
-          if [[ "$FOLDERA_UI_SHARD" == localization-network ]]; then
-            bash scripts/test.sh ui \
-              -only-testing:FolderaUITests/NetworkUITests \
-              -only-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
-              -only-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
-          else
-            bash scripts/test.sh ui \
-              -skip-testing:FolderaUITests/NetworkUITests \
-              -skip-testing:FolderaUITests/ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation \
-              -skip-testing:FolderaUITests/ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions
-          fi
+          tabs_search="ExplorerUITests/testNewAndCloseTabKeyboardShortcuts ExplorerUITests/testRecursiveSearchAndEscapeRestoreTheListing"
+          options_rename="ExplorerUITests/testSearchOptionsStayOpenAcrossFilterChanges ExplorerUITests/testClickingTheSelectedNameAgainRenamesIt"
+          localization_network="NetworkUITests ExplorerUITests/testTraditionalChineseStatusAndAddressNavigation ExplorerUITests/testServerFileCommandsAreLocalizedAndDisabledWithoutSessions ExplorerUITests/testWindowButtonsAreCenteredInTheTabStripAfterResize"
+          flag=-only-testing
+          case "$FOLDERA_UI_SHARD" in
+            tabs-search) tests=$tabs_search ;;
+            options-rename) tests=$options_rename ;;
+            localization-network) tests=$localization_network ;;
+            *) flag=-skip-testing; tests="$tabs_search $options_rename $localization_network" ;;
+          esac
+          args=()
+          for test in $tests; do args+=("$flag:FolderaUITests/$test"); done
+          bash scripts/test.sh ui "${args[@]}"
 
-      - name: Save compiled packages for test retries
-        if: always() && !cancelled() && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+      - name: Save compiled packages
+        if: always() && !cancelled() && github.ref == 'refs/heads/main' && steps.compiled-cache.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.compiled-cache.outputs.cache-primary-key }}

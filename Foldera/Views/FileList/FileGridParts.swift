@@ -234,6 +234,12 @@ final class FileCollectionView: NSCollectionView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Otherwise a new window starts in the search field, whose editor wakes spelling and AutoFill.
+        window?.initialFirstResponder = self
+    }
+
     /// Like Finder and Explorer, a click on an inactive window also selects.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

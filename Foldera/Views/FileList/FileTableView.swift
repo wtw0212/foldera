@@ -106,6 +106,12 @@ final class FileTableView: NSTableView {
     /// Called when the list takes keyboard focus (used to track the active pane).
     var onFocus: (() -> Void)?
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Otherwise a new window starts in the search field, whose editor wakes spelling and AutoFill.
+        window?.initialFirstResponder = self
+    }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { onFocus?() }

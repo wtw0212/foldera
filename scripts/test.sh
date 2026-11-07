@@ -6,12 +6,16 @@ cd "$(dirname "$0")/.."
 SUITE=${1:-unit}
 if [[ $# -gt 0 ]]; then shift; fi
 case "$SUITE" in
-    unit) SCHEME=Foldera; COVERAGE=YES ;;
-    ui) SCHEME=FolderaUI; COVERAGE=NO ;;
+    # Unit tests print their failures, and their SwiftUI runtime warnings would trigger a log archive on every run.
+    unit) SCHEME=Foldera; COVERAGE=YES; DIAGNOSTICS=never ;;
+    ui) SCHEME=FolderaUI; COVERAGE=NO; DIAGNOSTICS=on-failure ;;
     *) echo "Usage: bash scripts/test.sh [unit|ui] [xcodebuild test options]" >&2; exit 2 ;;
 esac
 
 xcodegen generate --quiet
+# XcodeGen can't set this on the test action. The checker's priority-inversion warnings count as issues, so xcodebuild
+# otherwise collects a 360 MB log archive even when every test passes.
+sed -i '' 's/<TestAction/<TestAction disablePerformanceAntipatternChecker = "YES"/' Foldera.xcodeproj/xcshareddata/xcschemes/*.xcscheme 2>/dev/null || true
 OUTPUT="build.noindex/test-results/$SUITE"
 mkdir -p "$OUTPUT"
 RUN=$(mktemp -d "$OUTPUT/run.XXXXXX")
@@ -24,7 +28,8 @@ fi
 
 # UI tests run sandboxed and can't listen on a port, so the SFTP UI test's throwaway OpenSSH server
 # (key login on 127.0.0.1 only) starts here. xcodebuild hands TEST_RUNNER_* variables to the tests.
-if [[ "$SUITE" == ui && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then
+# Its random port and paths would miss SwiftPM's manifest cache, so CI starts it only for the shard that uses it.
+if [[ "$SUITE" == ui && "${FOLDERA_UI_SHARD:-localization-network}" == localization-network && -x /usr/sbin/sshd && -x /usr/libexec/sftp-server ]]; then
     SFTP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/foldera-sftp.XXXXXX")
     trap 'if [[ -f "$SFTP_DIR/sshd.pid" ]]; then kill "$(cat "$SFTP_DIR/sshd.pid")" 2>/dev/null || true; fi; rm -rf "$SFTP_DIR"' EXIT
     ssh-keygen -q -t ed25519 -N "" -f "$SFTP_DIR/host"
@@ -44,15 +49,49 @@ fi
 
 STATUS=0
 export TEST_RUNNER_FOLDERA_CI="${GITHUB_ACTIONS:-false}"
-# -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
-xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
-    -destination 'platform=macOS,arch=arm64' -derivedDataPath "${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}" \
-    -resultBundlePath "$RESULT" -enableCodeCoverage "$COVERAGE" \
-    -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-    "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
+# Test products under these folders make macOS ask for access after every build, which stalls UI tests.
+DERIVED_DATA=${FOLDERA_TEST_DERIVED_DATA:-build.noindex/tests/DerivedData}
+case "$PWD" in
+    "$HOME"/Documents/*|"$HOME"/Desktop/*|"$HOME"/Downloads/*)
+        DERIVED_DATA=${FOLDERA_TEST_DERIVED_DATA:-$HOME/Library/Caches/foldera-tests/$(basename "$PWD")} ;;
+esac
 
-awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST/ { print }' "$RUN/test.log"
+# SwiftPM keys its manifest cache by the environment, and CI's changes with every run.
+KEPT=()
+while IFS= read -r variable; do KEPT+=("$variable"); done < <(env | grep -E '^(HOME|PATH|USER|DEVELOPER_DIR|TEST_RUNNER_[A-Z_]+)=')
+
+# -onlyUsePackageVersionsFromResolvedFile: packages come only from the committed Package.resolved.
+run_xcodebuild() {
+    env -i "${KEPT[@]}" xcodebuild -project Foldera.xcodeproj -scheme "$SCHEME" -onlyUsePackageVersionsFromResolvedFile \
+        -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED_DATA" \
+        -enableCodeCoverage "$COVERAGE" -parallel-testing-enabled NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= "$@"
+}
+
+if [[ "$SUITE" == unit && $# -eq 0 ]]; then
+    # These suites use disks, servers and archives, but no windows or shared preferences, so a second process can run them
+    # alongside the rest. Tests in one process can't run in parallel: they share static hooks and the key window.
+    ONLY=(); SKIP=()
+    for suite in VolumeTests InstallerDiskTests SFTPFileSystemTests ArchivesTests FileSearchTests; do
+        ONLY+=("-only-testing:FolderaTests/$suite"); SKIP+=("-skip-testing:FolderaTests/$suite")
+    done
+    run_xcodebuild build-for-testing > "$RUN/test.log" 2>&1 || STATUS=$?
+    if [[ "$STATUS" -eq 0 ]]; then
+        run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RUN/first.xcresult" "${SKIP[@]}" test-without-building > "$RUN/first.log" 2>&1 &
+        FIRST=$!
+        run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RUN/second.xcresult" "${ONLY[@]}" test-without-building > "$RUN/second.log" 2>&1 &
+        SECOND=$!
+        wait "$FIRST" || STATUS=$?
+        wait "$SECOND" || STATUS=$?
+        cat "$RUN/first.log" "$RUN/second.log" >> "$RUN/test.log"
+        xcrun xcresulttool merge "$RUN/first.xcresult" "$RUN/second.xcresult" --output-path "$RESULT" > /dev/null || STATUS=$?
+    fi
+else
+    run_xcodebuild -collect-test-diagnostics "$DIAGNOSTICS" -resultBundlePath "$RESULT" "$@" test > "$RUN/test.log" 2>&1 || STATUS=$?
+fi
+
+awk '/:[0-9]+:[0-9]+: error:|^error:|Test run with|recorded an issue|Expectation failed|\*\* TEST|Test Suite .(All|Selected) tests. started/ { print }' "$RUN/test.log"
+echo "Swift modules compiled: $(grep -cE '^SwiftDriver ' "$RUN/test.log" || true)"
 if [[ "$STATUS" -ne 0 ]]; then tail -n 60 "$RUN/test.log"; fi
 
 REPORT_STATUS=0

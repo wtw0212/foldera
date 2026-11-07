@@ -53,7 +53,8 @@ struct InstallerDiskTests {
         default: break
         }
         let image = directory.path("installer.dmg"), mount = directory.path("mounted")
-        try await run("/usr/bin/hdiutil", ["create", "-volname", "Foldera 1.2.3", "-srcfolder", contents.path, "-format", "UDZO", image.path])
+        // makehybrid takes 0.2 seconds to create and attach, against 7 for hdiutil create; ejecting works the same.
+        try await run("/usr/bin/hdiutil", ["makehybrid", "-hfs", "-hfs-volume-name", "Foldera 1.2.3", "-o", image.path, contents.path])
         try await run("/usr/bin/hdiutil", ["attach", image.path, "-nobrowse", "-readonly", "-mountpoint", mount.path])
         var failure: Error?
         do { try await perform(installed, mount, directory.url) } catch { failure = error }
