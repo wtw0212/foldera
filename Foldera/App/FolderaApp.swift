@@ -20,7 +20,7 @@ struct FolderaApp: App {
 
             // Archive windows open explicitly; restoring a nil scene value would open a duplicate folder window.
             WindowGroup(id: ArchiveWindows.id, for: URL.self) { $url in
-                ExplorerWindow(model: ExplorerWindowModel(url: url ?? ExplorerWindowModel.defaultURL))
+                ArchiveWindow(url: url)
                     .environment(\.locale, L10n.locale)
             }
             .windowStyle(.hiddenTitleBar)
@@ -35,6 +35,21 @@ struct FolderaApp: App {
         Settings {
             SettingsView()
                 .environment(\.locale, L10n.locale)
+        }
+    }
+}
+
+/// An archive's window. Its model is made once and kept here: building it in the scene's closure made a new
+/// one (and a new folder load) every time SwiftUI re-ran that closure, and each load's result re-ran it again.
+private struct ArchiveWindow: View {
+    let url: URL?
+    @State private var model: ExplorerWindowModel?
+
+    var body: some View {
+        if let model {
+            ExplorerWindow(model: model)
+        } else {
+            Color.clear.onAppear { model = ExplorerWindowModel(url: url ?? ExplorerWindowModel.defaultURL) }
         }
     }
 }
